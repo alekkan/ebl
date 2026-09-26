@@ -175,6 +175,12 @@
       </div>
       <p class="lead">Отметил баню — поход появился здесь. Очки видно сразу, в таблицу они идут после того как их засчитает Комиссия.</p>
       <label class="switch"><input type="checkbox" id="secMode"><span class="track"><span class="thumb"></span></span><svg class="seal-inline" aria-hidden="true"><use href="#i-seal"/></svg>Режим Комиссии</label>
+      <div class="seg feed-filter" id="feedFilter" role="group" aria-label="Какие заявки показать">
+        <button data-f="pending" aria-pressed="false">На модерации</button>
+        <button data-f="ok" aria-pressed="false">Засчитанные</button>
+        <button data-f="rejected" aria-pressed="false">Отклонённые</button>
+        <button data-f="all" aria-pressed="true">Все</button>
+      </div>
       <div id="secPanel"></div>
       <div class="feed" id="feed"></div>
     </div>
@@ -294,6 +300,14 @@
         <p class="hint center">Комиссия проверит и засчитает</p>
       </aside>
     </form>
+  </div>
+</div>
+
+<!-- модалка: правка заявки Комиссией -->
+<div class="modal" id="editModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
+    <form class="edit" id="editForm"></form>
   </div>
 </div>
 

@@ -466,6 +466,22 @@ tr.below { color: var(--ink-2); }
 .empty b { font: 700 20px var(--display); }
 .empty p { margin: 0; color: var(--ink-2); max-width: 40ch; }
 
+.feed-filter { margin-bottom: 14px; max-width: 560px; }
+.feed-filter button b { font-weight: 700; color: var(--ember); margin-left: 4px; }
+.post-links { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.post-links a { color: var(--oak); font-weight: 600; text-decoration: none; }
+.post-reason { font-size: 13px; color: var(--ember); }
+.edit { padding: 28px; display: grid; gap: 18px; }
+.edit h2 { font: 800 26px/1.05 var(--display); margin: -8px 0 0; letter-spacing: -.02em; }
+.erow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.erow .ava { box-shadow: none; }
+.erow b { min-width: 90px; }
+.erow .check { margin-left: auto; font-size: 13px; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.thumbs a { display: grid; gap: 3px; font-size: 11px; color: var(--ink-3); text-decoration: none; }
+.thumbs img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; background: var(--panel-2); }
+.edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 /* правила */
 .pricelist { background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-s); padding: 22px 24px 14px; position: relative; overflow: hidden; }
 .pricelist::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: repeating-linear-gradient(90deg, var(--wood) 0 22px, color-mix(in srgb, var(--wood) 75%, var(--panel)) 22px 44px); opacity: .6; }

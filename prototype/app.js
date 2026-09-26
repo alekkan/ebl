@@ -744,6 +744,15 @@
   const STATUS = { pending: "на модерации", ok: "засчитан", rejected: "отклонён" };
   const fmtDate = (s) => new Date(s + ":00Z").toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   $(".switch").hidden = !canModerate;
+  // Комиссии по умолчанию — то, что ждёт решения
+  let feedFilter = canModerate && D.live ? "pending" : "all";
+  $$("#feedFilter button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.f === feedFilter)));
+  $("#feedFilter").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    feedFilter = b.dataset.f;
+    $$("#feedFilter button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    renderFeed();
+  });
   function renderFeed() {
     if (!member) {
       $("#feed").innerHTML = `<div class="empty">${markSvg()}<b>Лента — для участников лиги</b><p>${me ? "Выбери свой ник из таблицы — Комиссия подтвердит, и лента откроется." : "Войди через Telegram тем же аккаунтом, что в группе."}</p><button class="cta" id="emptyLogin">${icon("check")}<span>${me ? "Кто ты в таблице?" : "Войти через Telegram"}</span></button></div>`;
@@ -752,7 +761,15 @@
     }
     const sec = canModerate && $("#secMode").checked;
     if (sec && D.live) renderSecPanel(); else $("#secPanel").innerHTML = "";
-    $("#feed").innerHTML = visits.length ? visits.map((v) => {
+    const counts = { pending: 0, ok: 0, rejected: 0, all: visits.length };
+    visits.forEach((v) => counts[v.status]++);
+    $$("#feedFilter button").forEach((b) => {
+      const label = { pending: "На модерации", ok: "Засчитанные", rejected: "Отклонённые", all: "Все" }[b.dataset.f];
+      b.innerHTML = `${label}${counts[b.dataset.f] ? `<b>${counts[b.dataset.f]}</b>` : ""}`;
+    });
+    const shown = visits.filter((v) => feedFilter === "all" || v.status === feedFilter);
+    if (visits.length && !shown.length) { $("#feed").innerHTML = `<div class="empty"><b>Здесь пусто</b><p>В этом разделе заявок нет.</p></div>`; return; }
+    $("#feed").innerHTML = visits.length ? shown.map((v) => {
       const b = byId.get(v.bathId);
       const week = v.week ?? weekOf(v.posted || v.date);
       const pts = v.total ?? v.preview;
@@ -769,10 +786,18 @@
           ${v.proof ? `<span>фото с отметками${v.photos ? ` · ${v.photos}` : ""}</span>` : ""}
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
         </div>
+        ${v.tgLink || Object.keys(v.photosBy || {}).length ? `<div class="post-links">
+          ${v.tgLink ? `<a href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
+          ${Object.keys(v.photosBy || {}).map((n) => `<span>📷 ${esc(n)}${v.proofs?.[n] ? " · долгий" : ""}</span>`).join("")}
+        </div>` : ""}
+        ${v.status === "rejected" && v.reason ? `<div class="post-reason">Причина: ${esc(v.reason)}</div>` : ""}
         <div class="post-head" style="justify-content:space-between">
           <span class="post-pts">${pts != null ? "+" + fmt(pts) : ""}${v.total == null && v.status === "pending" ? '<small class="hint"> по талону</small>' : ""}</span>
           ${needProof ? `<label class="btn sm">${icon("camera")}У меня тоже есть фото<input type="file" accept="image/*" multiple hidden data-proof="${v.id}"></label>` : ""}
-          ${sec && v.status === "pending" ? `<span class="post-actions"><button class="btn sm solid" data-ok="${v.id}">${icon("check")}Засчитать</button><button class="btn sm danger" data-no="${v.id}">Отклонить</button></span>` : ""}
+          ${sec ? `<span class="post-actions">
+            ${v.status === "pending" ? `<button class="btn sm solid" data-ok="${v.id}">${icon("check")}Засчитать</button><button class="btn sm danger" data-no="${v.id}">Отклонить</button>` : ""}
+            ${D.live ? `<button class="btn sm" data-edit="${v.id}">✏️ Изменить</button>` : ""}
+          </span>` : ""}
         </div>
       </article>`;
     }).join("") : `<div class="empty">${markSvg()}<b>Тут пока тихо</b><p>Отметь первую баню — поход появится здесь, а Комиссия засчитает его в таблицу.</p><button class="cta" id="emptyCta">${icon("plus")}<span>Отметить баню</span></button></div>`;
@@ -781,6 +806,8 @@
   $("#secMode").addEventListener("change", renderFeed);
   $("#feed").addEventListener("click", (e) => {
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
+    const ed = e.target.closest("[data-edit]")?.dataset.edit;
+    if (ed) return openEdit(visits.find((x) => x.id === +ed));
     if (ok || no) {
       const v = visits.find((x) => x.id === +(ok || no));
       D.moderate(v.id, ok ? "ok" : "rejected").then(() => {
@@ -798,6 +825,89 @@
       renderFeed(); toast("Фото приложены — Комиссия увидит");
     } catch (err) { toast("Фото не загрузились: " + err.message); }
   });
+
+  // ---------- правка заявки Комиссией ----------
+  function openEdit(v) {
+    const f = $("#editForm");
+    let bath = byId.get(v.bathId), people = [v.player, ...v.companions], status = v.status;
+    const proofs = { ...(v.proofs || {}) };
+    let typed = {};   // введённое в поля — чтобы не терялось при перерисовке
+    const keep = () => {
+      typed = { entered: $("#eEntered")?.value, posted: $("#ePosted")?.value, dur: $("#eDur")?.value, reason: $("#eReason")?.value };
+      $$("[data-proof-nick]", f).forEach((c) => (proofs[c.dataset.proofNick] = c.checked));
+    };
+    function draw() {
+      f.innerHTML = `
+        <div class="eyebrow">Заявка №${v.id} · ${esc(v.player)}</div>
+        <h2 id="editTitle">Правка заявки</h2>
+        <div class="field"><span class="lab">Баня</span>
+          <div class="picked"><span><b>${esc(bath?.name || "—")}</b><small>${bath ? `<i class="dot t-${bath.t}"></i> ${TYPE_LABEL[bath.t]} · ${esc(where(bath))}` : ""}</small></span>
+            <button type="button" class="btn sm" id="eBathChange">Сменить</button></div>
+          <label class="searchbox" id="eBathBox" hidden>${icon("search")}<input id="eBathQ" placeholder="Найти баню" autocomplete="off"></label>
+          <div class="suggest" id="eSuggest" hidden></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label for="eEntered">Заход, МСК</label><input id="eEntered" class="inp" type="datetime-local" value="${v.date}"></div>
+          <div class="field"><label for="ePosted">Пост, МСК — по нему неделя</label><input id="ePosted" class="inp" type="datetime-local" value="${v.posted || v.date}"><span class="hint" id="eWeek"></span></div>
+        </div>
+        <div class="field"><label for="eDur">Сколько парились, минут</label><input id="eDur" class="inp" type="number" min="60" step="5" value="${v.dur}">
+          <span class="hint">Больше 150 — долгий: засчитывается тем, у кого отмечено подтверждение.</span></div>
+        <div class="field"><span class="lab">Компания</span>
+          <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}
+            <label class="check"><input type="checkbox" data-proof-nick="${esc(n)}" ${proofs[n] ? "checked" : ""}> долгий подтверждён</label></div>`).join("")}</div>
+          <select class="sel" id="eAdd"><option value="">+ добавить участника</option>${players.filter((p) => !people.includes(p)).sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("")}</select>
+        </div>
+        <div class="field"><span class="lab">Фото с отметками</span><div class="thumbs" id="ePhotos">${Object.keys(v.photosBy || {}).length ? "Загружаю…" : '<span class="hint">Фото нет</span>'}</div></div>
+        <div class="field"><span class="lab">Статус</span>
+          <div class="seg" id="eStatus">${["pending", "ok", "rejected"].map((st) => `<button type="button" data-st="${st}" aria-pressed="${st === status}">${STATUS[st]}</button>`).join("")}</div>
+          <input class="inp" id="eReason" placeholder="Причина отказа — увидит автор" value="${esc(v.reason || "")}" ${status === "rejected" ? "" : "hidden"}>
+        </div>
+        <div class="edit-actions"><button type="button" class="btn" data-close-edit>Отмена</button><button class="cta" type="submit">${icon("check")}<span>Сохранить</span></button></div>`;
+      if (typed.entered) $("#eEntered").value = typed.entered;
+      if (typed.posted) $("#ePosted").value = typed.posted;
+      if (typed.dur) $("#eDur").value = typed.dur;
+      if (typed.reason != null && $("#eReason")) $("#eReason").value = typed.reason;
+      const weekHint = () => ($("#eWeek").textContent = $("#ePosted").value ? `неделя W${weekOf($("#ePosted").value)}` : "");
+      weekHint(); $("#ePosted").oninput = weekHint;
+      $("#eBathChange").onclick = () => { $("#eBathBox").hidden = false; $("#eBathQ").focus(); };
+      $("#eBathQ").oninput = () => {
+        const q = $("#eBathQ").value.trim().toLowerCase(), sg = $("#eSuggest");
+        if (q.length < 2) { sg.hidden = true; return; }
+        sg.innerHTML = baths.filter((b) => b.search.includes(q)).sort((a, b) => b.nAll - a.nAll).slice(0, 7)
+          .map((b) => `<button type="button" data-id="${b.id}"><span class="sn"><i class="dot t-${b.t}"></i>${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("");
+        sg.hidden = false;
+      };
+      $("#eSuggest").onclick = (e) => { const b = e.target.closest("button[data-id]"); if (b) { keep(); bath = byId.get(+b.dataset.id); draw(); } };
+      $$("[data-rm]", f).forEach((b) => (b.onclick = () => { keep(); people = people.filter((n) => n !== b.dataset.rm); draw(); }));
+      $("#eAdd").onchange = () => { const n = $("#eAdd").value; keep(); if (n) people.push(n); draw(); };
+      $$("#eStatus button").forEach((b) => (b.onclick = () => { keep(); status = b.dataset.st; draw(); }));
+      $$("[data-close-edit]", f).forEach((b) => (b.onclick = () => ($("#editModal").hidden = true)));
+      if (Object.keys(v.photosBy || {}).length) loadThumbs();
+    }
+    const loadThumbs = async () => {
+      const items = [];
+      for (const [n, paths] of Object.entries(v.photosBy)) for (const p of paths) items.push([n, await D.photoUrl(p)]);
+      const box = $("#ePhotos"); if (!box) return;
+      box.innerHTML = items.filter(([, u]) => u).map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="Фото ${esc(n)}">${esc(n)}</a>`).join("") || '<span class="hint">Фото не открылись</span>';
+    };
+    f.onsubmit = async (e) => {
+      e.preventDefault(); keep();
+      const dur = Math.max(60, +$("#eDur").value || 60);
+      const patch = { bath_id: bath.id, entered_at: $("#eEntered").value + ":00+03:00", posted_at: $("#ePosted").value + ":00+03:00", duration_min: dur, status,
+        reject_reason: status === "rejected" ? ($("#eReason").value.trim() || null) : null,
+        ...(status !== v.status ? { moderated_by: data.playerIds?.[me?.nick], moderated_at: new Date().toISOString() } : {}) };
+      try {
+        await D.updateVisit(v.id, patch, people.map((n) => ({ nick: n, has_proof: !!proofs[n] })));
+        Object.assign(v, { bathId: bath.id, date: $("#eEntered").value, posted: $("#ePosted").value, dur, status, reason: patch.reject_reason,
+          companions: people.filter((n) => n !== v.player), proofs: { ...proofs }, week: undefined, total: status === "ok" ? v.total : null });
+        $("#editModal").hidden = true; updateBadge(); renderFeed();
+        toast("Сохранено — таблица пересчитывается");
+        await D.recompute();
+      } catch (err) { toast("Не сохранилось: " + err.message); }
+    };
+    draw();
+    $("#editModal").hidden = false;
+  }
 
   // Комиссия: заявки «это я» и новые бани
   async function renderSecPanel() {
