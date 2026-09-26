@@ -401,11 +401,11 @@
     const byTotal = sortKey === "total" && sortDir < 0;
     const th = (k, l, cls = "") => `<th data-k="${k}" class="${cls} ${k === sortKey ? "on" : ""}">${l}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</th>`;
     $("#standings").innerHTML = `
-      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", "👑", "crown-col")}${th("total", "Очки")}${COLS.map(([k, l]) => th(k, l)).join("")}<th class="l">12 недель</th></tr></thead>
+      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col")}${th("total", "Очки")}${COLS.map(([k, l]) => th(k, l)).join("")}<th class="l">12 недель</th></tr></thead>
       <tbody>${rows.map((s) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""} ${byTotal && s.place === 16 ? "cut" : ""} ${byTotal && s.place > 16 ? "below" : ""}">
         <td class="pos">${s.place}</td>
         <td class="l who-cell"><span>${ava(s.name, "sm")}${esc(s.name)}</span></td>
-        <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : "Пока без побед в неделях"}">${s.crowns ? `👑<b>${s.crowns}</b>` : ""}</td>
+        <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : "Пока без побед в неделях"}">${s.crowns ? `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg><b>${s.crowns}</b>` : ""}</td>
         <td class="pts">${fmt(s.total)}</td>
         ${COLS.map(([k]) => `<td>${s[k] ?? 0}</td>`).join("")}
         <td class="l">${spark(s)}</td></tr>`).join("")}</tbody>`;
@@ -469,7 +469,7 @@
     const wins = (n) => weeks.filter((w) => w < curWeek && placeOf[w]?.[n] === 1).length;
     const rows = [...ranked].filter((s) => weeks.some((w) => s.weekBaths[w])).sort((a, b) => wins(b.name) - wins(a.name) || a.place - b.place);
     $("#weekGrid").innerHTML = `
-      <thead><tr><th class="l">Участник</th><th title="Побед в неделях">👑</th>${weeks.map((w) => `<th data-w="${w}" class="${w === viewWeek ? "on" : ""}">W${w}</th>`).join("")}</tr></thead>
+      <thead><tr><th class="l">Участник</th><th title="Побед в неделях"><svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg></th>${weeks.map((w) => `<th data-w="${w}" class="${w === viewWeek ? "on" : ""}">W${w}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((s) => `<tr data-player="${esc(s.name)}"><td class="l who-cell"><span>${ava(s.name, "sm")}${esc(s.name)}</span></td><td class="wins">${wins(s.name) || ""}</td>
         ${weeks.map((w) => { const b = s.weekBaths[w] ?? 0, p = placeOf[w]?.[s.name];
           return `<td class="${b ? (p <= 3 ? "c p" + p : "c") : "z"} ${w === viewWeek ? "on" : ""}" title="W${w}: ${b} ${plural(b, "баня", "бани", "бань")}${p ? `, ${p} место` : ""}">${b || ""}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
