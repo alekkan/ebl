@@ -336,7 +336,8 @@ async function submit(st: Any, lg: Any, tgId: number) {
   const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
     + ((st.photos ?? []).length ? `\n📷 фото: ${st.photos.length}` : "");
   await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>\n\n${summary}`);
-  if (st.chatType !== "private") await react(st.chat, st.source, "👀");
+  // 👀 — и на пост, и на карточку «Ушло в Комиссию»
+  if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
 
   // точка на карте: у новой бани её может не быть, у старой — стоять по центру города или региона
   // необязательно: попросить точку, если бани нет на карте или она стоит примерно
@@ -370,13 +371,14 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
   for (const n of notes ?? []) await edit(n.chat_id, n.message_id, `${esc(cq.message?.text ?? "")}\n\n${verdict}`);
 
   // в группе: реакция на пост и итог отдельным сообщением в ответ на пост (прошлые сообщения бота не трогаем)
-  const { data: post } = await sb.from("bot_posts").select("chat_id, source_msg").eq("visit_id", visitId).maybeSingle();
+  const { data: post } = await sb.from("bot_posts").select("chat_id, source_msg, card_msg").eq("visit_id", visitId).maybeSingle();
   if (post && post.chat_id < 0) {
     const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
     const { data: author } = await sb.from("visits").select("players!visits_created_by_fkey(nick)").eq("id", visitId).single();
     const who = (author as Any)?.players?.nick;
     const ptsLine = ok && pts?.length ? ": " + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
     await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
+    if (post.card_msg) await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
     await send(post.chat_id, ok
       ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${esc((v as Any).baths?.name)}»${ptsLine}`
       : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${esc((v as Any).baths?.name)}». Если это ошибка — напишите Комиссии.`,
