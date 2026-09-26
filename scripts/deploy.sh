@@ -8,5 +8,6 @@ sed -i '' -E "s/(style\.css|app\.js|db\.js|config\.js)\?v=[0-9]+/\1?v=$v/g" prot
 git add -A
 git diff --cached --quiet || git commit -q -m "Обновление данных $(date +%Y-%m-%d)"
 git push -q origin main
-git subtree push --prefix prototype origin gh-pages
+# gh-pages — только сборка сайта из prototype/; GitHub сам коммитит туда CNAME при смене домена, поэтому перезаписываем
+git push -q --force origin "$(git subtree split --prefix prototype)":refs/heads/gh-pages
 echo "Готово: https://akanaev87.github.io/ebl/ (обновится через ~1 минуту)"
