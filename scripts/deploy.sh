@@ -10,4 +10,4 @@ git diff --cached --quiet || git commit -q -m "Обновление данных
 git push -q origin main
 # gh-pages — только сборка сайта из prototype/; GitHub сам коммитит туда CNAME при смене домена, поэтому перезаписываем
 git push -q --force origin "$(git subtree split --prefix prototype)":refs/heads/gh-pages
-echo "Готово: https://akanaev87.github.io/ebl/ (обновится через ~1 минуту)"
+echo "Готово: https://alekkan.github.io/ebl/ (обновится через ~1 минуту)"
