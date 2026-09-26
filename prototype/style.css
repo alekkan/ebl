@@ -417,6 +417,10 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .pod.p2 .pod-step { height: 96px; background: linear-gradient(180deg, var(--silver), color-mix(in srgb, var(--silver) 50%, var(--bg))); }
 .pod.p3 .pod-step { height: 72px; background: linear-gradient(180deg, var(--bronze), color-mix(in srgb, var(--bronze) 50%, var(--bg))); }
 .pod.p1 .pod-name { font-size: 21px; }
+.pod-name small { display: block; font: 600 12px/1.3 var(--body); color: var(--ink-3); margin-top: 2px; }
+.pod-plus { font-weight: 700; color: var(--ember); }
+.pod.empty { opacity: .35; }
+.week-podium { margin: 6px auto 22px; }
 
 .tablecard { background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-s); overflow: hidden; }
 .tablewrap { overflow-x: auto; }

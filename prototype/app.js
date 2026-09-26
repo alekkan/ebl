@@ -431,6 +431,19 @@
     const live = viewWeek >= curWeek, rows = weekRows(viewWeek);
     $("#wTitle").innerHTML = `<b>W${viewWeek}</b><span>${weekRange(viewWeek)}${live ? ` · идёт, до конца ${timeLeft()}` : " · итоги"}</span>`;
     $("#wPrev").disabled = viewWeek <= 1; $("#wNext").disabled = viewWeek >= curWeek;
+    // пьедестал недели: ступени по порядку мест, на ступени — настоящее место (при ничьей у двоих может быть «1»)
+    const podRow = (r, pos) => {
+      if (!r) return `<div class="pod p${pos} empty"><span class="pod-step">${pos}</span></div>`;
+      const more = pos === 3 ? rows.filter((x, j) => j > 2 && x.place === r.place).length : 0;
+      return `<button class="pod p${pos}" data-player="${esc(r.name)}">
+        ${ava(r.name, "xl")}
+        <span class="pod-name">${esc(r.name)}${more ? `<small>и ещё ${more}</small>` : ""}</span>
+        <span class="pod-pts"><b>${r.baths}</b> ${plural(r.baths, "баня", "бани", "бань")}${r.pts ? ` · <span class="pod-plus">+${fmt(r.pts)}</span>` : ""}</span>
+        <span class="pod-step">${r.place}</span>
+      </button>`;
+    };
+    $("#weekPodium").innerHTML = rows.length ? [podRow(rows[1], 2), podRow(rows[0], 1), podRow(rows[2], 3)].join("") : "";
+    $("#weekPodium").hidden = !rows.length;
     $("#weekTable").innerHTML = rows.length ? `
       <thead><tr><th>#</th><th class="l">Участник</th><th>Бань</th><th>${live ? "Будет за место" : "За место"}</th></tr></thead>
       <tbody>${rows.map((r) => `<tr data-player="${esc(r.name)}" class="${r.place <= 3 ? "top3 p" + r.place : ""}">
@@ -470,6 +483,7 @@
     const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player);
   });
   $("#weekTable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player); });
+  $("#weekPodium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player); });
   window.openWeekly = () => { show("table"); setTableMode("week"); };
 
   $("#standings").addEventListener("click", (e) => {
