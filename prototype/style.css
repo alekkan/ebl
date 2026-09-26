@@ -670,7 +670,8 @@ tr.below { color: var(--ink-2); }
 #addVisitBtn:hover .plus, #addVisitBtn.pour .plus { opacity: 0; transform: rotate(90deg) scale(.5); }
 #addVisitBtn:hover .kovsh, #addVisitBtn.pour .kovsh { opacity: 1; transform: none; }
 /* облачко пара над иконкой: мягкое пятно и мелкие капельки */
-.cta-puff { position: absolute; left: 24px; top: 6px; width: 0; height: 0; pointer-events: none; }
+/* облачко над первой буквой подписи — туда ковш и выплёскивает */
+.cta-puff { position: absolute; left: 52px; top: 19px; width: 0; height: 0; pointer-events: none; }
 .cta-puff::before { content: ""; position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--panel) 85%, var(--ink-3)) 0%, transparent 70%); opacity: 0; }
 .cta-puff i { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; opacity: 0;
@@ -682,7 +683,7 @@ tr.below { color: var(--ink-2); }
   #addVisitBtn:hover .cta-puff i, #addVisitBtn.pour .cta-puff i { animation: mist .95s cubic-bezier(.1, .7, .3, 1) .45s; }
   /* замах назад → резкий выплеск вперёд → обратно */
   @keyframes toss { 0% { transform: rotate(0); } 25% { transform: rotate(-28deg); } 45% { transform: rotate(48deg); } 70% { transform: rotate(38deg); } 100% { transform: rotate(0); } }
-  @keyframes splash { 0% { opacity: 0; transform: translate(0, 0) scale(.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(9px, -5px) scale(.3); } }
+  @keyframes splash { 0% { opacity: 0; transform: translate(0, 0) scale(.7); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(26px, 6px) scale(.3); } }
   @keyframes cloud { 0% { opacity: 0; transform: scale(.3); } 25% { opacity: .95; } 100% { opacity: 0; transform: scale(2.4); } }
   @keyframes mist { 0% { opacity: 0; transform: translate(0, 0) scale(.3); } 20% { opacity: .95; } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(var(--s)); } }
 }
@@ -690,6 +691,7 @@ tr.below { color: var(--ink-2); }
   .cta#addVisitBtn .cta-long { display: none; }
   .cta#addVisitBtn .cta-short { display: inline; }
   .cta#addVisitBtn { gap: 4px; padding: 10px 14px 10px 10px; }
+  .cta-puff { left: 39px; top: 19px; }
 }
 @media (max-width: 420px) {
   .seg button { font-size: 12px; }
