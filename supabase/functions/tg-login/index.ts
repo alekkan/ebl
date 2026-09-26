@@ -3,6 +3,7 @@
 // 2) находим аккаунт участника по telegram id или заранее вписанному Комиссией username;
 // 3) заводим пользователя Supabase Auth и отдаём одноразовый token_hash — сайт меняет его на сессию через verifyOtp.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { syncAvatar } from "../_shared/avatar.ts";
 
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const ALLOWED = (Deno.env.get("ALLOWED_ORIGINS") ?? "https://ebl.su,https://www.ebl.su,https://alekkan.github.io,https://akanaev87.github.io,http://localhost:8765")
@@ -46,8 +47,6 @@ Deno.serve(async (req) => {
   const tgId = Number(tg.id);
   const username = tg.username ?? null;
   const name = [tg.first_name, tg.last_name].filter(Boolean).join(" ");
-  // фото профиля Telegram отдаёт, только если оно есть и открыто настройками приватности
-  const photo = tg.photo_url && /^https:\/\/(t\.me|telegram\.org|[a-z0-9-]+\.telegram\.org)\//.test(tg.photo_url) ? tg.photo_url : null;
 
   // аккаунт: по telegram id, иначе по username, который Комиссия вписала заранее
   let { data: acc } = await sb.from("player_accounts").select("*").eq("tg_id", tgId).maybeSingle();
@@ -77,7 +76,12 @@ Deno.serve(async (req) => {
       if (!authId) return fail(500, error.message);
     }
   }
-  await sb.from("player_accounts").update({ tg_id: tgId, tg_username: username, tg_name: name, tg_photo: photo, auth_user: authId }).eq("id", acc.id);
+  // фото профиля — в наше хранилище, если в Telegram оно поменялось (фото есть не у всех и не всем открыто)
+  const avatar = await syncAvatar(sb, { tg_id: tgId, tg_photo_src: acc.tg_photo_src }, tg.photo_url).catch(() => null);
+  await sb.from("player_accounts").update({
+    tg_id: tgId, tg_username: username, tg_name: name, auth_user: authId,
+    ...(avatar ? { tg_photo: avatar.url, tg_photo_src: avatar.src } : {}),
+  }).eq("id", acc.id);
 
   const { data: link, error: linkErr } = await sb.auth.admin.generateLink({ type: "magiclink", email });
   if (linkErr) return fail(500, linkErr.message);

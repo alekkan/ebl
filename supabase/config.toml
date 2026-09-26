@@ -419,3 +419,6 @@ verify_jwt = false
 
 [functions.recompute]
 verify_jwt = false
+
+[functions.sync-avatars]
+verify_jwt = false
