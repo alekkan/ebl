@@ -563,6 +563,8 @@
     setDur(120);
     $("#vPhotosLabel").textContent = "Прикрепить фото";
     picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0;
+    if (pickMarker) { pickMarker.remove(); pickMarker = null; }
+    $("#nbGeoState").textContent = "Или кликни на карте. Точку можно перетащить.";
     renderComp(); renderPicked(); calc();
     $("#visitModal").hidden = false;
     if (!picked) setTimeout(() => $("#vBathQ").focus(), 50);
@@ -610,16 +612,52 @@
     } else box.hidden = true;
     if (isNew) setTimeout(() => {
       if (!pickMap) {
-        pickMap = L.map("pickmap", { attributionControl: false }).setView(map.getCenter(), 5);
+        // стартуем с Москвы — там большинство бань лиги
+        pickMap = L.map("pickmap", { attributionControl: false }).setView([55.75, 37.62], 9);
         L.tileLayer(TILE_URL, tileOpts).addTo(pickMap); syncTheme();
-        pickMap.on("click", (e) => {
-          newPin = [e.latlng.lat, e.latlng.lng];
-          (pickMarker ||= L.marker(newPin, { icon: L.divIcon({ className: "", iconSize: [20, 20], html: '<div class="pin" style="width:20px;height:20px;--c:var(--ember)"></div>' }) }).addTo(pickMap)).setLatLng(newPin);
-        });
+        pickMap.on("click", (e) => placePin([e.latlng.lat, e.latlng.lng], false));
       }
       pickMap.invalidateSize();
     }, 0);
   }
+  // точка новой бани: кликом, перетаскиванием, по ссылке/адресу или геопозиции
+  function placePin(p, fly = true) {
+    newPin = p;
+    if (!pickMarker) {
+      pickMarker = L.marker(p, { draggable: true, icon: L.divIcon({ className: "", iconSize: [22, 22], html: '<div class="pin" style="width:22px;height:22px;--c:var(--ember)"></div>' }) }).addTo(pickMap);
+      pickMarker.on("dragend", () => { const ll = pickMarker.getLatLng(); placePin([ll.lat, ll.lng], false); });
+    } else pickMarker.setLatLng(p);
+    if (fly) pickMap.setView(p, 16);
+    $("#nbGeoState").textContent = `Точка: ${p[0].toFixed(5)}, ${p[1].toFixed(5)} ✓ — можно перетащить`;
+    fillRegion(p);
+  }
+  // страна и регион по точке (если ещё не заполнены) — от них зависят очки за новый регион и страну
+  async function fillRegion([lat, lng]) {
+    if ($("#nbCountry").value.trim() && $("#nbRegion").value.trim()) return;
+    try {
+      const r = await (await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=5&accept-language=ru&lat=${lat}&lon=${lng}`)).json();
+      const a = r.address || {};
+      if (!$("#nbCountry").value.trim() && a.country) $("#nbCountry").value = a.country;
+      if (!$("#nbRegion").value.trim() && (a.state || a.region || a.city)) $("#nbRegion").value = a.state || a.region || a.city;
+      calc();
+    } catch { /* без автозаполнения */ }
+  }
+  $("#nbGeoFind").addEventListener("click", async () => {
+    const input = $("#nbGeo").value.trim(); if (!input) return $("#nbGeo").focus();
+    $("#nbGeoState").textContent = "Ищу…";
+    try { const p = await D.findLocation(input); placePin([p.lat, p.lng]); }
+    catch (err) { $("#nbGeoState").textContent = err.message; }
+  });
+  $("#nbGeo").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#nbGeoFind").click(); } });
+  $("#nbGeoMe").addEventListener("click", () => {
+    if (!window.isSecureContext || !navigator.geolocation) {
+      $("#nbGeoState").textContent = "Геопозиция в браузере работает только по https — вставь ссылку или кликни на карте.";
+      return;
+    }
+    $("#nbGeoState").textContent = "Определяю…";
+    navigator.geolocation.getCurrentPosition((pos) => placePin([pos.coords.latitude, pos.coords.longitude]),
+      () => ($("#nbGeoState").textContent = "Браузер не дал геопозицию — вставь ссылку или кликни на карте."), { enableHighAccuracy: true, timeout: 10000 });
+  });
   $("#vBathQ").addEventListener("input", () => {
     const raw = $("#vBathQ").value.trim(), q = raw.toLowerCase(), sg = $("#vSuggest");
     if (q.length < 2) { sg.hidden = true; return; }

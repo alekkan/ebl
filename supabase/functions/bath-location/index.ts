@@ -25,6 +25,11 @@ Deno.serve(async (req) => {
   if (!acc?.player_id) return fail(403, "Точки ставят участники лиги");
 
   const body = await req.json().catch(() => ({}));
+  // новая баня ещё не создана — просто находим точку по ссылке или адресу
+  if (!body.bath_id) {
+    const p = await locate(String(body.input ?? ""));
+    return p ? new Response(JSON.stringify(p), { headers }) : fail(422, "Не нашёл, где это. Вставь ссылку на баню в картах, адрес с номером дома или координаты");
+  }
   const { data: b } = await sb.from("baths").select("id, precision, lat, lng").eq("id", Number(body.bath_id)).maybeSingle();
   if (!b) return fail(404, "Баня не найдена");
   // адрес сверяем с примерной точкой бани, чтобы не уехать в другой город

@@ -268,7 +268,15 @@
             <div class="field"><label for="nbCountry">Страна</label><input id="nbCountry" class="inp" list="countryList" placeholder="Россия"></div>
             <div class="field"><label for="nbRegion">Регион</label><input id="nbRegion" class="inp" list="regionList" placeholder="Субъект, область, земля"></div>
           </div>
-          <div class="field"><span class="lab">Кликни на карте, где баня</span><div id="pickmap"></div></div>
+          <div class="field"><span class="lab">Где баня <span class="hint">— необязательно, но так она сразу встанет на карту</span></span>
+            <div class="geo-row">
+              <input class="inp" id="nbGeo" placeholder="Ссылка на баню в картах, адрес или координаты" autocomplete="off">
+              <button type="button" class="btn sm" id="nbGeoFind">Найти</button>
+              <button type="button" class="btn sm" id="nbGeoMe">📍 Я сейчас здесь</button>
+            </div>
+            <div id="pickmap"></div>
+            <span class="hint" id="nbGeoState">Или кликни на карте. Точку можно перетащить.</span>
+          </div>
         </div>
 
         <div class="grid2">

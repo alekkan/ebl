@@ -219,6 +219,7 @@ window.EBLData = (() => {
       check(await sb.from("player_accounts").update({ player_id: cache.playerIds[nick], claimed_nick: null }).eq("id", accountId));
     },
     // точка бани по ссылке на карту или координатам — разбирает edge-функция (короткие ссылки раскрываются там)
+    async findLocation(input) { return api.setBathLocation(null, input); },
     async setBathLocation(bathId, input) {
       const { data: { session } } = await sb.auth.getSession();
       const r = await fetch(cfg.supabaseUrl + "/functions/v1/bath-location", {

@@ -529,7 +529,10 @@ tr.below { color: var(--ink-2); }
 .picked b { display: block; font: 700 16px/1.25 var(--display); }
 .picked small { color: var(--ink-2); }
 .newbath { display: grid; gap: 14px; padding: 16px; border-radius: var(--r); background: var(--panel-2); }
-#pickmap { height: 200px; border-radius: 12px; }
+#pickmap { height: 220px; border-radius: 12px; }
+.geo-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; }
+.geo-row .inp { height: 36px; font-size: 13px; }
+@media (max-width: 560px) { .geo-row { grid-template-columns: 1fr 1fr; } .geo-row .inp { grid-column: 1 / -1; } }
 .dur2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .dur2 button { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border-radius: var(--r); border: 1.5px solid var(--line); background: var(--panel); color: var(--ink); transition: all .15s var(--ease); }
 .dur2 button b { font: 700 15px var(--display); }
