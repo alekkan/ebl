@@ -209,6 +209,11 @@ with sync_playwright() as pw:
               s.js("() => { const a = document.querySelector('#meBtn .ava'); return !!a && a.getBoundingClientRect().width >= 24; }"))
         all_views(s, "участник на телефоне", mobile=True)
         s.page.click("#addVisitBtn")
+        s.page.wait_for_timeout(350)
+        check("телефон: по нажатию сначала виден ковш, форма ещё не закрыла кнопку",
+              s.js("() => document.getElementById('visitModal').hidden && getComputedStyle(document.querySelector('#addVisitBtn .kovsh')).opacity > 0.5"))
+        s.page.wait_for_selector("#visitModal:not([hidden])", timeout=3000)
+        check("телефон: после анимации открылась форма", True)
         s.no_clip("форма «Добавить баню» на телефоне", "#visitModal")
         s.close()
 

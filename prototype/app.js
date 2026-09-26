@@ -711,11 +711,17 @@
     $("#visitModal").hidden = false;
     if (!picked) setTimeout(() => $("#vBathQ").focus(), 50);
   }
+  // на телефоне наведения нет: по нажатию сначала бросок ковша и хлопок пара, потом форма — иначе шторка
+  // формы сразу закрывает кнопку и анимации не видно. На компьютере её уже показало наведение — форма сразу.
+  let pouring = false;
   $("#addVisitBtn").onclick = () => {
-    // на телефоне наведения нет — проигрываем «поддать» по нажатию, форма открывается сразу
+    if (pouring) return;
     const b = $("#addVisitBtn"); b.classList.remove("pour"); void b.offsetWidth; b.classList.add("pour");
     setTimeout(() => b.classList.remove("pour"), 2600);
-    openVisit();
+    const wait = calm || !matchMedia("(hover: none)").matches ? 0 : 950;
+    if (!wait) return openVisit();
+    pouring = true;
+    setTimeout(() => { pouring = false; openVisit(); }, wait);
   };
 
   function setDur(m) {

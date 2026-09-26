@@ -47,6 +47,8 @@ const postLink = (chat: Any, msg: number) =>
 
 // по регламенту важно одно: долгий поход (больше 150 минут) или обычный
 const TYPE_RU: Record<string, string> = { public: "Общественная", spa: "Хуитнес", private: "Частная" };
+// пасхалка лиги: к хуитнесам у Комиссии отношение особое
+const SPA_JOKE = "🏋️ Хуитнес… Комиссия такое не одобряет, но рассмотрит 🧐";
 const TYPE_BTN: Record<string, string> = { public: "🏛 Общественная", spa: "🏋️ Хуитнес", private: "🪵 Частная" };
 const durLabel = (m: number | null) => (m == null ? "от часа" : m > 150 ? "🔥 долгая, больше 2,5 ч" : "обычная, до 2,5 ч");
 
@@ -240,6 +242,7 @@ async function renderCard(st: Any, lg: Any) {
   const askType = st.newBath || (st.bathId && !st.bathType);
   if (askType && st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
   else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
+  if ((st.bathType || st.type) === "spa") lines.push(SPA_JOKE);
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nСколько парились? По регламенту важно только, была ли долгая — больше 2,5 часа.");
   const kb: Any[][] = st.awaiting === "dur"
@@ -379,7 +382,8 @@ async function submit(st: Any, lg: Any, tgId: number) {
 
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
   const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
-    + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "");
+    + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "")
+    + ((st.bathType || st.type) === "spa" ? `\n${SPA_JOKE}` : "");
   await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>\n\n${summary}`);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
@@ -436,7 +440,8 @@ async function siteVisit(visitId: number): Promise<boolean> {
   const vv = v as Any, author = vv.author?.nick;
   const company = (vv.visit_players ?? []).map((x: Any) => x.players?.nick).filter((n: string) => n && n !== author);
   const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
-    + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "");
+    + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
+    + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "");
   if (chat) {
     const r = await send(chat, `🌐 <b>${esc(author)}</b> отметил баню на сайте\n\n${summary}\n\nЖдёт Комиссию 👀`);
     if (r.ok) {
