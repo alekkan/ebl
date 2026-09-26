@@ -63,7 +63,7 @@ window.EBLData = (() => {
     const rows = check(await sb.from("visits")
       .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, reject_reason, tg_link, visit_players(player_id)")
       .order("posted_at", { ascending: false }).limit(300));
-    const pts = await all("visit_points", "visit_id, nick, total, lines", (q) => q.in("visit_id", rows.map((r) => r.id)));
+    const pts = await all("visit_points", "visit_id, nick, total, lines", (q) => q.in("visit_id", rows.map((r) => r.id)), ["visit_id", "nick"]);
     const ptsBy = {};
     for (const p of pts) (ptsBy[p.visit_id] ||= {})[p.nick] = p;
     return rows.map((v) => {
