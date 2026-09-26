@@ -51,6 +51,15 @@ def login(tg_id, username, **extra):
     return r, sess["access_token"]
 
 
+def session(tg_id, username, **extra):
+    """То же, что login(), но целиком сессия Supabase — её сайт хранит в localStorage (для тестов в браузере)."""
+    s, r = req("POST", "/functions/v1/tg-login", tg_payload(tg_id, username, **extra))
+    assert s == 200, (s, r)
+    s, sess = req("POST", "/auth/v1/verify", {"type": "magiclink", "token_hash": r["token_hash"]})
+    assert s == 200, (s, sess)
+    return sess
+
+
 def link(nick, tg_username):
     """Комиссия заранее вписала username участника — при входе привяжется сам."""
     sql(f"insert into player_accounts (player_id, tg_username) select id, '{tg_username}' from players where nick = '{nick}' "

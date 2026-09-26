@@ -2,6 +2,8 @@
 # Коммитит свежие данные и выкладывает prototype/ на GitHub Pages (ветка gh-pages).
 set -e
 cd "$(dirname "$0")/.."
+# сначала проверки: сайт, бэкенд и бот на локальном стенде; красное — не выкладываем (обойти: SKIP_CHECKS=1)
+if [ -z "$SKIP_CHECKS" ]; then scripts/check.sh || { echo "Выкладка отменена: проверки не прошли." >&2; exit 1; }; fi
 # GitHub Pages кэширует файлы на 10 минут: версия в ссылках, чтобы страница и скрипт всегда были из одной выкладки
 v=$(date +%Y%m%d%H%M%S)
 sed -i '' -E "s/(style\.css|app\.js|db\.js|config\.js)\?v=[0-9]+/\1?v=$v/g" prototype/index.html

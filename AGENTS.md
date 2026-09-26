@@ -44,12 +44,15 @@ docker exec supabase_db_ebl psql -U postgres -c "select cron.unschedule(jobname)
 docker exec supabase_db_ebl psql -U postgres -c "update settings set value = '\"http://supabase_kong_ebl:8000/functions/v1\"' where key = 'functions_url'"   # триггер вердикта — на локального бота
 cp -n supabase/functions/.env.example supabase/functions/.env
 supabase functions serve --env-file supabase/functions/.env     # в отдельном терминале
-python3 tests/test_backend.py
-python3 tests/test_bot.py
-python3 -m http.server 8765 --directory prototype               # сайт; для локальной базы временно поменяй config.js
+scripts/check.sh                                                # все проверки: бэкенд, бот и сайт в браузере
 ```
 
-Если меняешь интерфейс — открой сайт и проверь десктоп, телефон (375 px) и тёмную тему, консоль без ошибок.
+`scripts/check.sh` гоняет `tests/test_backend.py`, `tests/test_bot.py` и `tests/test_site.py`. Последний открывает сайт
+в настоящем Chrome против локального стенда за гостя, участника, Комиссию, на телефоне и в режиме витрины: любая
+ошибка в консоли, упавший сценарий (поход через форму, «Засчитать») или вылезшая за экран вёрстка — провал.
+`scripts/deploy.sh` без зелёных проверок сайт не выкладывает. Сайт только глазами «как гость» не проверяй —
+часть запросов выполняется лишь у вошедших (так уже ломали: сортировка по несуществующему столбцу visit_points.id).
+Новое поведение сайта — новый сценарий в `tests/test_site.py`.
 Если меняешь бота — пройди ручной сценарий из `docs/bot.md` в тестовой группе.
 
 ## Выкладка

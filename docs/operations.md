@@ -7,7 +7,7 @@
 
 | Что поменял | Команда |
 |---|---|
-| Сайт (`prototype/`) | `scripts/deploy.sh` — коммит, push, пересборка ветки `gh-pages` из `prototype/` |
+| Сайт (`prototype/`) | `scripts/deploy.sh` — сначала `scripts/check.sh` (все тесты, нужен локальный стенд), потом коммит, push, пересборка `gh-pages` из `prototype/` |
 | Схему базы | новая миграция в `supabase/migrations/` → `supabase db push` |
 | Edge-функцию | `supabase functions deploy <имя> --project-ref yeerkfdgmhcmvdqzaoio --no-verify-jwt` |
 | Движок очков (`_shared/scoring.js`) | задеплоить `recompute`, потом `curl -X POST https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/recompute` |
