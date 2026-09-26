@@ -428,8 +428,16 @@ const mentionsBot = (msg: Any) => {
     || (e.type === "bot_command" && /^\/banya/i.test(text.substr(e.offset, e.length))));
 };
 
+const HOWTO = `Отмечайте походы прямо здесь — отметьте меня и напишите как есть:\n<i>@${BOT} Сандуны 3ч с Деном</i> + фото\n\n`
+  + "Не хватит чего-то — переспрошу. Не указали время — через 2,5 часа спрошу, была ли долгая. "
+  + `Поход уйдёт в Комиссию, после решения на посте появится 👍 или 💩.\nТаблица и карта: ${SITE}`;
+
 async function onMessage(msg: Any) {
   const chat = msg.chat.id, tgId = msg.from?.id, isPrivate = msg.chat.type === "private";
+  // бота добавили в группу — здороваемся и показываем, как отмечать походы
+  if (msg.new_chat_members?.some((u: Any) => u.is_bot && u.username?.toLowerCase() === BOT)) {
+    return send(chat, `Привет, ЕБЛ! 🧖\n\n${HOWTO}`);
+  }
   if (!tgId || msg.from.is_bot) return;
   const text: string = (msg.text ?? msg.caption ?? "").trim();
   const replyTo = msg.reply_to_message?.message_id;
@@ -465,7 +473,7 @@ async function onMessage(msg: Any) {
   const greeting = /^(\/start|\/help|start|старт|привет|хай|hi|hello)(?![\p{L}\p{N}])/iu.test(text);
   if (isPrivate && greeting) {
     await clearState(tgId);
-    return send(chat, `Привет, ${esc(me.nick)}! Отмечай походы в общем чате: <i>@${BOT} Сандуны 3ч с Деном</i> + фото. Здесь тоже можно — просто напиши.\nТаблица: ${SITE}`);
+    return send(chat, `Привет, ${esc(me.nick)}! ${HOWTO}\n\nЗдесь, в личке, тоже можно — просто напиши, где парился.`);
   }
   if (text === "/cancel" || text === `/cancel@${BOT}`) { await clearState(tgId); return send(chat, "Черновик отменён."); }
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
@@ -511,6 +519,14 @@ async function onCallback(cq: Any) {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   if (url.searchParams.get("tick") === "1") return new Response(JSON.stringify({ asked: await tick() }), { headers: { "Content-Type": "application/json" } });
+  // диагностика без секретов: состояние вебхука у Telegram и последние ошибки обработки
+  if (url.searchParams.get("diag") === "1") {
+    const info = await tg("getWebhookInfo", {});
+    const { data: log } = await sb.from("bot_log").select("at, kind, detail").order("id", { ascending: false }).limit(10);
+    const r = info.result ?? {};
+    return new Response(JSON.stringify({ pending: r.pending_update_count, last_error: r.last_error_message, last_error_at: r.last_error_date,
+      allowed: r.allowed_updates, url_ok: r.url === `${BASE}/functions/v1/tg-bot`, log }), { headers: { "Content-Type": "application/json" } });
+  }
   if (SECRET && url.searchParams.get("setup") === SECRET) {
     const hook = await tg("setWebhook", { url: `${BASE}/functions/v1/tg-bot`, secret_token: SECRET, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
     const cmds = await tg("setMyCommands", { commands: [
@@ -522,11 +538,20 @@ Deno.serve(async (req) => {
   }
   if (!SECRET || req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return new Response("forbidden", { status: 403 });
   const update = await req.json().catch(() => ({}));
+  // В группе бот получает все сообщения (режим приватности выключен, иначе Telegram не присылает отметки @бота),
+  // но обрабатывает и пишет в журнал только адресованные ему: отметку, ответ ему, команду, добавление в группу.
+  const m = update.message;
+  const addressed = !m || m.chat?.type === "private" || mentionsBot(m) || m.new_chat_members
+    || m.reply_to_message?.from?.username?.toLowerCase() === BOT;
+  if (!addressed) return new Response("ok");
+  await sb.from("bot_log").insert({ kind: m ? `message:${m.chat?.type}` : update.callback_query ? "callback" : "other",
+    detail: m ? `ents=${JSON.stringify((m.entities ?? m.caption_entities ?? []).map((e: Any) => e.type))}` : update.callback_query?.data ?? null });
   try {
     if (update.message) await onMessage(update.message);
     else if (update.callback_query) await onCallback(update.callback_query);
   } catch (e) {
     console.error("tg-bot", e);
+    await sb.from("bot_log").insert({ kind: "error", detail: String((e as Error)?.stack ?? e).slice(0, 1500) });
   }
   return new Response("ok");
 });
