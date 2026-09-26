@@ -69,6 +69,8 @@
       + (kom ? '<svg class="seal" aria-hidden="true"><use href="#i-seal"/></svg>' : "") + "</span>";
   };
   const icon = (id) => `<svg class="ic" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+  // значок типа бани — тот же силуэт, что на карте
+  const tdot = (t) => `<i class="dot t-${t}">${TYPE_LABEL[t] && t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${t}"/></svg>` : ""}</i>`;
   const leafSvg = (on) => `<svg class="leaf ${on ? "on" : ""}" viewBox="-6 -17 12 18" aria-hidden="true"><use href="#oak-leaf"/></svg>`;
   const leaves = (n, cls = "") => `<span class="leaves ${cls}" title="${fmt(n)} из 5">${[1, 2, 3, 4, 5].map((i) => leafSvg(i <= Math.round(n))).join("")}</span>`;
   const where = (b) => [b.region, b.country].filter(Boolean).join(", ") || "регион не указан";
@@ -137,10 +139,12 @@
   const markers = new Map();
 
   function markerFor(b) {
-    const size = b.n26 ? Math.round(Math.min(14 + Math.sqrt(b.n26) * 2.6, 28)) : 12;
+    // размер — по походам в 2026, силуэт внутри — тип бани
+    const size = b.n26 ? Math.round(Math.min(20 + Math.sqrt(b.n26) * 2.2, 32)) : 18;
+    const glyph = b.t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${b.t}"/></svg>` : "";
     const icon = L.divIcon({
       className: "", iconSize: [size, size],
-      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""} ${b.id === openId ? "sel" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})"></div>`,
+      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""} ${b.id === openId ? "sel" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}</div>`,
     });
     const m = L.marker(b.ll, { icon, title: b.name, riseOnHover: true }).on("click", () => openBath(b.id));
     markers.set(b.id, m);
@@ -193,7 +197,7 @@
     $("#list").innerHTML = current.length ? current.slice(0, LIMIT).map((b) => {
       const n = b._m;
       return `<button class="item ${b.id === openId ? "active" : ""}" data-id="${b.id}">
-        <i class="dot t-${b.t}"></i>
+        ${tdot(b.t)}
         <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(where(b))}</span></span>
         <span class="it-heat">${n ? `<b>${n}</b><i style="--w:${Math.max(8, (n / maxM) * 100)}%"></i>` : ""}</span>
       </button>`;
@@ -261,7 +265,7 @@
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
       <div class="d-hero t-${b.t}">
         <div class="pills">
-          <span class="pill"><i class="dot t-${b.t}"></i>${TYPE_LABEL[b.t]}</span>
+          <span class="pill">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>
           ${b.t === "public" ? '<span class="pill oak">+1 очко</span>' : ""}
           ${b.isNew ? '<span class="pill ember">новая, на модерации</span>' : ""}
           ${!b.n26 && !b.nHist && !b.isNew ? '<span class="pill ember">кандидат в ультрауникальные</span>' : ""}
@@ -534,7 +538,7 @@
             <p class="geo" style="margin:0 0 4px"><b>${ctry.size}</b> ${plural(ctry.size, "страна", "страны", "стран")} · <b>${regions.size}</b> ${plural(regions.size, "регион", "региона", "регионов")}</p>
             <p class="hint" style="margin:0 0 18px">${[...ctry].map(esc).join(", ")}</p>
             <h3>Типы бань</h3>
-            ${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<div class="typerow"><i class="dot t-${t}"></i><span>${TYPE_LABEL[t]}</span><span>${n}</span></div>`).join("")}
+            ${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<div class="typerow">${tdot(t)}<span>${TYPE_LABEL[t]}</span><span>${n}</span></div>`).join("")}
             <button class="btn" style="margin-top:16px" id="pOnMap">${icon("map")}Бани ${esc(name)} на карте</button>
           </section>
         </div>
@@ -561,7 +565,6 @@
     $("#vPlayer").disabled = D.live;
     $("#vDate").value = mskNow();
     setDur(120);
-    $("#vPhotosLabel").textContent = "Прикрепить фото";
     picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0;
     if (pickMarker) { pickMarker.remove(); pickMarker = null; }
     $("#nbGeoState").textContent = "Или кликни на карте. Точку можно перетащить.";
@@ -579,14 +582,8 @@
   function setDur(m) {
     $("#vDur").value = m;
     $$("#vDurChips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === m)));
-    $("#proofBox").hidden = m <= 150;
   }
   $("#vDurChips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { setDur(+b.dataset.m); calc(); } });
-  $("#vPhotos").addEventListener("change", (e) => {
-    const n = e.target.files.length;
-    $("#vPhotosLabel").textContent = n ? `${n} ${plural(n, "фото", "фото", "фото")} прикреплено` : "Прикрепить фото";
-    if (n) { $("#vProof").checked = true; calc(); }
-  });
 
   function renderComp() {
     const me = $("#vPlayer").value;
@@ -598,7 +595,7 @@
   function compCount() { const n = $$("#vComp button[aria-pressed=true]").length; $("#vCompCount").textContent = n ? `· ${n + 1} в компании` : ""; }
   $("#vComp").addEventListener("click", (e) => { const c = e.target.closest("button"); if (!c) return; c.setAttribute("aria-pressed", String(c.getAttribute("aria-pressed") !== "true")); compCount(); calc(); });
   $("#vPlayer").addEventListener("change", () => { store.set("me", $("#vPlayer").value); renderComp(); calc(); });
-  ["#vDate", "#vProof", "#nbType", "#nbCountry", "#nbRegion", "#nbName"].forEach((s) => $(s).addEventListener("input", calc));
+  ["#vDate", "#nbType", "#nbCountry", "#nbRegion", "#nbName"].forEach((s) => $(s).addEventListener("input", calc));
 
   function renderPicked() {
     const box = $("#vBathPicked"), isNew = picked === "new";
@@ -607,7 +604,7 @@
     $("#vSuggest").hidden = true;
     if (picked && !isNew) {
       box.hidden = false;
-      box.innerHTML = `<div class="picked"><span><b>${esc(picked.name)}</b><small><i class="dot t-${picked.t}"></i> ${TYPE_LABEL[picked.t]} · ${esc(where(picked))}</small></span><button type="button" class="btn sm">Другая</button></div>`;
+      box.innerHTML = `<div class="picked"><span><b>${esc(picked.name)}</b><small>${tdot(picked.t)} ${TYPE_LABEL[picked.t]} · ${esc(where(picked))}</small></span><button type="button" class="btn sm">Другая</button></div>`;
       $("button", box).onclick = () => { picked = null; renderPicked(); calc(); $("#vBathQ").focus(); };
     } else box.hidden = true;
     if (isNew) setTimeout(() => {
@@ -662,7 +659,7 @@
     const raw = $("#vBathQ").value.trim(), q = raw.toLowerCase(), sg = $("#vSuggest");
     if (q.length < 2) { sg.hidden = true; return; }
     const hits = baths.filter((b) => b.search.includes(q)).sort((a, b) => b.n26 - a.n26).slice(0, 7);
-    sg.innerHTML = hits.map((b) => `<button type="button" data-id="${b.id}"><span class="sn"><i class="dot t-${b.t}"></i>${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("") +
+    sg.innerHTML = hits.map((b) => `<button type="button" data-id="${b.id}"><span class="sn">${tdot(b.t)}${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("") +
       `<button type="button" data-new="1"><span class="sn new">${icon("plus")}Новая баня «${esc(raw)}»</span><small>нет в справочнике</small></button>`;
     sg.hidden = false;
   });
@@ -683,12 +680,12 @@
   }
 
   function score() {
-    const player = $("#vPlayer").value, dur = +$("#vDur").value, proof = $("#vProof").checked;
+    const player = $("#vPlayer").value, dur = +$("#vDur").value;
     const comp = $$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p);
     const date = $("#vDate").value || mskNow();
     const isNew = picked === "new";
     const b = isNew ? { t: $("#nbType").value, country: $("#nbCountry").value.trim(), region: $("#nbRegion").value.trim(), n26: 0, nHist: 0 } : picked;
-    const base = { total: 0, week: weekOf(date), comp, dur, proof, player, date };
+    const base = { total: 0, week: weekOf(date), comp, dur, player, date };
     if (!b) return { ...base, empty: "Выбери баню — и талон заполнится сам" };
     const sameDay = !isNew && visits.some((v) => v.status !== "rejected" && v.bathId === b.id && v.date.slice(0, 10) === date.slice(0, 10) && (v.player === player || v.companions.includes(player)));
     if (sameDay) return { ...base, empty: "В эту баню сегодня уже отмечен поход — второй раз за сутки не считается" };
@@ -701,8 +698,7 @@
     else if (!b.n26 && !b.nHist) lines.push(["Ультра? Комиссия проверит", 0, "muted"]);
     if (b.region && b.country && !s.regions.has(b.country + "/" + b.region)) lines.push([`Новый регион · ${b.region}`, 1]);
     if (b.country && !s.countries.has(b.country)) lines.push([`Новая страна · ${b.country}`, 1]);
-    if (dur > 150 && proof) lines.push(["Долгий поход", 1]);
-    else if (dur > 150) lines.push(["Долгий — нужны фото с отметками", 0, "muted"]);
+    if (dur > 150) lines.push(["Долгий поход", 1]);
     const n = comp.length + 1;
     if (n >= 9) lines.push([`Компания ККК · ${n}`, 3]);
     else if (n >= 6) lines.push([`Компания КК · ${n}`, 2]);
@@ -743,14 +739,14 @@
       newBath = { name, country: $("#nbCountry").value.trim() || null, region: $("#nbRegion").value.trim() || null, type: $("#nbType").value,
         ...(newPin ? { lat: newPin[0], lng: newPin[1], precision: "exact" } : {}) };
     }
-    const payload = { bathId: picked.id, newBath, date: r.date, week: r.week, dur: r.dur, proof: r.proof, files: [...$("#vPhotos").files],
+    const payload = { bathId: picked.id, newBath, date: r.date, week: r.week, dur: r.dur,
       companions: r.comp, player: r.player, lines: r.lines.filter((l) => l[1]), total: r.total };
     vf.dataset.busy = "1"; $("#vSubmit span").textContent = "Отправляю…";
     try {
       const saved = await D.submitVisit(payload);
       if (payload.createdBath) { const nb = payload.createdBath; hydrate(nb); baths.push(nb); byId.set(nb.id, nb); }
       if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur,
-        proof: r.proof, proofs: { [r.player]: r.proof }, photos: payload.files.length, lines: [], total: null, preview: r.total, status: "pending" });
+        lines: [], total: null, preview: r.total, status: "pending" });
       leafBurst($("#vSubmit"));
       setTimeout(() => { $("#visitModal").hidden = true; }, calm ? 0 : 450);
       updateBadge(); render();
@@ -816,7 +812,6 @@
       const b = byId.get(v.bathId);
       const week = v.week ?? weekOf(v.posted || v.date);
       const pts = v.total ?? v.preview;
-      const needProof = D.live && me?.nick && v.companions.includes(me.nick) && v.dur > 150 && !v.proofs?.[me.nick] && v.status !== "rejected";
       return `<article class="post">
         <div class="post-head">
           <span class="stack">${[v.player, ...v.companions].slice(0, 4).map((p) => ava(p)).join("")}</span>
@@ -826,17 +821,12 @@
         <div><a class="post-bath" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a><div class="hint">${esc(b ? where(b) : "")}</div></div>
         <div class="post-meta">
           <span>${v.dur > 150 ? "🔥 долгая" : "обычная"}</span>
-          ${v.proof ? `<span>фото с отметками${v.photos ? ` · ${v.photos}` : ""}</span>` : ""}
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
         </div>
-        ${v.tgLink || Object.keys(v.photosBy || {}).length ? `<div class="post-links">
-          ${v.tgLink ? `<a href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
-          ${Object.keys(v.photosBy || {}).map((n) => `<span>📷 ${esc(n)}${v.proofs?.[n] ? " · долгий" : ""}</span>`).join("")}
-        </div>` : ""}
+        ${v.tgLink ? `<div class="post-links"><a href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a></div>` : ""}
         ${v.status === "rejected" && v.reason ? `<div class="post-reason">Причина: ${esc(v.reason)}</div>` : ""}
         <div class="post-head" style="justify-content:space-between">
           <span class="post-pts">${pts != null ? "+" + fmt(pts) : ""}${v.total == null && v.status === "pending" ? '<small class="hint"> по талону</small>' : ""}</span>
-          ${needProof ? `<label class="btn sm">${icon("camera")}У меня тоже есть фото<input type="file" accept="image/*" multiple hidden data-proof="${v.id}"></label>` : ""}
           ${sec ? `<span class="post-actions">
             ${v.status === "pending" ? `<button class="btn sm solid" data-ok="${v.id}">${icon("check")}Засчитать</button><button class="btn sm danger" data-no="${v.id}">Отклонить</button>` : ""}
             ${D.live ? `<button class="btn sm" data-edit="${v.id}">✏️ Изменить</button>` : ""}
@@ -860,31 +850,21 @@
       }).catch((err) => toast("Не получилось: " + err.message));
     } else if (bl) { e.preventDefault(); show("map"); openBath(+bl.dataset.bath, true); }
   });
-  $("#feed").addEventListener("change", async (e) => {
-    const inp = e.target.closest("[data-proof]"); if (!inp || !inp.files.length) return;
-    try {
-      await D.confirmProof(+inp.dataset.proof, [...inp.files]);
-      const v = visits.find((x) => x.id === +inp.dataset.proof); (v.proofs ||= {})[me.nick] = true;
-      renderFeed(); toast("Фото приложены — Комиссия увидит");
-    } catch (err) { toast("Фото не загрузились: " + err.message); }
-  });
 
   // ---------- правка заявки Комиссией ----------
   function openEdit(v) {
     const f = $("#editForm");
     let bath = byId.get(v.bathId), people = [v.player, ...v.companions], status = v.status;
-    const proofs = { ...(v.proofs || {}) };
     let typed = {};   // введённое в поля — чтобы не терялось при перерисовке
     const keep = () => {
       typed = { entered: $("#eEntered")?.value, posted: $("#ePosted")?.value, dur: $("#eDur")?.value, reason: $("#eReason")?.value };
-      $$("[data-proof-nick]", f).forEach((c) => (proofs[c.dataset.proofNick] = c.checked));
     };
     function draw() {
       f.innerHTML = `
         <div class="eyebrow">Заявка №${v.id} · ${esc(v.player)}</div>
         <h2 id="editTitle">Правка заявки</h2>
         <div class="field"><span class="lab">Баня</span>
-          <div class="picked"><span><b>${esc(bath?.name || "—")}</b><small>${bath ? `<i class="dot t-${bath.t}"></i> ${TYPE_LABEL[bath.t]} · ${esc(where(bath))}` : ""}</small></span>
+          <div class="picked"><span><b>${esc(bath?.name || "—")}</b><small>${bath ? `${tdot(bath.t)} ${TYPE_LABEL[bath.t]} · ${esc(where(bath))}` : ""}</small></span>
             <button type="button" class="btn sm" id="eBathChange">Сменить</button></div>
           <label class="searchbox" id="eBathBox" hidden>${icon("search")}<input id="eBathQ" placeholder="Найти баню" autocomplete="off"></label>
           <div class="suggest" id="eSuggest" hidden></div>
@@ -894,13 +874,11 @@
           <div class="field"><label for="ePosted">Пост, МСК — по нему неделя</label><input id="ePosted" class="inp" type="datetime-local" value="${v.posted || v.date}"><span class="hint" id="eWeek"></span></div>
         </div>
         <div class="field"><label for="eDur">Сколько парились, минут</label><input id="eDur" class="inp" type="number" min="60" step="5" value="${v.dur}">
-          <span class="hint">Больше 150 — долгий: засчитывается тем, у кого отмечено подтверждение.</span></div>
+          <span class="hint">Больше 150 — долгий, +1 всей компании.</span></div>
         <div class="field"><span class="lab">Компания</span>
-          <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}
-            <label class="check"><input type="checkbox" data-proof-nick="${esc(n)}" ${proofs[n] ? "checked" : ""}> долгий подтверждён</label></div>`).join("")}</div>
+          <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}</div>`).join("")}</div>
           <select class="sel" id="eAdd"><option value="">+ добавить участника</option>${players.filter((p) => !people.includes(p)).sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("")}</select>
         </div>
-        <div class="field"><span class="lab">Фото с отметками</span><div class="thumbs" id="ePhotos">${Object.keys(v.photosBy || {}).length ? "Загружаю…" : '<span class="hint">Фото нет</span>'}</div></div>
         <div class="field"><span class="lab">Статус</span>
           <div class="seg" id="eStatus">${["pending", "ok", "rejected"].map((st) => `<button type="button" data-st="${st}" aria-pressed="${st === status}">${STATUS[st]}</button>`).join("")}</div>
           <input class="inp" id="eReason" placeholder="Причина отказа — увидит автор" value="${esc(v.reason || "")}" ${status === "rejected" ? "" : "hidden"}>
@@ -917,7 +895,7 @@
         const q = $("#eBathQ").value.trim().toLowerCase(), sg = $("#eSuggest");
         if (q.length < 2) { sg.hidden = true; return; }
         sg.innerHTML = baths.filter((b) => b.search.includes(q)).sort((a, b) => b.nAll - a.nAll).slice(0, 7)
-          .map((b) => `<button type="button" data-id="${b.id}"><span class="sn"><i class="dot t-${b.t}"></i>${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("");
+          .map((b) => `<button type="button" data-id="${b.id}"><span class="sn">${tdot(b.t)}${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("");
         sg.hidden = false;
       };
       $("#eSuggest").onclick = (e) => { const b = e.target.closest("button[data-id]"); if (b) { keep(); bath = byId.get(+b.dataset.id); draw(); } };
@@ -925,14 +903,7 @@
       $("#eAdd").onchange = () => { const n = $("#eAdd").value; keep(); if (n) people.push(n); draw(); };
       $$("#eStatus button").forEach((b) => (b.onclick = () => { keep(); status = b.dataset.st; draw(); }));
       $$("[data-close-edit]", f).forEach((b) => (b.onclick = () => ($("#editModal").hidden = true)));
-      if (Object.keys(v.photosBy || {}).length) loadThumbs();
     }
-    const loadThumbs = async () => {
-      const items = [];
-      for (const [n, paths] of Object.entries(v.photosBy)) for (const p of paths) items.push([n, await D.photoUrl(p)]);
-      const box = $("#ePhotos"); if (!box) return;
-      box.innerHTML = items.filter(([, u]) => u).map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="Фото ${esc(n)}">${esc(n)}</a>`).join("") || '<span class="hint">Фото не открылись</span>';
-    };
     f.onsubmit = async (e) => {
       e.preventDefault(); keep();
       const dur = Math.max(60, +$("#eDur").value || 60);
@@ -940,9 +911,9 @@
         reject_reason: status === "rejected" ? ($("#eReason").value.trim() || null) : null,
         ...(status !== v.status ? { moderated_by: data.playerIds?.[me?.nick], moderated_at: new Date().toISOString() } : {}) };
       try {
-        await D.updateVisit(v.id, patch, people.map((n) => ({ nick: n, has_proof: !!proofs[n] })));
+        await D.updateVisit(v.id, patch, people);
         Object.assign(v, { bathId: bath.id, date: $("#eEntered").value, posted: $("#ePosted").value, dur, status, reason: patch.reject_reason,
-          companions: people.filter((n) => n !== v.player), proofs: { ...proofs }, week: undefined, total: status === "ok" ? v.total : null });
+          companions: people.filter((n) => n !== v.player), week: undefined, total: status === "ok" ? v.total : null });
         $("#editModal").hidden = true; updateBadge(); renderFeed();
         toast("Сохранено — таблица пересчитывается");
         await D.recompute();

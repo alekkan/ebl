@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
       all("baths", "id, type, country, region"),
       all("legacy_visits", "bath_id, year, nick, n"),
       all("legacy_standings", "*"),
-      all("visits", "id, bath_id, entered_at, posted_at, duration_min, visit_players(has_proof, players(nick))", (q) => q.eq("status", "ok")),
+      all("visits", "id, bath_id, entered_at, posted_at, duration_min, visit_players(players(nick))", (q) => q.eq("status", "ok")),
     ]);
     const cfg = Object.fromEntries(settings.map((s) => [s.key, s.value]));
     const { standings, breakdown, currentWeek } = computeStandings({
@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
       baths: new Map(baths.map((b) => [b.id, b])),
       legacyVisits,
       legacyStandings,
-      visits: visits.map((v) => ({ ...v, players: v.visit_players.map((vp: any) => ({ nick: vp.players.nick, has_proof: vp.has_proof })) })),
+      visits: visits.map((v) => ({ ...v, players: v.visit_players.map((vp: any) => ({ nick: vp.players.nick })) })),
     });
     const now = new Date().toISOString();
     const { error } = await sb.from("standings").upsert(standings.map((s) => ({ ...s, updated_at: now })));

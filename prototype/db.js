@@ -55,7 +55,7 @@ window.EBLData = (() => {
 
   async function loadVisits(playersById) {
     const rows = check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, reject_reason, tg_link, visit_players(player_id, has_proof, photos)")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, reject_reason, tg_link, visit_players(player_id)")
       .order("posted_at", { ascending: false }).limit(300));
     const pts = await all("visit_points", "visit_id, nick, total, lines", (q) => q.in("visit_id", rows.map((r) => r.id)));
     const ptsBy = {};
@@ -63,14 +63,11 @@ window.EBLData = (() => {
     return rows.map((v) => {
       const author = playersById[v.created_by];
       const vp = v.visit_players.map((x) => ({ ...x, nick: playersById[x.player_id] }));
-      const mine = vp.find((x) => x.nick === author) || {};
       const p = ptsBy[v.id]?.[author];
       return {
         id: v.id, bathId: v.bath_id, player: author, companions: vp.filter((x) => x.nick !== author).map((x) => x.nick),
-        proofs: Object.fromEntries(vp.map((x) => [x.nick, x.has_proof])), date: mskLocal(v.entered_at), posted: mskLocal(v.posted_at),
-        dur: v.duration_min, proof: !!mine.has_proof, photos: (mine.photos || []).length, status: v.status, reason: v.reject_reason,
-        total: p ? +p.total : null, lines: p ? p.lines.map(([k, n]) => [LINE_LABEL[k] || k, n]) : [],
-        tgLink: v.tg_link, photosBy: Object.fromEntries(vp.filter((x) => (x.photos || []).length).map((x) => [x.nick, x.photos])),
+        date: mskLocal(v.entered_at), posted: mskLocal(v.posted_at), dur: v.duration_min, status: v.status, reason: v.reject_reason,
+        total: p ? +p.total : null, lines: p ? p.lines.map(([k, n]) => [LINE_LABEL[k] || k, n]) : [], tgLink: v.tg_link,
       };
     });
   }
@@ -135,18 +132,7 @@ window.EBLData = (() => {
       check(await sb.from("reviews").upsert({ bath_id: bathId, player_id: cache.me.playerId, rating: rate, text }, { onConflict: "bath_id,player_id" }));
     },
 
-    async uploadPhotos(files) {
-      const paths = [];
-      for (const f of files) {
-        const ext = (f.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
-        const path = `${cache.me.playerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-        check(await sb.storage.from("proofs").upload(path, f, { contentType: f.type || "image/jpeg" }));
-        paths.push(path);
-      }
-      return paths;
-    },
-
-    // поход: v = { bathId | newBath, date (МСК), dur, proof, files, companions, lines, total, player, week }
+    // поход: v = { bathId | newBath, date (МСК), dur, companions, lines, total, player, week }
     async submitVisit(v) {
       if (!live) {
         if (v.newBath) {
@@ -154,7 +140,7 @@ window.EBLData = (() => {
           store.set("newBaths", [...store.get("newBaths", []), nb]); v.bathId = nb.id; v.createdBath = nb;
         }
         const rec = { id: Date.now(), player: v.player, companions: v.companions, bathId: v.bathId, date: v.date, week: v.week, dur: v.dur,
-          proof: v.proof, photos: v.files.length, lines: v.lines, total: v.total, status: "pending", at: Date.now() };
+          lines: v.lines, total: v.total, status: "pending", at: Date.now() };
         cache.visits.unshift(rec); store.set("visits", cache.visits);
         return rec;
       }
@@ -164,18 +150,11 @@ window.EBLData = (() => {
         const nb = check(await sb.from("baths").insert({ ...v.newBath, status: "pending", created_by: me }).select().single());
         bathId = nb.id; v.createdBath = { ...nb, v26: {}, hist: {}, histBy: {}, isNew: true };
       }
-      const photos = v.files.length ? await api.uploadPhotos(v.files) : [];
       const visit = check(await sb.from("visits").insert({ bath_id: bathId, entered_at: v.date + ":00+03:00", duration_min: v.dur, created_by: me }).select().single());
-      const rows = [{ visit_id: visit.id, player_id: me, has_proof: !!v.proof, photos },
-        ...v.companions.map((nick) => ({ visit_id: visit.id, player_id: cache.playerIds[nick], has_proof: false, photos: [] }))];
+      const rows = [me, ...v.companions.map((nick) => cache.playerIds[nick])].map((id) => ({ visit_id: visit.id, player_id: id }));
       check(await sb.from("visit_players").insert(rows));
       v.bathId = bathId;
       return { id: visit.id };
-    },
-
-    async confirmProof(visitId, files) {
-      const photos = await api.uploadPhotos(files);
-      check(await sb.from("visit_players").update({ has_proof: true, photos }).eq("visit_id", visitId).eq("player_id", cache.me.playerId));
     },
 
     async moderate(visitId, status, reason) {
@@ -184,25 +163,21 @@ window.EBLData = (() => {
       }
       check(await sb.from("visits").update({ status, moderated_by: cache.me.playerId, moderated_at: new Date().toISOString(), reject_reason: reason || null }).eq("id", visitId));
     },
-    // Комиссия правит заявку: поля похода и состав компании people = [{ nick, has_proof }] (вместе с автором)
+    // Комиссия правит заявку: поля похода и состав компании people = [ник, …] (вместе с автором)
     async updateVisit(visitId, patch, people) {
       if (!live) {
         const v = cache.visits.find((x) => x.id === visitId);
         Object.assign(v, { bathId: patch.bath_id, date: patch.entered_at.slice(0, 16), dur: patch.duration_min, status: patch.status,
-          companions: people.map((p) => p.nick).filter((n) => n !== v.player) });
+          companions: people.filter((n) => n !== v.player) });
         store.set("visits", cache.visits); return;
       }
       check(await sb.from("visits").update(patch).eq("id", visitId));
-      const current = check(await sb.from("visit_players").select("player_id, has_proof").eq("visit_id", visitId));
-      const want = new Map(people.map((p) => [cache.playerIds[p.nick], !!p.has_proof]));
-      const gone = current.filter((c) => !want.has(c.player_id)).map((c) => c.player_id);
+      const have = new Set(check(await sb.from("visit_players").select("player_id").eq("visit_id", visitId)).map((c) => c.player_id));
+      const want = new Set(people.map((n) => cache.playerIds[n]));
+      const gone = [...have].filter((id) => !want.has(id));
       if (gone.length) check(await sb.from("visit_players").delete().eq("visit_id", visitId).in("player_id", gone));
-      const have = new Map(current.map((c) => [c.player_id, c.has_proof]));
-      const fresh = [...want].filter(([id]) => !have.has(id)).map(([id, proof]) => ({ visit_id: visitId, player_id: id, has_proof: proof, photos: [] }));
+      const fresh = [...want].filter((id) => !have.has(id)).map((id) => ({ visit_id: visitId, player_id: id }));
       if (fresh.length) check(await sb.from("visit_players").insert(fresh));
-      for (const [id, proof] of want) {
-        if (have.has(id) && have.get(id) !== proof) check(await sb.from("visit_players").update({ has_proof: proof }).eq("visit_id", visitId).eq("player_id", id));
-      }
     },
     async recompute() {
       if (!live) return;
@@ -231,10 +206,6 @@ window.EBLData = (() => {
       return body;
     },
     async moderateBath(bathId, patch) { check(await sb.from("baths").update(patch).eq("id", bathId)); },
-    async photoUrl(path) {
-      const { data } = await sb.storage.from("proofs").createSignedUrl(path, 3600);
-      return data?.signedUrl;
-    },
     store,
   };
   return api;

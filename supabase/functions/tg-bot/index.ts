@@ -1,10 +1,10 @@
 // Telegram-бот ЕБЛ (@eblsu_bot), вебхук.
 //
-// В общем чате: участник отмечает бота и пишет как есть — «@eblsu_bot Сандуны 3ч с Деном и @shurik» (+ фото).
+// В общем чате: участник отмечает бота и пишет как есть — «@eblsu_bot Сандуны 3ч с Деном и @shurik».
 // Бот отвечает карточкой: что понял, чего не хватает; уточняет баню (в т.ч. новая ли она — УУ), время, компанию.
 // Пост в группе — документ похода (п. 5 регламента), его время определяет неделю (п. 6).
 // После «В Комиссию»: на посте 👀, Комиссии в личку — поход с кнопками; после решения — 👍 или 💩 и итог в карточке.
-// Через 2,5 часа после захода, если длительность не указана, бот спрашивает «Долгая была?» (п. 15).
+// Через 2,5 часа после захода, если длительность не указана, бот спрашивает «Долгая была?» (п. 15, на доверии — без фото).
 // В личке с ботом работает то же самое, только без отметки.
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>. Проверка «Долгая была?»: ?tick=1 (pg_cron).
@@ -29,6 +29,7 @@ const tg = (method: string, body: Record<string, unknown>) =>
   }).then((r) => r.json()).catch(() => ({ ok: false }));
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
 const btn = (text: string, data: string) => ({ text, callback_data: data });
+const LONG_KB = (vid: number) => [[btn("🔥 Да, долгая", `yl:${vid}`), btn("Нет, обычная", `nl:${vid}`)]];
 const send = (chat: number, text: string, kb?: Any[][], replyTo?: number) => tg("sendMessage", {
   chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true,
   ...(kb ? { reply_markup: { inline_keyboard: kb } } : {}),
@@ -203,9 +204,7 @@ async function renderCard(st: Any, lg: Any) {
     `⏱ ${durLabel(st.dur)}${st.dur == null ? " — через 2,5 часа спрошу, была ли долгая" : ""}`,
     `👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`,
   ];
-  if ((st.photos ?? []).length) lines.push(`📷 фото: ${st.photos.length}`);
   if (st.geo) lines.push("📍 точка на карте есть");
-  if (st.dur != null && st.dur > LONG && !(st.photos ?? []).length) lines.push("⚠️ Долгий засчитают с фото отметок входа и выхода — пришли ответом на это сообщение.");
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nСколько парились? По регламенту важно только, была ли долгая — больше 2,5 часа.");
   const kb: Any[][] = st.awaiting === "dur"
@@ -233,16 +232,6 @@ async function resolveBath(st: Any) {
   st.candidates = found.map((b: Any) => ({ id: b.id, name: b.name, region: b.region }));
 }
 
-async function uploadPhoto(playerId: string, photo: Any[]) {
-  const f = await tg("getFile", { file_id: photo[photo.length - 1].file_id });
-  if (!f.ok) return null;
-  const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${f.result.file_path}`);
-  if (!r.ok) return null;
-  const path = `${playerId}/${Date.now()}-tg.jpg`;
-  const { error } = await sb.storage.from("proofs").upload(path, new Uint8Array(await r.arrayBuffer()), { contentType: "image/jpeg" });
-  return error ? null : path;
-}
-
 // новый пост с отметкой бота — новый черновик
 async function startDraft(msg: Any, me: Any, lg: Any) {
   const text: string = msg.text ?? msg.caption ?? "";
@@ -252,10 +241,9 @@ async function startDraft(msg: Any, me: Any, lg: Any) {
   const st: Any = {
     chat: msg.chat.id, chatType: msg.chat.type, chatUsername: msg.chat.username ?? null, source: msg.message_id, posted: msg.date,
     author: msg.from.id, authorId: me.id, authorNick: me.nick,
-    dur: d && d.dur >= 60 ? d.dur : null, start: d?.start ?? null, company: comp.ids, photos: [],
+    dur: d && d.dur >= 60 ? d.dur : null, start: d?.start ?? null, company: comp.ids,
     ultra: ULTRA.test(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
   };
-  if (msg.photo) { const p = await uploadPhoto(me.id, msg.photo); if (p) st.photos.push(p); }
   st.geo = await pointFromMessage(msg);
   await resolveBath(st);
   await showCard(st, lg, msg.from.id);
@@ -282,7 +270,6 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
   const text: string = (msg.text ?? msg.caption ?? "").trim();
   const geo = await pointFromMessage(msg);
   if (geo) st.geo = geo;
-  if (msg.photo) { const p = await uploadPhoto(me.id, msg.photo); if (p) st.photos = [...(st.photos ?? []), p]; }
   if (text) {
     if (st.awaiting === "company") {
       st.company = /^(один|одна|одни|сам|сама|никого)$/i.test(text) ? [] : parseCompany(text, msg.entities ?? [], lg, me.id).ids;
@@ -324,17 +311,13 @@ async function submit(st: Any, lg: Any, tgId: number) {
     created_by: st.authorId, tg_link: link, long_asked_at: st.dur != null ? new Date().toISOString() : null,
   }).select().single();
   if (error) return edit(st.chat, st.card, `Не получилось сохранить поход: ${esc(error.message)}`);
-  await sb.from("visit_players").insert([
-    { visit_id: visit.id, player_id: st.authorId, has_proof: (st.photos ?? []).length > 0 && st.dur != null && st.dur > LONG, photos: st.photos ?? [] },
-    ...(st.company ?? []).map((id: string) => ({ visit_id: visit.id, player_id: id, has_proof: false, photos: [] })),
-  ]);
+  await sb.from("visit_players").insert([st.authorId, ...(st.company ?? [])].map((id: string) => ({ visit_id: visit.id, player_id: id })));
   if (st.geo && st.bathId) await setBathPoint(st.bathId, st.geo, lg.players.find((p: Any) => p.id === st.authorId)?.is_commission);
   await sb.from("bot_posts").insert({ visit_id: visit.id, chat_id: st.chat, source_msg: st.source, card_msg: st.card, bath_id: bathId });
   await clearState(tgId);
 
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
-  const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
-    + ((st.photos ?? []).length ? `\n📷 фото: ${st.photos.length}` : "");
+  const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`;
   await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>\n\n${summary}`);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
@@ -405,42 +388,40 @@ async function geoAnswer(msg: Any, post: Any, me: Any) {
 }
 
 // ответ без «Ответить»: следующее сообщение автора после вопроса про точку (15 мин)
-// или фото участника после «Долгая была?» (30 мин)
 async function implicitAnswer(msg: Any): Promise<boolean> {
   const chat = msg.chat.id, hasGeo = !!(msg.location || msg.venue), text = msg.text ?? msg.caption ?? "";
-  const geoLike = hasGeo || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text);
-  if (!geoLike && !msg.photo) return false;
+  if (!hasGeo && !/https?:\/\//.test(text) && !looksLikeAddress(text) && !hasLocationHint(text)) return false;
   const acc = await whoIs(msg.from.id);
   const me = acc?.players as Any;
   if (!me) return false;
-  if (geoLike) {
-    const { data: posts } = await sb.from("bot_posts").select("visit_id, bath_id, visits!inner(created_by)")
-      .eq("chat_id", chat).not("geo_msg", "is", null).gte("geo_at", new Date(Date.now() - 15 * 60e3).toISOString())
-      .eq("visits.created_by", me.id).order("geo_at", { ascending: false }).limit(1);
-    if (posts?.length) { await geoAnswer(msg, posts[0], me); return true; }
-  }
-  if (msg.photo) {
-    const { data: posts } = await sb.from("bot_posts").select("visit_id, chat_id, visits!inner(long_asked_at, visit_players!inner(player_id))")
-      .eq("chat_id", chat).not("ask_msg", "is", null).eq("visits.visit_players.player_id", me.id)
-      .gte("visits.long_asked_at", new Date(Date.now() - 30 * 60e3).toISOString()).limit(1);
-    if (posts?.length) { await longAnswer(msg, posts[0], me); return true; }
-  }
-  return false;
+  const { data: posts } = await sb.from("bot_posts").select("visit_id, bath_id, visits!inner(created_by)")
+    .eq("chat_id", chat).not("geo_msg", "is", null).gte("geo_at", new Date(Date.now() - 15 * 60e3).toISOString())
+    .eq("visits.created_by", me.id).order("geo_at", { ascending: false }).limit(1);
+  if (!posts?.length) return false;
+  await geoAnswer(msg, posts[0], me);
+  return true;
 }
 
-// «Долгая была?» — ответ фото на вопрос бота
-async function longAnswer(msg: Any, post: Any, me: Any) {
-  const { data: vp } = await sb.from("visit_players").select("photos").eq("visit_id", post.visit_id).eq("player_id", me.id).maybeSingle();
-  if (!vp) return send(msg.chat.id, "Этот вопрос для тех, кто был в походе 🙂", undefined, msg.message_id);
-  if (!msg.photo) return send(msg.chat.id, "Пришли фото с отметкой выхода ответом на вопрос — так Комиссия засчитает долгий.", undefined, msg.message_id);
-  const path = await uploadPhoto(me.id, msg.photo);
-  if (!path) return send(msg.chat.id, "Фото не сохранилось, попробуй ещё раз.", undefined, msg.message_id);
-  await sb.from("visit_players").update({ has_proof: true, photos: [...(vp.photos ?? []), path] }).eq("visit_id", post.visit_id).eq("player_id", me.id);
-  const { data: v } = await sb.from("visits").select("duration_min, status").eq("id", post.visit_id).single();
-  if (v.duration_min <= LONG) await sb.from("visits").update({ duration_min: LONG + 1 }).eq("id", post.visit_id);
+// «Долгая была?» — на доверии: один ответ «да» от участника делает поход долгим, ошибки правит Комиссия
+async function markLong(visitId: number, me: Any): Promise<boolean> {
+  const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", visitId).eq("player_id", me?.id ?? "").maybeSingle();
+  if (!vp) return false;
+  const { data: v } = await sb.from("visits").select("duration_min, status").eq("id", visitId).single();
+  if (v.duration_min <= LONG) await sb.from("visits").update({ duration_min: LONG + 1 }).eq("id", visitId);
   if (v.status === "ok") await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
-  await react(msg.chat.id, msg.message_id, "🔥");
-  await send(msg.chat.id, `📷 ${esc(me.nick)} — долгий, фото приложено. Комиссия проверит отметки.`, undefined, msg.message_id);
+  return true;
+}
+
+// ответ текстом на «Долгая была?» — кнопки удобнее, но «да»/«нет» тоже понимаем
+async function longAnswer(msg: Any, post: Any, me: Any) {
+  const text = (msg.text ?? "").trim();
+  if (/^(да|ага|угу|конечно|долгая|yes|\+)(?![\p{L}\p{N}])/iu.test(text)) {
+    if (!(await markLong(post.visit_id, me))) return send(msg.chat.id, "Этот вопрос для тех, кто был в походе 🙂", undefined, msg.message_id);
+    await react(msg.chat.id, msg.message_id, "🔥");
+    return send(msg.chat.id, `🔥 ${esc(me.nick)}: долгая — +1 всей компании.`, undefined, msg.message_id);
+  }
+  if (/^(нет|не|обычная|no|-)(?![\p{L}\p{N}])/iu.test(text)) return react(msg.chat.id, msg.message_id, "👌");
+  return send(msg.chat.id, "Нажми кнопку под вопросом: долгая или обычная.", undefined, msg.message_id);
 }
 
 async function tick() {
@@ -458,8 +439,8 @@ async function tick() {
       return acc?.tg_username ? "@" + acc.tg_username : esc(lg.players.find((p: Any) => p.id === x.player_id)?.nick);
     });
     const r = await send(post.chat_id,
-      `⏳ ${people.join(", ")}, прошло 2,5 часа. Долгая была? Кто пробыл больше 2,5 ч — ответьте на это сообщение фото с отметкой выхода.`,
-      [[btn("Нет, обычная", `nl:${v.id}`)]], post.source_msg);
+      `⏳ ${people.join(", ")}, прошло 2,5 часа. Долгая была — больше 2,5 ч?`,
+      LONG_KB(v.id), post.source_msg);
     await sb.from("visits").update({ long_asked_at: new Date().toISOString() }).eq("id", v.id);
     if (r.ok) { await sb.from("bot_posts").update({ ask_msg: r.result.message_id }).eq("visit_id", v.id); asked++; }
   }
@@ -474,7 +455,7 @@ const mentionsBot = (msg: Any) => {
     || (e.type === "bot_command" && /^\/banya/i.test(text.substr(e.offset, e.length))));
 };
 
-const HOWTO = `Отмечайте походы прямо здесь — отметьте меня и напишите как есть:\n<i>@${BOT} Сандуны 3ч с Деном</i> + фото\n\n`
+const HOWTO = `Отмечайте походы прямо здесь — отметьте меня и напишите как есть:\n<i>@${BOT} Сандуны 3ч с Деном</i>\n\n`
   + "Не хватит чего-то — переспрошу. Не указали время — через 2,5 часа спрошу, была ли долгая. "
   + `Поход уйдёт в Комиссию, после решения на посте появится 👍 или 💩.\nТаблица и карта: ${SITE}`;
 
@@ -539,12 +520,18 @@ async function onCallback(cq: Any) {
     await answer(cq.id, "Ок");
     return edit(cq.message.chat.id, cq.message.message_id, `🙅 Ок, без точки. Её можно поставить потом на сайте: ${SITE}`);
   }
+  if (data.startsWith("yl:")) {
+    const vid = Number(data.slice(3));
+    if (!(await markLong(vid, me))) return answer(cq.id, "Это вопрос для тех, кто был в походе");
+    await answer(cq.id, "🔥 Долгая — +1 всей компании");
+    return edit(cq.message.chat.id, cq.message.message_id, `${esc(cq.message.text)}\n\n${esc(me.nick)}: долгая 🔥`, LONG_KB(vid));
+  }
   if (data.startsWith("nl:")) {
     const vid = Number(data.slice(3));
     const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", vid).eq("player_id", me?.id ?? "").maybeSingle();
     if (!vp) return answer(cq.id, "Это вопрос для тех, кто был в походе");
     await answer(cq.id, "Ок, обычная");
-    return edit(cq.message.chat.id, cq.message.message_id, `${esc(cq.message.text)}\n\n${esc(me.nick)}: обычная`, [[btn("Нет, обычная", `nl:${vid}`)]]);
+    return edit(cq.message.chat.id, cq.message.message_id, `${esc(cq.message.text)}\n\n${esc(me.nick)}: обычная`, LONG_KB(vid));
   }
   const st = await getState(tgId);
   if (!st || st.card !== cq.message?.message_id || st.chat !== cq.message?.chat?.id) {
@@ -595,7 +582,7 @@ Deno.serve(async (req) => {
   const addressed = !m || m.chat?.type === "private" || mentionsBot(m) || m.new_chat_members
     || m.reply_to_message?.from?.username?.toLowerCase() === BOT;
   const text = m?.text ?? m?.caption ?? "";
-  const maybeAnswer = m && (m.location || m.venue || m.photo || /https?:\/\//.test(text) || looksLikeAddress(text));
+  const maybeAnswer = m && (m.location || m.venue || /https?:\/\//.test(text) || looksLikeAddress(text));
   if (!addressed) {
     if (maybeAnswer) { try { await onMessage(m); } catch (e) { console.error("tg-bot", e); } }
     return new Response("ok");

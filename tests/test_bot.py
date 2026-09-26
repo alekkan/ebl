@@ -51,4 +51,21 @@ st = case("@eblsu_bot Василевские https://yandex.ru/maps/?pt=37.6176,
 check("ссылка на карту в посте даёт точку и не мешает поиску", st.get("geo") == {"lat": 55.7558, "lng": 37.6176} and st.get("bathName") == "Василевские", st)
 sql("delete from bot_sessions")
 check("сообщения без отметки бота игнорируются", post("просто болтаем про Сандуны", 7) is None)
+
+
+def press(data, who, mid=50):
+    update = {"update_id": 1000 + mid, "callback_query": {"id": str(mid), "from": {"id": who, "is_bot": False, "first_name": "X"}, "data": data,
+              "message": {"message_id": mid, "chat": {"id": CHAT, "type": "supergroup"}, "text": "⏳ прошло 2,5 часа. Долгая была?"}}}
+    s, _ = req("POST", "/functions/v1/tg-bot", update, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+    assert s == 200, s
+
+
+print("«Долгая была?» — на доверии")
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 5, now() - interval '3 hours', 60, id from players where nick='Леха' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick='Леха'")
+press(f"yl:{vid}", 901)
+check("чужой кнопкой не отметить", sql(f"select duration_min from visits where id = {vid}") == "60")
+press(f"yl:{vid}", ME)
+check("участник жмёт «Да, долгая» — поход долгий без фото", int(sql(f"select duration_min from visits where id = {vid}")) > 150)
+sql(f"delete from visits where id = {vid}")
 print("Готово.")

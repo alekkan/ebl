@@ -69,7 +69,8 @@ a { color: var(--oak); }
 .eyebrow b { color: var(--ember); font-weight: 700; }
 .hint { font-size: 12px; color: var(--ink-3); font-weight: 400; }
 .center { text-align: center; }
-.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; background: var(--t-unknown); }
+.dot { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; vertical-align: -3px; background: var(--t-unknown); color: var(--panel); }
+.dot svg { width: 11px; height: 11px; fill: currentColor; }
 .dot.t-public { background: var(--t-public); } .dot.t-spa { background: var(--t-spa); } .dot.t-private { background: var(--t-private); }
 
 /* аватарки: цвет — из хэша ника */
@@ -173,8 +174,6 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 }
 .chips button:hover { border-color: var(--ink-3); }
 .chips button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--panel); }
-.check { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; cursor: pointer; }
-.check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--oak); flex: none; }
 
 /* ---------- карта ---------- */
 .view-map { position: relative; }
@@ -190,9 +189,10 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .leaflet-top.leaflet-left { left: 392px; top: 4px; }
 
 .pin {
-  border-radius: 50%; background: var(--c); border: 2.5px solid var(--panel);
-  box-shadow: 0 2px 6px rgba(20, 30, 20, .35); transition: transform .2s var(--ease);
+  border-radius: 50%; background: var(--c); border: 2px solid var(--panel); color: var(--panel);
+  display: grid; place-items: center; box-shadow: 0 2px 6px rgba(20, 30, 20, .35); transition: transform .2s var(--ease);
 }
+.pin svg { width: 64%; height: 64%; fill: currentColor; }
 .pin:hover { transform: scale(1.25); }
 .pin.approx { opacity: .6; }
 .pin.hot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ember) 30%, transparent), 0 2px 6px rgba(20, 30, 20, .35); }
@@ -222,7 +222,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .count { padding: 8px 18px; font-size: 12px; color: var(--ink-3); border-top: 1px solid var(--line); }
 .list { overflow: auto; flex: 1; padding: 0 8px 8px; overscroll-behavior: contain; }
 .item {
-  width: 100%; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center;
   border: 0; background: none; text-align: left; padding: 10px 10px; border-radius: 12px; transition: background .15s;
 }
 .item:hover { background: var(--panel-2); }
@@ -476,10 +476,6 @@ tr.below { color: var(--ink-2); }
 .erow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .erow .ava { box-shadow: none; }
 .erow b { min-width: 90px; }
-.erow .check { margin-left: auto; font-size: 13px; }
-.thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
-.thumbs a { display: grid; gap: 3px; font-size: 11px; color: var(--ink-3); text-decoration: none; }
-.thumbs img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; background: var(--panel-2); }
 .edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* правила */
@@ -540,10 +536,6 @@ tr.below { color: var(--ink-2); }
 .dur2 button:hover { border-color: var(--ink-3); }
 .dur2 button[aria-pressed="true"] { border-color: var(--oak); background: var(--oak-soft); }
 .dur2 button.long[aria-pressed="true"] { border-color: var(--ember); background: var(--ember-soft); }
-.proof { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--honey-soft); margin-top: 4px; }
-.upload { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; position: relative; }
-.upload input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.upload:hover { color: var(--ink); }
 .people { display: flex; flex-wrap: wrap; gap: 6px; }
 .people button { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--line); background: var(--panel); padding: 2px 11px 2px 2px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ink-2); transition: all .15s var(--ease); }
 .people button .ava { --s: 24px; box-shadow: none; }
@@ -658,40 +650,59 @@ tr.below { color: var(--ink-2); }
   .stats.four { grid-template-columns: repeat(2, 1fr); }
   .p-head { padding: 24px 18px 16px; } .p-body { padding: 8px 18px 24px; }
 }
-@media (max-width: 560px) { .me-btn span { display: none; } .me-btn { padding: 4px; } .me-btn .ic { margin: 0 6px; } }
+/* между телефоном и широким экраном шапка не влезала (кнопка уезжала за край) — ужимаем по шагам */
+@media (max-width: 1060px) {
+  .me-btn span { display: none; } .me-btn { padding: 4px; } .me-btn .ic { margin: 0 6px; }
+  .cta#addVisitBtn .cta-long { display: none; }
+  .cta#addVisitBtn .cta-short { display: inline-block; }
+}
+@media (max-width: 900px) { .brand .word { display: none; } .nav button { padding: 8px 10px; } }
 .cta-short { display: none; }
-/* плюс, а при наведении — ковш: замах, плеск в печку и хлопок мелкого пара */
+/* плюс, а при наведении — ковш: замах, бросок воды на надпись и хлопок мелкого пара над ней */
 #addVisitBtn { position: relative; overflow: visible; }
 .ic-swap { position: relative; width: 20px; height: 20px; flex: none; }
 .ic-swap > svg { position: absolute; inset: 0; overflow: visible; transition: opacity .2s ease, transform .3s var(--ease); }
 .kovsh { opacity: 0; transform: scale(.5) rotate(-30deg); }
-.kovsh .ladle { transform-box: view-box; transform-origin: 6px 7px; }
-.kovsh .splash { fill: currentColor; stroke: none; opacity: 0; }
+.kovsh .ladle { transform-box: view-box; transform-origin: 14px 13px; }
 #addVisitBtn:hover .plus, #addVisitBtn.pour .plus { opacity: 0; transform: rotate(90deg) scale(.5); }
 #addVisitBtn:hover .kovsh, #addVisitBtn.pour .kovsh { opacity: 1; transform: none; }
-/* облачко пара над иконкой: мягкое пятно и мелкие капельки */
-/* облачко над первой буквой подписи — туда ковш и выплёскивает */
-.cta-puff { position: absolute; left: 52px; top: 19px; width: 0; height: 0; pointer-events: none; }
+/* всё считается от первой буквы подписи: капли летят к ней от края ковша (--fx, --fy), там и хлопает пар */
+.cta-puff { position: absolute; left: 52px; top: 19px; width: 0; height: 0; pointer-events: none; --fx: -13px; --fy: 3px; }
+.cta-puff b { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; opacity: 0; background: currentColor; }
+.cta-puff b:nth-child(2) { width: 3px; height: 3px; }
+.cta-long { display: inline-block; }
 .cta-puff::before { content: ""; position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--panel) 85%, var(--ink-3)) 0%, transparent 70%); opacity: 0; }
 .cta-puff i { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; opacity: 0;
   background: color-mix(in srgb, var(--panel) 70%, var(--ink-3)); }
 @media (prefers-reduced-motion: no-preference) {
-  #addVisitBtn:hover .ladle, #addVisitBtn.pour .ladle { animation: toss .75s var(--ease) .12s; }
-  #addVisitBtn:hover .splash, #addVisitBtn.pour .splash { animation: splash .5s ease-out .3s; }
-  #addVisitBtn:hover .cta-puff::before, #addVisitBtn.pour .cta-puff::before { animation: cloud 1s ease-out .45s; }
-  #addVisitBtn:hover .cta-puff i, #addVisitBtn.pour .cta-puff i { animation: mist .95s cubic-bezier(.1, .7, .3, 1) .45s; }
-  /* замах назад → резкий выплеск вперёд → обратно */
-  @keyframes toss { 0% { transform: rotate(0); } 25% { transform: rotate(-28deg); } 45% { transform: rotate(48deg); } 70% { transform: rotate(38deg); } 100% { transform: rotate(0); } }
-  @keyframes splash { 0% { opacity: 0; transform: translate(0, 0) scale(.7); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(26px, 6px) scale(.3); } }
+  #addVisitBtn:hover .ladle, #addVisitBtn.pour .ladle { animation: toss .8s var(--ease) .1s; }
+  #addVisitBtn:hover .cta-puff b, #addVisitBtn.pour .cta-puff b { animation: fling .3s linear .44s; }
+  #addVisitBtn:hover .cta-puff b:nth-child(2), #addVisitBtn.pour .cta-puff b:nth-child(2) { animation-delay: .48s; }
+  #addVisitBtn:hover .cta-puff b:nth-child(3), #addVisitBtn.pour .cta-puff b:nth-child(3) { animation-delay: .52s; }
+  #addVisitBtn:hover :is(.cta-long, .cta-short), #addVisitBtn.pour :is(.cta-long, .cta-short) { animation: hit .35s ease-out .74s; }
+  #addVisitBtn:hover .cta-puff::before, #addVisitBtn.pour .cta-puff::before { animation: cloud 1s ease-out .74s; }
+  #addVisitBtn:hover .cta-puff i, #addVisitBtn.pour .cta-puff i { animation: mist .95s cubic-bezier(.1, .7, .3, 1) .74s; }
+  /* зачерпнул (ковш назад) → бросок вперёд к надписи, ковш опрокидывается ртом к ней → обратно */
+  @keyframes toss { 0% { transform: none; } 30% { transform: translate(-2px, 1px) rotate(-18deg); } 48% { transform: translate(4px, -1px) rotate(34deg); } 66% { transform: translate(3px, 0) rotate(28deg); } 100% { transform: none; } }
+  /* капли — по дуге (квадратичная кривая через точку над серединой пути) от края ковша до буквы */
+  @keyframes fling {
+    0% { opacity: 0; transform: translate(var(--fx), var(--fy)); }
+    10%, 85% { opacity: 1; }
+    25% { transform: translate(calc(var(--fx) * .735), calc(var(--fy) * .56 - 4.5px)); }
+    50% { transform: translate(calc(var(--fx) * .48), calc(var(--fy) * .25 - 6px)); }
+    75% { transform: translate(calc(var(--fx) * .235), calc(var(--fy) * .06 - 4.5px)); }
+    100% { opacity: 0; transform: translate(0, 0) scale(.6); }
+  }
+  /* надпись чуть вздрагивает от попадания */
+  @keyframes hit { 30% { transform: translateY(1px) scale(.96); } }
   @keyframes cloud { 0% { opacity: 0; transform: scale(.3); } 25% { opacity: .95; } 100% { opacity: 0; transform: scale(2.4); } }
   @keyframes mist { 0% { opacity: 0; transform: translate(0, 0) scale(.3); } 20% { opacity: .95; } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(var(--s)); } }
 }
+@media (max-width: 760px) { .cta-puff { left: 48px; } }
 @media (max-width: 560px) {
-  .cta#addVisitBtn .cta-long { display: none; }
-  .cta#addVisitBtn .cta-short { display: inline; }
   .cta#addVisitBtn { gap: 4px; padding: 10px 14px 10px 10px; }
-  .cta-puff { left: 39px; top: 19px; }
+  .cta-puff { left: 39px; top: 19px; --fx: -9px; }
 }
 @media (max-width: 420px) {
   .seg button { font-size: 12px; }

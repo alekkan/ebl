@@ -38,8 +38,8 @@ s, v = req("POST", "/rest/v1/visits", {"bath_id": 5, "entered_at": "2026-09-26T1
            token=shurik, headers={"Prefer": "return=representation"})
 check("Шурик отмечает поход", s == 201, v)
 vid = v[0]["id"]
-s, _ = req("POST", "/rest/v1/visit_players", [{"visit_id": vid, "player_id": me, "has_proof": True},
-                                              {"visit_id": vid, "player_id": vit, "has_proof": False}], token=shurik)
+s, _ = req("POST", "/rest/v1/visit_players", [{"visit_id": vid, "player_id": me},
+                                              {"visit_id": vid, "player_id": vit}], token=shurik)
 check("и компанию", s == 201)
 sql(f"insert into visit_players (visit_id, player_id) values ({vid}, '{leha}')")
 check("сам засчитать не может", req("PATCH", f"/rest/v1/visits?id=eq.{vid}", {"status": "ok"}, token=shurik, headers={"Prefer": "return=representation"})[1] == [])
@@ -49,7 +49,7 @@ check("пересчёт проходит", req("POST", "/functions/v1/recompute"
 pts = {p["nick"]: p for p in req("GET", f"/rest/v1/visit_points?visit_id=eq.{vid}&select=nick,total,lines", token=shurik)[1]}
 check("очки по регламенту записаны каждому", set(pts) == {"Шурик", "Витёк", "Леха"}, pts)
 check("компания из трёх — К у всех", all(any(l[0] == "company" for l in p["lines"]) for p in pts.values()))
-check("долгий только у того, кто с фото", any(l[0] == "long" for l in pts["Шурик"]["lines"]) and not any(l[0] == "long" for l in pts["Витёк"]["lines"]))
+check("долгий у всей компании, без фото", all(any(l[0] == "long" for l in p["lines"]) for p in pts.values()))
 after = {n: float(sql(f"select total from standings where nick='{n}'")) for n in before}
 check("таблица выросла ровно на очки похода", all(abs(after[n] - before[n] - float(pts[n]["total"])) < 0.01 for n in before), (before, after))
 
@@ -61,4 +61,8 @@ check("ссылка Яндекс Карт", put(11, "https://yandex.ru/maps/?ll=
 check("ссылка Google Maps", put(12, "https://www.google.com/maps/place/X/@55.76,37.62,17z/data=!3d55.7640555!4d37.6245285")[1] == {"lat": 55.7640555, "lng": 37.6245285})
 check("точную точку участник не перезаписывает", put(10, "55.1111, 37.1111")[0] == 409)
 check("без входа нельзя", req("POST", "/functions/v1/bath-location", {"bath_id": 10, "input": "55.7,37.6"})[0] == 401)
+# убираем за собой: иначе следующий прогон упрётся в «одна баня в сутки»
+sql(f"delete from visits where id = {vid}")
+sql("update settings set value = '40' where key = 'cutover_week'")
+req("POST", "/functions/v1/recompute", {})
 print("Готово.")

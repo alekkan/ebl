@@ -45,7 +45,7 @@ const companyPts = (n) => (n >= 9 ? 3 : n >= 6 ? 2 : n >= 3 ? 1 : 0);
  * @param {Map<number,{type,country,region}>} p.baths
  * @param {{bath_id,year,nick,n}[]} p.legacyVisits
  * @param {{nick,total,baths,u,uu,long,k,pub,reg,week_pts,week_baths}[]} p.legacyStandings
- * @param {{id,bath_id,entered_at,posted_at,duration_min,players:{nick,has_proof}[]}[]} p.visits  только status = ok
+ * @param {{id,bath_id,entered_at,posted_at,duration_min,players:{nick}[]}[]} p.visits  только status = ok
  */
 export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits, legacyStandings, visits }) {
   const S = new Map();
@@ -85,7 +85,7 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
       const key = p.nick + "|" + v.bath_id + "|" + v.day;
       if (dedupe.has(key)) continue;
       dedupe.add(key);
-      entries.push({ v, nick: p.nick, proof: !!p.has_proof });
+      entries.push({ v, nick: p.nick });
     }
   }
   // компания — все участники в этой бане в эти сутки (п. 11)
@@ -111,7 +111,7 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     if (ultraDay.get(e.v.bath_id) === e.v.day) { lines.push(["ultra", 1]); r.uu += 1; }
     if (b.region && b.country && !setOf(regions, e.nick).has(b.country + "/" + b.region)) { lines.push(["region", 1]); r.reg += 1; }
     if (b.country && !setOf(countries, e.nick).has(b.country)) { lines.push(["country", 1]); r.reg += 1; }
-    if (e.v.duration_min > 150 && e.proof) { lines.push(["long", 1]); r.long += 1; }
+    if (e.v.duration_min > 150) { lines.push(["long", 1]); r.long += 1; }
     remember(e.nick, e.v.bath_id);
     const pts = lines.reduce((a, l) => a + l[1], 0);
     r.total += pts;
