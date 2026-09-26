@@ -308,7 +308,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
   const link = st.chatType === "private" ? null : postLink({ id: st.chat, username: st.chatUsername }, st.source);
   const { data: visit, error } = await sb.from("visits").insert({
     bath_id: bathId, entered_at: entered.toISOString(), posted_at: posted.toISOString(), duration_min: st.dur ?? 60,
-    created_by: st.authorId, tg_link: link, long_asked_at: st.dur != null ? new Date().toISOString() : null,
+    created_by: st.authorId, source: "bot", tg_link: link, long_asked_at: st.dur != null ? new Date().toISOString() : null,
   }).select().single();
   if (error) return edit(st.chat, st.card, `Не получилось сохранить поход: ${esc(error.message)}`);
   await sb.from("visit_players").insert([st.authorId, ...(st.company ?? [])].map((id: string) => ({ visit_id: visit.id, player_id: id })));
@@ -350,17 +350,49 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
   await announce(visitId);   // триггер в базе тоже позовёт — второй вызов ничего не сделает
 }
 
+const setting = async (key: string) => (await sb.from("settings").select("value").eq("key", key).maybeSingle()).data?.value ?? null;
+
+// поход отметили на сайте (зовёт триггер: ?new=<id>) — Комиссии в личку то же уведомление с кнопками, что для походов из чата
+async function siteVisit(visitId: number): Promise<boolean> {
+  await new Promise((r) => setTimeout(r, 3000));   // сайт дописывает компанию следом за самим походом
+  const { data: v } = await sb.from("visits")
+    .select("status, source, duration_min, created_at, baths(name), author:players!visits_created_by_fkey(nick), visit_players(players(nick))")
+    .eq("id", visitId).maybeSingle();
+  // только свежий поход с сайта, который ждёт решения и о котором Комиссия ещё не знает
+  if (!v || v.source !== "site" || v.status !== "pending" || Date.now() - new Date(v.created_at).getTime() > 15 * 60e3) return false;
+  const { count } = await sb.from("bot_notifications").select("visit_id", { count: "exact", head: true }).eq("visit_id", visitId);
+  if (count) return false;
+  const vv = v as Any, author = vv.author?.nick;
+  const company = (vv.visit_players ?? []).map((x: Any) => x.players?.nick).filter((n: string) => n && n !== author);
+  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`;
+  const lg = await league();
+  const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
+  for (const c of commission) {
+    const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visitId}`), btn("❌ Отклонить", `no:${visitId}`)]]);
+    if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visitId, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
+  }
+  return true;
+}
+
 // Решение Комиссии — в Telegram, одинаково для кнопок бота, сайта и правки заявки (оттуда зовёт триггер: ?verdict=<id>):
 // 👍/💩 на пост и карточку, итог отдельным сообщением в ответ на пост, в личке Комиссии — кто решил, кнопки убираем.
 async function announce(visitId: number): Promise<boolean> {
   const { data: v } = await sb.from("visits")
-    .select("status, reject_reason, baths(name), author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)")
+    .select("status, source, bath_id, reject_reason, baths(name), author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)")
     .eq("id", visitId).maybeSingle();
   if (!v || !["ok", "rejected"].includes(v.status)) return false;
   // объявляет тот, кто первым отметил статус объявленным: кнопка и триггер могут прийти одновременно
   const { data: won } = await sb.from("bot_posts").update({ announced: v.status })
     .eq("visit_id", visitId).or(`announced.is.null,announced.neq.${v.status}`).select("chat_id, source_msg, card_msg");
-  const post = won?.[0];
+  let post = won?.[0];
+  if (!post && v.source === "site") {
+    // поход с сайта: поста в группе нет — объявим отдельным сообщением в чате лиги (вставка строки — та же защита от повтора)
+    const chat = Number(await setting("league_chat"));
+    if (!chat) return false;
+    const { data: fresh } = await sb.from("bot_posts").insert({ visit_id: visitId, chat_id: chat, source_msg: 0, bath_id: v.bath_id, announced: v.status })
+      .select("chat_id, source_msg, card_msg").maybeSingle();
+    post = fresh ?? undefined;
+  }
   if (!post) return false;
   const ok = v.status === "ok", vv = v as Any;
   if (ok) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
@@ -378,13 +410,16 @@ async function announce(visitId: number): Promise<boolean> {
     const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
     const who = vv.author?.nick, bath = esc(vv.baths?.name);
     const ptsLine = ok && pts?.length ? ": " + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
-    await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
+    const where = v.source === "site" ? ` (отмечен на сайте)` : "";
+    if (post.source_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
     if (post.card_msg) await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
-    await send(post.chat_id, ok
-      ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${ptsLine}`
-      : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${bath}».`
+    const r = await send(post.chat_id, ok
+      ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${where}${ptsLine}`
+      : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${where}.`
         + (v.reject_reason ? ` Причина: ${esc(v.reject_reason)}.` : "") + " Если это ошибка — напишите Комиссии.",
-      undefined, post.source_msg);
+      undefined, post.source_msg || undefined);
+    // у похода с сайта первое объявление и есть его пост: следующие решения — ответом на него
+    if (!post.source_msg && r.ok) await sb.from("bot_posts").update({ source_msg: r.result.message_id }).eq("visit_id", visitId);
   }
   return true;
 }
@@ -448,7 +483,7 @@ async function tick() {
   const now = Date.now();
   const { data } = await sb.from("visits")
     .select("id, entered_at, status, bot_posts!inner(chat_id, source_msg), visit_players(player_id)")
-    .is("long_asked_at", null).neq("status", "rejected").lte("duration_min", LONG)
+    .is("long_asked_at", null).eq("source", "bot").neq("status", "rejected").lte("duration_min", LONG)   // на сайте длительность выбирают сразу
     .lte("entered_at", new Date(now - LONG * 60e3).toISOString()).gte("entered_at", new Date(now - 864e5).toISOString());
   const lg = await league();
   let asked = 0;
@@ -578,6 +613,9 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   if (url.searchParams.get("tick") === "1") return new Response(JSON.stringify({ asked: await tick() }), { headers: { "Content-Type": "application/json" } });
   // решение Комиссии принято не кнопкой бота — зовёт триггер в базе; объявляет только настоящий статус и только один раз
+  if (url.searchParams.get("new")) {
+    return new Response(JSON.stringify({ notified: await siteVisit(Number(url.searchParams.get("new"))) }), { headers: { "Content-Type": "application/json" } });
+  }
   if (url.searchParams.get("verdict")) {
     return new Response(JSON.stringify({ announced: await announce(Number(url.searchParams.get("verdict"))) }), { headers: { "Content-Type": "application/json" } });
   }

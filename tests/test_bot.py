@@ -87,4 +87,14 @@ check("повторный вызов ничего не шлёт второй р�
 sql(f"update visits set status = 'ok' where id = {vid}")
 check("передумали и засчитали — объявляется новое решение", wait_announced("ok"), announced())
 sql(f"delete from visits where id = {vid}")
+
+print("Поход с сайта")
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 5, now() - interval '2 hours', 180, id from players where nick='Махмуд' returning id").splitlines()[0]
+check("отмечен на сайте — бот знает, что он с сайта", sql(f"select source from visits where id = {vid}") == "site")
+check("Комиссии уходит уведомление (свежий, ждёт решения)", req("POST", f"/functions/v1/tg-bot?new={vid}", {})[1] == {"notified": True})
+sql(f"update visits set status = 'rejected', moderated_by = (select id from players where nick='Леха') where id = {vid}")
+check("решение объявляется в чате лиги отдельным сообщением", wait_announced("rejected")
+      and sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"), announced())
+check("и тоже только один раз", verdict() == {"announced": False})
+sql(f"delete from visits where id = {vid}")
 print("Готово.")

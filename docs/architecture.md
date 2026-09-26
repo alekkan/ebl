@@ -77,7 +77,8 @@ Edge-функции работают с service role и сами проверя�
 | `ebl-bot-long-ask` | каждые 10 минут | `tg-bot?tick=1`: «Долгая была?» через 2,5 часа после захода |
 | `ebl-weekly-avatars` | понедельник 04:00 МСК | `sync-avatars` |
 
-Триггер `visits_announce_verdict` (смена статуса похода → `tg-bot?verdict=<id>`) берёт адрес функций из `settings.functions_url`.
+Триггеры `visits_announce_verdict` (смена статуса похода → `tg-bot?verdict=<id>`) и `visits_notify_site` (новый поход с сайта →
+`tg-bot?new=<id>`) берут адрес функций из `settings.functions_url`, чат лиги для решений по походам с сайта — `settings.league_chat`.
 
 Расписания лежат в миграциях с зашитым адресом боевого проекта. На локальном стенде их стоит снять, а `functions_url` переключить на локальный:
 `select cron.unschedule(jobname) from cron.job;` — иначе локальная база будет дёргать боевые функции.
