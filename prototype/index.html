@@ -4,15 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#F2F4EF">
+<meta name="theme-color" content="#F2F4EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1311" media="(prefers-color-scheme: dark)">
 <title>ЕБЛ · Евразийская банная лига</title>
+<meta name="description" content="Карта бань лиги, турнирная таблица, недельный зачёт и жар по годам. Отмечай бани — Комиссия засчитает.">
+<!-- превью ссылки в Telegram; картинка по http, пока у ebl.su нет сертификата (см. docs/operations.md) -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ЕБЛ">
+<meta property="og:title" content="ЕБЛ · Евразийская банная лига">
+<meta property="og:description" content="Карта бань, турнирная таблица, недельный зачёт и жар по годам">
+<meta property="og:image" content="http://ebl.su/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 48 48%22%3E%3Cdefs%3E%3Cpath id=%22l%22 d=%22M0 0C-1-1-2.2-1.5-2.6-2.8-4.2-2.6-4.6-4.4-3.2-5.2-4.8-5.8-5-7.8-3.4-8.4-4.8-9.4-4.6-11.4-2.8-11.6-3.6-13-2.6-15 0-16 2.6-15 3.6-13 2.8-11.6 4.6-11.4 4.8-9.4 3.4-8.4 5-7.8 4.8-5.8 3.2-5.2 4.6-4.4 4.2-2.6 2.6-2.8 2.2-1.5 1-1 0 0Z%22 stroke=%22%23e5eedf%22 stroke-width=%221%22 paint-order=%22stroke%22/%3E%3C/defs%3E%3Ccircle cx=%2224%22 cy=%2224%22 r=%2224%22 fill=%22%23e5eedf%22/%3E%3Cg transform=%22rotate(-32 24 27)%22%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(-64) scale(.85)%22 fill=%22%232d5025%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(64) scale(.85)%22 fill=%22%232d5025%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(-42)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(42)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(-20) scale(1.1)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(20) scale(1.1)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) scale(1.22)%22 fill=%22%2362904d%22/%3E%3Crect x=%2221.9%22 y=%2231%22 width=%224.2%22 height=%2210.5%22 rx=%222.1%22 fill=%22%238b5a2b%22/%3E%3Crect x=%2220.6%22 y=%2229.6%22 width=%226.8%22 height=%223%22 rx=%221.5%22 fill=%22%23e3a332%22/%3E%3Crect x=%2221%22 y=%2233.6%22 width=%226%22 height=%222.2%22 rx=%221.1%22 fill=%22%23e3a332%22/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;600;700;800&display=swap">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
-<link rel="stylesheet" href="style.css?v=20260926214024">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css" integrity="sha384-uIZNAcoEHVWMk8LrCSX95DJk6FQzH6zG00LQC9BykRY1UKKpkDzDhbDLYQ1Ho3mI" crossorigin="anonymous">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
 
@@ -94,6 +106,7 @@
 </header>
 
 <main>
+  <div class="boot" id="boot" role="status">Грею парилку…</div>
   <!-- КАРТА -->
   <section class="view view-map" id="view-map">
     <div id="map"></div>
@@ -107,7 +120,7 @@
         <div class="seg" id="fSeason" role="group" aria-label="Сезон">
           <button data-v="2026" aria-pressed="true">Были в 2026</button>
           <button data-v="all" aria-pressed="false">Все бани</button>
-          <button data-v="never" aria-pressed="false">Нетронутые</button>
+          <button data-v="never" aria-pressed="false">Не были в 2026</button>
         </div>
         <div class="chips types" id="fType" role="group" aria-label="Тип бани">
           <button data-t="" aria-pressed="true">Все</button>
@@ -188,7 +201,7 @@
           <button type="button" class="wk-arrow next" id="wNext" aria-label="Следующая неделя"><svg class="ic"><use href="#i-chev"/></svg></button>
         </div>
         <div class="podium week-podium" id="weekPodium"></div>
-        <div class="tablecard"><table id="weekTable" class="week-table"></table></div>
+        <div class="tablecard"><div class="tablewrap"><table id="weekTable" class="week-table"></table></div></div>
         <p class="note" id="wNote"></p>
         <h2 class="h2">Все недели</h2>
         <p class="note">В клетке — сколько бань за неделю. Подсвечены три первых места недели. Нажми на неделю, чтобы открыть её.</p>
@@ -206,7 +219,7 @@
           <h1>Лента походов</h1>
         </div>
       </div>
-      <p class="lead">Добавил баню — поход появился здесь. Очки видно сразу, в таблицу они идут после того как их засчитает Комиссия.</p>
+      <p class="lead">Добавил баню — поход появился здесь. Очки по регламенту начислятся, когда Комиссия засчитает поход, — тогда они попадут и в таблицу.</p>
       <label class="switch"><input type="checkbox" id="secMode"><span class="track"><span class="thumb"></span></span><svg class="seal-inline" aria-hidden="true"><use href="#i-seal"/></svg>Режим Комиссии</label>
       <div class="seg feed-filter" id="feedFilter" role="group" aria-label="Какие заявки показать">
         <button data-f="pending" aria-pressed="false">На модерации</button>
@@ -258,7 +271,7 @@
         <p><b>Разные бани</b> — разные здания или разряды с отдельным входом и билетом. Помещения одного аквапарка, фитнеса или отеля и срубы одной частной бани — одна баня.</p>
         <p><b>Долгий поход</b> — на доверии: отметил «Долгая» — +1 всей компании, без фото и отметок. Ошибся — поправит Комиссия.</p>
         <p><b>Итог</b> — сумма очков за все недели. При равенстве выше тот, у кого больше бань. Сезон — с 1 января по 31 декабря 2026, неполные недели в начале и конце года разыгрываются как обычные.</p>
-        <p><b>Споры</b> решает Комиссия ЕБЛ, таблицу ведёт Виктор Кудрявцев.</p>
+        <p><b>Споры</b> решает Комиссия ЕБЛ — она же засчитывает походы. Таблицу считает портал, до W39 её вела Комиссия вручную.</p>
         <p><b>Кубок.</b> Первые 16 мест на старт Кубка проходят в Кубок. Wild-card у чемпионов прошлых лет (Филипп Лысенко, Дмитрий Радомский, Денис Мамонтов), обладателей Кубков (Ахмед Саидалиев, Дмитрий Радомский, команда Евгения Иванова и Дениса Киреева) и одно место у Комиссии.</p>
       </div>
     </div>
@@ -285,7 +298,7 @@
           <div class="grid2">
             <div class="field"><label for="nbName">Название</label><input id="nbName" class="inp" placeholder="Город, название"></div>
             <div class="field"><label for="nbType">Тип</label>
-              <select id="nbType" class="sel"><option value="public">Общественная</option><option value="spa">Хуитнес — фитнес, аквапарк, спа</option><option value="private">Частная</option></select></div>
+              <select id="nbType" class="sel"><option value="" selected>— выбери —</option><option value="public">Общественная</option><option value="spa">Хуитнес — фитнес, аквапарк, спа</option><option value="private">Частная</option></select></div>
             <div class="field"><label for="nbCountry">Страна</label><input id="nbCountry" class="inp" list="countryList" placeholder="Россия"></div>
             <div class="field"><label for="nbRegion">Регион</label><input id="nbRegion" class="inp" list="regionList" placeholder="Субъект, область, земля"></div>
           </div>
@@ -364,12 +377,12 @@
 <datalist id="countryList"></datalist>
 <datalist id="regionList"></datalist>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
-<script src="config.js?v=20260926214024"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
-<script src="db.js?v=20260926214024"></script>
-<script src="app.js?v=20260926214024"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js" integrity="sha384-SIh+qcEBNMda8tT+rx66aCBuWtVYMVzRABqhK4eeQh4pjDHoRdVx8nYU4LQ5eGzI" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js" integrity="sha384-mFKkGiGvT5vo1fEyGCD3hshDdKmW3wzXW/x+fWriYJArD0R3gawT6lMvLboM22c0" crossorigin="anonymous"></script>
+<script src="config.js?v=24"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
+<script src="db.js?v=24"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>

@@ -147,6 +147,11 @@ a { color: var(--oak); }
 .btn.solid { background: var(--oak); border-color: var(--oak); color: var(--oak-ink); }
 
 main { min-height: 0; position: relative; }
+/* пока грузятся данные — видно, что сайт жив; при ошибке — понятно, что делать */
+.boot { position: absolute; z-index: 2000; top: 40%; left: 50%; transform: translate(-50%, -50%); padding: 12px 20px; border-radius: 999px;
+  background: var(--panel); box-shadow: var(--shadow); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.boot.err { white-space: normal; max-width: calc(100% - 32px); border-radius: 16px; color: var(--ember); text-align: center; }
+@media (prefers-reduced-motion: no-preference) { .boot:not(.err) { animation: bootpulse 1.2s ease-in-out infinite alternate; } @keyframes bootpulse { from { opacity: .55; } } }
 .view { height: 100%; }
 
 /* ---------- инпуты ---------- */
@@ -187,7 +192,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .leaflet-control-zoom a { background: var(--panel) !important; color: var(--ink) !important; border-color: var(--line) !important; width: 36px !important; height: 36px !important; line-height: 36px !important; }
 .leaflet-control-attribution { background: color-mix(in srgb, var(--panel) 80%, transparent) !important; color: var(--ink-3) !important; border-radius: 8px 0 0 0; font-size: 11px; }
 .leaflet-control-attribution a { color: var(--ink-2) !important; }
-.leaflet-top.leaflet-left { left: 392px; top: 4px; }
+#map .leaflet-top.leaflet-left { left: 392px; top: 4px; }   /* только на главной карте — справа от панели; мини-карта формы не трогается */
 
 .pin {
   border-radius: 50%; background: var(--c); border: 2px solid var(--panel); color: var(--panel);
@@ -339,6 +344,8 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .sec-row > span { flex: 1; min-width: 200px; }
 .sec-row .sel { width: auto; height: 34px; font-size: 13px; }
 .sec-row .inp.sm { width: 150px; height: 34px; font-size: 13px; padding: 0 10px; }
+.dup-pick { flex-basis: 100%; display: grid; gap: 6px; }
+.dup-pick .inp.sm { width: 100%; }
 @media (max-width: 560px) { .sec-row .inp.sm { flex: 1 1 40%; width: auto; } }
 .post-pts small { font-family: var(--body); font-weight: 500; }
 
@@ -387,7 +394,7 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .heat-pop { font-family: var(--body); }
 .heat-pop b { display: block; font-size: 14px; }
 .heat-pop span { color: #666; font-size: 12px; }
-.heat-pop button { margin-top: 6px; border: 0; background: none; color: var(--oak); font-weight: 700; padding: 0; }
+.heat-pop button { margin-top: 6px; border: 0; background: none; color: #3f6b35; font-weight: 700; padding: 0; }   /* попап Leaflet всегда белый — цвет не из темы */
 
 /* ---------- страницы ---------- */
 .page { overflow: auto; padding-inline: 20px; padding-block: 12px 72px;
@@ -469,6 +476,10 @@ tr.below { color: var(--ink-2); }
 .week-table td.pos { font-size: 16px; }
 .week-table tr.p1 td { background: color-mix(in srgb, var(--honey) 12%, var(--panel)); }
 .week-table td.wk-pts { font: 700 15px var(--display); color: var(--ember); }
+@media (max-width: 560px) {
+  .week-table th, .week-table td { padding: 10px 8px; }
+  .week-table .wide-only { display: none; }
+}
 .week-grid th, .week-grid td { padding: 8px 6px; text-align: center; min-width: 38px; }
 .week-grid th.l, .week-grid td.l { text-align: left; }
 .week-grid th[data-w] { cursor: pointer; }
@@ -561,6 +572,12 @@ tr.below { color: var(--ink-2); }
   @keyframes pop { from { transform: translateY(14px) scale(.98); opacity: 0; } }
   .drawer:not([hidden]) { animation: slide .25s var(--ease); }
   @keyframes slide { from { transform: translateX(16px); opacity: 0; } }
+  /* на телефоне карточка бани и окна — шторки снизу: и выезжают снизу */
+  @media (max-width: 760px) {
+    .drawer:not([hidden]) { animation: sheet-up .3s var(--ease); }
+    .modal:not([hidden]) .sheet { animation: sheet-up .3s var(--ease); }
+  }
+  @keyframes sheet-up { from { transform: translateY(40px); opacity: .4; } }
 }
 .visit { display: grid; grid-template-columns: minmax(0, 1fr) 320px; }
 .visit-main { padding: 28px; display: grid; gap: 20px; align-content: start; }
@@ -712,7 +729,7 @@ tr.below { color: var(--ink-2); }
 }
 /* между телефоном и широким экраном шапка не влезала (кнопка уезжала за край) — ужимаем по шагам */
 @media (max-width: 1060px) {
-  .me-btn:not(.guest) span { display: none; } .me-btn:not(.guest) { padding: 4px; }
+  .me-btn:not(.guest) .me-name { display: none; } .me-btn:not(.guest) { padding: 4px; }   /* только подпись: аватарка — тоже span */
   .me-btn.guest { padding: 7px 14px 7px 10px; } .me-btn .ic { margin: 0; }
   .cta#addVisitBtn .cta-long { display: none; }
   .cta#addVisitBtn .cta-short { display: inline-block; }
@@ -775,4 +792,5 @@ tr.below { color: var(--ink-2); }
 }
 @media (max-width: 420px) {
   .seg button { font-size: 12px; }
+  #feedFilter { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }   /* четыре фильтра в одну строку не влезают */
 }

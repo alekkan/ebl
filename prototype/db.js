@@ -2,7 +2,10 @@
    иначе витрина: выгрузка таблицы из data/*.json, походы и отзывы — в localStorage браузера. */
 window.EBLData = (() => {
   const cfg = window.EBL_CONFIG || {};
-  const live = !!(cfg.supabaseUrl && cfg.supabaseKey && window.supabase);
+  const configured = !!(cfg.supabaseUrl && cfg.supabaseKey);
+  // адрес задан, а библиотека с CDN не загрузилась — это поломка, а не витрина: не показываем старые данные как живые
+  const broken = configured && !window.supabase;
+  const live = configured && !broken;
   const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey) : null;
   const YEARS_HIST = [2023, 2024, 2025];
   const LINE_LABEL = { visit: "Поход в баню", public: "Общественная", company: "Компания", unique: "Уникальная",
@@ -16,10 +19,13 @@ window.EBLData = (() => {
   const mskLocal = (iso) => new Date(new Date(iso).getTime() + 3 * 3600e3).toISOString().slice(0, 16);
   const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
-  async function all(table, select, filter) {
+  // постранично по 1000; порядок обязателен — без него строки на стыке страниц могут задвоиться или потеряться
+  async function all(table, select, filter, order = ["id"]) {
     const out = [];
     for (let from = 0; ; from += 1000) {
-      let q = sb.from(table).select(select).range(from, from + 999);
+      let q = sb.from(table).select(select);
+      for (const col of order) q = q.order(col);
+      q = q.range(from, from + 999);
       if (filter) q = filter(q);
       const rows = check(await q);
       out.push(...rows);
@@ -74,10 +80,10 @@ window.EBLData = (() => {
 
   async function loadLive() {
     const [baths, counts, standings, reviews, players, me] = await Promise.all([
-      all("baths", "id, name, type, country, region, lat, lng, precision, status, created_by"),
-      all("bath_counts", "bath_id, year, nick, n"),
-      all("standings", "*"),
-      all("reviews", "bath_id, rating, text, created_at, players(nick)"),
+      all("baths", "id, name, type, country, region, lat, lng, precision, status, created_by", (q) => q.neq("status", "rejected")),
+      all("bath_counts", "bath_id, year, nick, n", null, ["bath_id", "year", "nick"]),
+      all("standings", "*", null, ["nick"]),
+      all("reviews", "bath_id, rating, text, created_at, player_id, players(nick)", null, ["bath_id", "player_id"]),
       all("players", "id, nick, is_commission, photo_url"),
       whoami(),
     ]);
@@ -92,7 +98,7 @@ window.EBLData = (() => {
     }
     const rv = {};
     for (const r of reviews.sort((a, b) => b.created_at.localeCompare(a.created_at))) {
-      (rv[r.bath_id] ||= []).push({ author: r.players?.nick ?? "участник", rate: r.rating, text: r.text, at: r.created_at });
+      (rv[r.bath_id] ||= []).push({ author: r.players?.nick ?? "участник", rate: r.rating, text: r.text, at: r.created_at, mine: r.player_id === me?.playerId });
     }
     const playersById = Object.fromEntries(players.map((p) => [p.id, p.nick]));
     const visits = me?.playerId ? await loadVisits(playersById) : [];
@@ -126,7 +132,7 @@ window.EBLData = (() => {
 
     async submitReview(bathId, me, rate, text) {
       if (!live) {
-        (cache.reviews[bathId] ||= []).unshift({ author: me, rate, text, at: Date.now() });
+        cache.reviews[bathId] = [{ author: me, rate, text, at: Date.now() }, ...(cache.reviews[bathId] || []).filter((r) => r.author !== me)];
         store.set("reviews", cache.reviews); return;
       }
       check(await sb.from("reviews").upsert({ bath_id: bathId, player_id: cache.me.playerId, rating: rate, text }, { onConflict: "bath_id,player_id" }));
@@ -144,28 +150,25 @@ window.EBLData = (() => {
         cache.visits.unshift(rec); store.set("visits", cache.visits);
         return rec;
       }
-      const me = cache.me.playerId;
-      let bathId = v.bathId;
-      if (v.newBath) {
-        const nb = check(await sb.from("baths").insert({ ...v.newBath, status: "pending", created_by: me }).select().single());
-        bathId = nb.id; v.createdBath = { ...nb, v26: {}, hist: {}, histBy: {}, isNew: true };
-      }
-      // тип — до похода: уведомление Комиссии (триггер на новый поход) уже покажет его
-      if (v.bathType && !v.newBath) {
-        check(await sb.rpc("suggest_bath_type", { p_bath: bathId, p_type: v.bathType }));
-      }
-      const visit = check(await sb.from("visits").insert({ bath_id: bathId, entered_at: v.date + ":00+03:00", duration_min: v.dur, created_by: me }).select().single());
-      const rows = [me, ...v.companions.map((nick) => cache.playerIds[nick])].map((id) => ({ visit_id: visit.id, player_id: id }));
-      check(await sb.from("visit_players").insert(rows));
-      v.bathId = bathId;
-      return { id: visit.id };
+      // одной транзакцией: новая баня, тип, поход и компания — либо всё, либо ничего (и без дублей при повторе)
+      const res = check(await sb.rpc("submit_visit", {
+        p_bath_id: v.newBath ? null : v.bathId, p_new_bath: v.newBath || null, p_bath_type: v.bathType || null,
+        p_entered_at: v.date + ":00+03:00", p_duration_min: v.dur,
+        p_companions: v.companions.map((nick) => cache.playerIds[nick]).filter(Boolean),
+      }));
+      if (v.newBath) v.createdBath = { ...v.newBath, id: res.bath_id, status: "pending", created_by: cache.me.playerId, v26: {}, hist: {}, histBy: {}, isNew: true };
+      v.bathId = res.bath_id;
+      return { id: res.visit_id };
     },
 
     async moderate(visitId, status, reason) {
       if (!live) {
         const v = cache.visits.find((x) => x.id === visitId); v.status = status; store.set("visits", cache.visits); return;
       }
-      check(await sb.from("visits").update({ status, moderated_by: cache.me.playerId, moderated_at: new Date().toISOString(), reject_reason: reason || null }).eq("id", visitId));
+      // только если заявка ещё ждёт: её могли уже решить кнопками в Telegram или другой член Комиссии
+      const rows = check(await sb.from("visits").update({ status, moderated_by: cache.me.playerId, moderated_at: new Date().toISOString(), reject_reason: reason || null })
+        .eq("id", visitId).eq("status", "pending").select("id"));
+      if (!rows.length) throw new Error("эту заявку уже решили — обнови страницу");
     },
     // Комиссия правит заявку: поля похода и состав компании people = [ник, …] (вместе с автором)
     async updateVisit(visitId, patch, people) {
@@ -198,7 +201,10 @@ window.EBLData = (() => {
       check(await sb.from("player_accounts").update({ player_id: cache.playerIds[nick], claimed_nick: null }).eq("id", accountId));
     },
     // точка бани по ссылке на карту или координатам — разбирает edge-функция (короткие ссылки раскрываются там)
-    async findLocation(input) { return api.setBathLocation(null, input); },
+    async findLocation(input) {
+      if (!live) throw new Error("Поиск по ссылке и адресу работает на боевом сайте — поставь точку кликом по карте");
+      return api.setBathLocation(null, input);
+    },
     async setBathLocation(bathId, input) {
       const { data: { session } } = await sb.auth.getSession();
       const r = await fetch(cfg.supabaseUrl + "/functions/v1/bath-location", {
@@ -210,7 +216,13 @@ window.EBLData = (() => {
       return body;
     },
     async moderateBath(bathId, patch) { check(await sb.from("baths").update(patch).eq("id", bathId)); },
+    // Комиссия: баня оказалась дублем — походы переезжают в оригинал, дубль отклоняется
+    async mergeBath(dupId, origId) {
+      check(await sb.from("visits").update({ bath_id: origId }).eq("bath_id", dupId));
+      check(await sb.from("baths").update({ status: "rejected" }).eq("id", dupId));
+    },
     store,
+    broken,
   };
   return api;
 })();

@@ -6,7 +6,8 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (n) => (Math.round(n * 10) / 10).toLocaleString("ru-RU");
   // дробные — всегда «очка»: 809,5 очка
-  const plural = (n, a, b, c) => { if (!Number.isInteger(+n)) return b; n = Math.abs(n); const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
+  // склоняем то, что видно на экране: 20,97 показывается как «21» — значит «21 очко»
+  const plural = (n, a, b, c) => { n = Math.round(Math.abs(+n) * 10) / 10; if (!Number.isInteger(n)) return b; const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
   const TYPE_LABEL = { public: "Общественная", spa: "Хуитнес", private: "Частная", unknown: "Тип не указан" };
   const PREC_LABEL = { city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
   const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
@@ -14,11 +15,14 @@
 
   // ---------- данные ----------
   const D = window.EBLData, store = D.store;
+  const boot = (html) => { const el = $("#boot"); if (el) { el.innerHTML = html; el.classList.add("err"); } };
+  if (D.broken) { boot("Не загрузилась связь с базой. Проверь интернет и обнови страницу."); return; }
   let data;
   try { data = await D.load(); } catch (e) {
-    document.body.insertAdjacentHTML("beforeend", `<div class="toast">Не получилось загрузить данные: ${esc(e.message)}. Обнови страницу.</div>`);
+    boot(`Не получилось загрузить данные: ${esc(e.message)}. Обнови страницу.`);
     throw e;
   }
+  $("#boot")?.remove();
   const me = data.me;                 // null — не вошёл или витрина; me.nick === null — вошёл, но ещё не привязан к участнику
   const member = !D.live || !!me?.nick;
   const canModerate = !D.live || !!me?.isCommission;
@@ -27,7 +31,7 @@
   const standings = data.standings;
   const players = data.players?.length ? data.players : standings.map((s) => s.name);
   const baths = data.baths;
-  const updatedAt = D.live && standings[0]?.updatedAt ? new Date(standings[0].updatedAt).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : null;
+  const updatedAt = D.live && standings[0]?.updatedAt ? new Date(standings[0].updatedAt).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow" }) + " МСК" : null;
   const DATA_NOTE = updatedAt ? `обновлено ${updatedAt}` : "по таблице на 25 сентября";
   const byId = new Map(baths.map((b) => [b.id, b]));
   baths.forEach(hydrate);
@@ -153,14 +157,17 @@
   }
 
   // ---------- шапка панели ----------
-  const totalVisits = standings.reduce((a, s) => a + s.baths, 0);
-  const visited26 = baths.filter((b) => b.n26);
-  const countries26 = new Set(visited26.map((b) => b.country).filter(Boolean));
-  $("#kpis").innerHTML = [
-    [totalVisits, plural(totalVisits, "поход", "похода", "походов")],
-    [visited26.length, plural(visited26.length, "баня", "бани", "бань")],
-    [countries26.size, plural(countries26.size, "страна", "страны", "стран")],
-  ].map(([n, l]) => `<div><b>${n.toLocaleString("ru-RU")}</b><span>${l} в 2026</span></div>`).join("");
+  function renderKpis() {
+    const totalVisits = standings.reduce((a, s) => a + s.baths, 0);
+    const visited26 = baths.filter((b) => b.n26);
+    const countries26 = new Set(visited26.map((b) => b.country).filter(Boolean));
+    $("#kpis").innerHTML = [
+      [totalVisits, plural(totalVisits, "поход", "похода", "походов")],
+      [visited26.length, plural(visited26.length, "баня", "бани", "бань")],
+      [countries26.size, plural(countries26.size, "страна", "страны", "стран")],
+    ].map(([n, l]) => `<div><b>${n.toLocaleString("ru-RU")}</b><span>${l} в 2026</span></div>`).join("");
+  }
+  renderKpis();
 
   // ---------- фильтры ----------
   const countries = [...new Set(baths.map((b) => b.country).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
@@ -244,7 +251,8 @@
     $(".race-more", $("#race")).onclick = () => window.openWeekly();
   }
   renderRace();
-  setInterval(() => { renderRace(); renderTimer(); }, 60e3);
+  // страница открыта дольше недели (прошло воскресенье 22:59) — перезагружаем: сменилась текущая неделя и места
+  setInterval(() => { if (weekOf(mskNow()) !== curWeek) location.reload(); renderRace(); renderTimer(); }, 60e3);
 
   // ---------- карточка бани ----------
   let openId = null;
@@ -270,6 +278,9 @@
     }
     const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
     const rv = reviews[id] || [];
+    // свой отзыв на баню один: подставляем его, повторная отправка обновляет, а не пишет второй
+    const myReview = D.live && me?.nick ? rv.find((r) => r.mine || r.author === me.nick) : null;
+    const myRate = myReview?.rate || 4;
     const avg = rv.length ? rv.reduce((a, r) => a + r.rate, 0) / rv.length : 0;
     const pending = visits.filter((v) => v.bathId === id && v.status === "pending").length;
     const hist = Object.entries(b.hist || {}).sort();
@@ -303,12 +314,16 @@
         </div>` : ""}
         <div class="d-actions">
           <button class="cta" id="dVisit">${icon("plus")}<span>Я тут парился</span></button>
-          <a class="btn" target="_blank" rel="noopener" href="https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}">${icon("route")}Маршрут</a>
+          <a class="btn" target="_blank" rel="noopener" href="${b.prec === "exact" && b.ll
+            ? `https://yandex.ru/maps/?rtext=~${b.ll[0]},${b.ll[1]}&rtt=auto`   /* точка есть — маршрут прямо до неё */
+            : `https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}`}">${icon("route")}Маршрут</a>
         </div>
         <section>
           <h3>Кто парился в 2026</h3>
           ${who.length ? `<div class="who">${who.map(([p, n]) => `<button data-player="${esc(p)}">${ava(p, "sm")}${esc(p)}${n > 1 ? `<b>×${n}</b>` : ""}</button>`).join("")}</div>`
-            : `<p class="hint" style="margin:0">В этом сезоне ещё никто. Первый заберёт +1 за уникальную.</p>`}
+            : `<p class="hint" style="margin:0">${!b.nHist && !b.isNew
+                ? "С 2023 года здесь никого из лиги не было — первые, кто сходит, возьмут +1 за ультрауникальную и +1 за уникальную."
+                : "В этом сезоне здесь ещё никого не было — каждому, кто сходит, +1 за уникальную."}</p>`}
           ${hist.length ? `<p class="hint" style="margin:10px 0 0">Прошлые сезоны: ${hist.map(([y, n]) => `${y} — ${n}`).join(" · ")} · всего с 2023 — <b>${b.nAll}</b></p>` : ""}
           ${pending ? `<p class="hint" style="margin:6px 0 0">Ещё ${pending} на модерации</p>` : ""}
         </section>
@@ -323,11 +338,11 @@
         ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Отзывы пишут участники лиги.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>` : `
         <form class="rvform" id="rvForm">
           <div class="row">
-            <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === 4}" aria-label="${n} из 5">${leafSvg(n <= 4).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
+            <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === myRate}" aria-label="${n} из 5">${leafSvg(n <= myRate).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
             ${D.live ? `<span class="hint">от имени <b>${esc(me.nick)}</b></span>` : `<select id="rvAuthor" class="sel" aria-label="Автор">${players.map((p) => `<option ${p === store.get("me", "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`}
           </div>
-          <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required></textarea>
-          <button class="btn solid" type="submit" style="justify-self:start">Опубликовать отзыв</button>
+          <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва">${esc(myReview?.text || "")}</textarea>
+          <button class="btn solid" type="submit" style="justify-self:start">${myReview ? "Обновить отзыв" : "Опубликовать отзыв"}</button>
         </form>`}
       </div>`;
     d.hidden = false;
@@ -336,7 +351,7 @@
       try {
         await D.moderateBath(b.id, { type: e.target.value || null });
         b.type = e.target.value || null; b.t = b.type || "unknown"; render(); openBath(b.id);
-        toast(`Тип: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); await D.recompute();
+        toast(`Тип: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); recomputeSoon();
       } catch (err) { toast("Не получилось: " + err.message); }
     });
     $("#dVisit", d).onclick = () => openVisit({ bathId: id });
@@ -351,6 +366,7 @@
         const p = await D.setBathLocation(id, $("#geoFixInput", d).value.trim());
         b.lat = p.lat; b.lng = p.lng; b.precision = "exact"; hydrate(b);
         render(); openBath(id, true); toast("📍 Точка поставлена — спасибо!");
+        refreshData().then(() => openId === id && openBath(id)).catch(() => {});   // страну и регион по точке сервер мог заполнить
       } catch (err) { toast(err.message); }
     });
     $("#rvLogin", d)?.addEventListener("click", () => (me ? openClaim() : openLogin()));
@@ -363,7 +379,7 @@
       try {
         await D.submitReview(id, author, rate, text);
         if (D.live) reviews[id] = [{ author, rate, text, at: Date.now() }, ...(reviews[id] || []).filter((r) => r.author !== author)];
-        toast("Отзыв опубликован — спасибо за пар"); openBath(id);
+        toast(myReview ? "Отзыв обновлён" : "Отзыв опубликован — спасибо за пар"); openBath(id);
       } catch (err) { toast("Отзыв не сохранился: " + err.message); }
     };
   }
@@ -380,22 +396,27 @@
     const [lx, ly] = pts[pts.length - 1].split(",");
     return `<svg class="spark" width="${W}" height="${H}" viewBox="-3 0 ${W + 6} ${H}" aria-label="очки за места, последние 12 недель"><polygon points="0,${H} ${pts.join(" ")} ${W},${H}" fill="var(--oak-soft)"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--oak)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${lx}" cy="${ly}" r="3" fill="var(--ember)"/></svg>`;
   }
-  const ranked = [...standings].sort((a, b) => b.total - a.total || b.baths - a.baths).map((s, i) => ({ ...s, place: i + 1 }));
-  // короны — победы в закрытых неделях; ничья за первое место — корона каждому
-  const crowns = {};
-  for (let w = 1; w < curWeek; w++) for (const r of weekRows(w)) if (r.place === 1) crowns[r.name] = (crowns[r.name] || 0) + 1;
-  ranked.forEach((s) => (s.crowns = crowns[s.name] || 0));
-  const playedWeeks = Math.max(...standings.flatMap((s) => Object.keys(s.weekPts).map(Number)));
-  $("#tableEyebrow").innerHTML = `Сезон 2026 · разыграно <b>${playedWeeks}</b> ${plural(playedWeeks, "неделя", "недели", "недель")}`;
+  const ranked = [];
+  // места, короны (победы в закрытых неделях; ничья за первое — корона каждому), шапка и пьедестал — из standings
+  function rankTable() {
+    ranked.splice(0, ranked.length, ...[...standings].sort((a, b) => b.total - a.total || b.baths - a.baths).map((s, i) => ({ ...s, place: i + 1 })));
+    const crowns = {};
+    for (let w = 1; w < curWeek; w++) for (const r of weekRows(w)) if (r.place === 1) crowns[r.name] = (crowns[r.name] || 0) + 1;
+    ranked.forEach((s) => (s.crowns = crowns[s.name] || 0));
+    const playedWeeks = Math.max(0, ...standings.flatMap((s) => Object.keys(s.weekPts || {}).map(Number)));
+    $("#tableEyebrow").innerHTML = `Сезон 2026 · разыграно <b>${playedWeeks}</b> ${plural(playedWeeks, "неделя", "недели", "недель")}`;
+    // в начале сезона (или на пустой базе) участников может быть меньше трёх — пьедестал без пустых ступеней
+    $("#podium").innerHTML = [ranked[1], ranked[0], ranked[2]].filter(Boolean).map((s) => `
+      <button class="pod p${s.place}" data-player="${esc(s.name)}">
+        ${ava(s.name, "xl")}
+        <span class="pod-name">${esc(s.name)}</span>
+        <span class="pod-pts"><b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")}</span>
+        <span class="pod-step">${s.place}</span>
+      </button>`).join("");
+  }
+  rankTable();
   const renderTimer = () => ($("#tableTimer").innerHTML = `${icon("clock")}до конца W${curWeek} <b>${timeLeft()}</b>`);
   renderTimer();
-  $("#podium").innerHTML = [ranked[1], ranked[0], ranked[2]].map((s) => `
-    <button class="pod p${s.place}" data-player="${esc(s.name)}">
-      ${ava(s.name, "xl")}
-      <span class="pod-name">${esc(s.name)}</span>
-      <span class="pod-pts"><b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")}</span>
-      <span class="pod-step">${s.place}</span>
-    </button>`).join("");
   function renderTable() {
     const rows = [...ranked].sort((a, b) => sortDir * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0)) || a.place - b.place);
     const byTotal = sortKey === "total" && sortDir < 0;
@@ -450,7 +471,7 @@
     $("#weekPodium").innerHTML = rows.length ? [podRow(rows[1], 2), podRow(rows[0], 1), podRow(rows[2], 3)].join("") : "";
     $("#weekPodium").hidden = !rows.length;
     $("#weekTable").innerHTML = rows.length ? `
-      <thead><tr><th>#</th><th class="l">Участник</th><th>Бань</th><th>${live ? "Будет за место" : "За место"}</th></tr></thead>
+      <thead><tr><th>#</th><th class="l">Участник</th><th>Бань</th><th>${live ? "Будет<span class=\"wide-only\"> за место</span>" : "За место"}</th></tr></thead>
       <tbody>${rows.map((r) => `<tr data-player="${esc(r.name)}" class="${r.place <= 3 ? "top3 p" + r.place : ""}">
         <td class="pos">${r.place <= 3 ? ["🥇", "🥈", "🥉"][r.place - 1] : r.place}</td>
         <td class="l who-cell"><span>${ava(r.name, "sm")}${esc(r.name)}</span></td>
@@ -616,21 +637,24 @@
 
   // ---------- профиль участника ----------
   function openPlayer(name) {
-    const s = ranked.find((x) => x.name === name); if (!s) return;
+    // новичка ещё нет в таблице (ни бань из таблицы, ни засчитанных походов) — карточка всё равно открывается
+    const s = ranked.find((x) => x.name === name)
+      || { name, total: 0, baths: 0, u: 0, uu: 0, long: 0, k: 0, pub: 0, reg: 0, weekPts: {}, weekBaths: {}, place: ranked.length + 1 };
     const weeks = Array.from({ length: curWeek }, (_, i) => i + 1);
     const maxB = Math.max(1, ...weeks.map((w) => s.weekBaths[w] ?? 0));
     const mine = baths.filter((b) => b.v26?.[name]).sort((a, b) => b.v26[name] - a.v26[name]);
-    const regions = new Set(mine.map((b) => b.region && b.country + "/" + b.region).filter(Boolean));
+    const regions = new Set(mine.filter((b) => b.region && b.country).map(placeKey));
     const ctry = new Set(mine.map((b) => b.country).filter(Boolean));
+    const empty = !s.baths;
     const types = mine.reduce((a, b) => ((a[b.t] = (a[b.t] || 0) + b.v26[name]), a), {});
     const best = Math.max(...weeks.map((w) => s.weekBaths[w] ?? 0));
     $("#playerBody").innerHTML = `
       <div class="p-head">${ava(name, "xl")}<div>
-        <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${s.place} место в сезоне</div>
+        <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${empty ? "участник лиги" : `${s.place} место в сезоне`}</div>
         <h2>${esc(name)}</h2>
-        <div class="sub"><b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")} · рекорд — ${best} за неделю</div>
+        <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${best ? ` · рекорд — ${best} ${plural(best, "баня", "бани", "бань")} за неделю` : ""}`}</div>
       </div></div>
-      <div class="p-body">
+      ${empty ? `<div class="p-body"><div class="empty" style="padding:28px 8px">${markSvg()}<b>Сезон ещё впереди</b><p>Первая баня — сразу +1 за поход и +1 за уникальную.</p></div></div>` : `<div class="p-body">
         <div class="stats four">
           <div><b>${s.u}</b><span>уникальных</span></div><div><b>${s.uu}</b><span>ультра&shy;уникальных</span></div>
           <div><b>${s.long}</b><span>долгих</span></div><div><b>${s.k}</b><span>за компанию</span></div>
@@ -648,14 +672,17 @@
             <p class="hint" style="margin:0 0 18px">${[...ctry].map(esc).join(", ")}</p>
             <h3>Типы бань</h3>
             ${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<div class="typerow">${tdot(t)}<span>${TYPE_LABEL[t]}</span><span>${n}</span></div>`).join("")}
-            <button class="btn" style="margin-top:16px" id="pOnMap">${icon("map")}Бани ${esc(name)} на карте</button>
+            <button class="btn" style="margin-top:16px" id="pOnMap">${icon("map")}Показать на карте</button>
           </section>
         </div>
-      </div>`;
+      </div>`}`;
     $("#playerModal").hidden = false;
     $$("#playerBody [data-bath]").forEach((x) => (x.onclick = () => { $("#playerModal").hidden = true; show("map"); openBath(+x.dataset.bath, true); }));
-    $("#pOnMap").onclick = () => {
+    if ($("#pOnMap")) $("#pOnMap").onclick = () => {
       $("#playerModal").hidden = true; show("map"); closeBath();
+      // остальные фильтры сбрасываем, иначе можно увидеть «Ничего не нашлось»
+      $("#q").value = ""; $("#fCountry").value = "";
+      $$("#fType button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.t === "")));
       $("#fPlayer").value = name; $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "2026")));
       render(true);
     };
@@ -672,6 +699,7 @@
     if (D.live && !me) return openLogin();
     if (D.live && !me.nick) return openClaim();
     vf.reset();
+    delete $("#nbCountry").dataset.manual; delete $("#nbRegion").dataset.manual;
     $("#vPlayer").value = D.live ? me.nick : store.get("me", players[0]);
     $("#vPlayer").disabled = D.live;
     $("#vDate").value = mskNow();
@@ -700,7 +728,10 @@
     const me = $("#vPlayer").value;
     const was = new Set($$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p));
     // сначала те, с кем чаще ходят в бани из таблицы — просто по месту в зачёте
-    $("#vComp").innerHTML = ranked.map((s) => s.name).filter((p) => p !== me).map((p) => `<button type="button" data-p="${esc(p)}" aria-pressed="${was.has(p)}">${ava(p)}${esc(p)}</button>`).join("");
+    // все участники лиги — и новички, которых ещё нет в таблице; частые попутчики (по месту в зачёте) — первыми
+    const order = new Map(ranked.map((s, i) => [s.name, i]));
+    const everyone = [...players].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9) || a.localeCompare(b, "ru"));
+    $("#vComp").innerHTML = everyone.filter((p) => p !== me).map((p) => `<button type="button" data-p="${esc(p)}" aria-pressed="${was.has(p)}">${ava(p)}${esc(p)}</button>`).join("");
     compCount();
   }
   function compCount() { const n = $$("#vComp button[aria-pressed=true]").length; $("#vCompCount").textContent = n ? `· ${n + 1} в компании` : ""; }
@@ -758,13 +789,16 @@
     const hit = names.find((n) => regionKey(n) === regionKey(region)) ?? names.find((n) => stem(n) === stem(region));
     return { country: c, region: hit ?? region.replace(/\s+область$/i, " обл").replace(/^Республика\s+/i, "") };
   }
+  // вписанное руками не трогаем; подставленное по прошлой точке — меняем, если точку передвинули
+  ["#nbCountry", "#nbRegion"].forEach((s) => $(s).addEventListener("input", () => ($(s).dataset.manual = "1")));
   async function fillRegion([lat, lng]) {
-    if ($("#nbCountry").value.trim() && $("#nbRegion").value.trim()) return;
+    const auto = (s) => !$(s).dataset.manual;
+    if (!auto("#nbCountry") && !auto("#nbRegion")) return;
     try {
       const r = await (await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=5&accept-language=ru&lat=${lat}&lon=${lng}`)).json();
       const a = r.address || {}, p = matchPlace(a.country, a.state || a.region || a.city);
-      if (!$("#nbCountry").value.trim() && p.country) $("#nbCountry").value = p.country;
-      if (!$("#nbRegion").value.trim() && p.region) $("#nbRegion").value = p.region;
+      if (auto("#nbCountry") && p.country) $("#nbCountry").value = p.country;
+      if (auto("#nbRegion") && p.region) $("#nbRegion").value = p.region;
       calc();
     } catch { /* без автозаполнения */ }
   }
@@ -818,9 +852,12 @@
     const comp = $$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p);
     const date = $("#vDate").value || mskNow();
     const isNew = picked === "new";
-    const b = isNew ? { t: $("#nbType").value, country: $("#nbCountry").value.trim(), region: $("#nbRegion").value.trim(), n26: 0, nHist: 0 } : picked;
-    const base = { total: 0, week: weekOf(date), comp, dur, player, date };
+    const b = isNew ? { t: $("#nbType").value || "unknown", country: $("#nbCountry").value.trim(), region: $("#nbRegion").value.trim(), n26: 0, nHist: 0 } : picked;
+    // неделя — по моменту отметки (п. 6: пост в группе), а не по времени захода: так считает Комиссия и движок очков
+    const base = { total: 0, week: weekOf(mskNow()), comp, dur, player, date };
     if (!b) return { ...base, empty: "Выбери баню — и талон заполнится сам" };
+    if (date > mskNow()) return { ...base, empty: "Время захода ещё не наступило — поправь дату" };
+    if (date.slice(0, 4) !== "2026") return { ...base, empty: "Сезон — 2026 год: поход из другого года не засчитывается" };
     const sameDay = !isNew && visits.some((v) => v.status !== "rejected" && v.bathId === b.id && v.date.slice(0, 10) === date.slice(0, 10) && (v.player === player || v.companions.includes(player)));
     if (sameDay) return { ...base, empty: "В эту баню сегодня уже отмечен поход — второй раз за сутки не считается" };
     const s = seasonOf(player), lines = [];
@@ -842,14 +879,17 @@
   }
   function calc() {
     const date = $("#vDate").value;
-    if (date) { const w = weekOf(date); $("#vWeekHint").textContent = `идёт в неделю W${w}` + (w > curWeek ? " — это будущее" : ""); }
+    if (date) {
+      const w = weekOf(mskNow());
+      $("#vWeekHint").textContent = date > mskNow() ? "это время ещё не наступило" : `отмечаешь сейчас — поход идёт в неделю W${w}`;
+    }
     const r = score();
     $("#calc").innerHTML = `
       <div class="t-head"><span>Талон</span><small>W${r.week} · ${esc(r.player)}</small></div>
       ${r.empty ? `<div class="t-empty">${esc(r.empty)}</div>` :
         r.lines.map(([t, p, cls]) => `<div class="t-line ${cls || ""}"><span>${esc(t)}</span><i></i><b>${p ? "+" + p : "0"}</b></div>`).join("")}
       <div class="t-total"><span>Итого</span><b id="tTotal">+${lastTotal}</b></div>
-      <div class="t-foot">Плюс очки за место в неделе — в воскресенье в 23:00 МСК</div>`;
+      <div class="t-foot">Плюс очки за место в неделе — после её закрытия, в ночь на понедельник</div>`;
     countUp($("#tTotal"), lastTotal, r.total);
     lastTotal = r.total;
     $("#vSubmit").disabled = !r.total;
@@ -860,9 +900,12 @@
     const t0 = performance.now(), dur = 380;
     const tick = (t) => { const k = Math.min(1, (t - t0) / dur); el.textContent = "+" + Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
+    setTimeout(() => (el.textContent = "+" + to), dur + 80);   // вкладка в фоне кадры не рисует — итог всё равно должен встать
     el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
   }
 
+  // Enter (или «Готово» на телефоне) в поле формы не должен отправлять поход раньше времени
+  vf.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.tagName === "INPUT") e.preventDefault(); });
   vf.addEventListener("submit", async (e) => {
     e.preventDefault();
     const r = score();
@@ -871,6 +914,7 @@
     if (picked === "new") {
       const name = $("#nbName").value.trim();
       if (!name) { toast("Впиши название новой бани"); $("#nbName").focus(); return; }
+      if (!$("#nbType").value) { toast("Выбери тип бани — от него зависит +1 за общественную"); $("#nbType").focus(); return; }
       newBath = { name, country: $("#nbCountry").value.trim() || null, region: $("#nbRegion").value.trim() || null, type: $("#nbType").value,
         ...(newPin ? { lat: newPin[0], lng: newPin[1], precision: "exact" } : {}) };
     }
@@ -913,9 +957,12 @@
   }
 
   // ---------- лента и модерация ----------
+  // Комиссии — сколько ждёт её решения, участнику — сколько ждут его собственные походы
   function updateBadge() {
-    const n = visits.filter((v) => v.status === "pending").length;
+    const mine = (v) => !D.live || canModerate || v.player === me?.nick || v.companions.includes(me?.nick);
+    const n = visits.filter((v) => v.status === "pending" && mine(v)).length;
     $("#pendingBadge").hidden = !n; $("#pendingBadge").textContent = n;
+    $("#pendingBadge").title = canModerate ? "Ждут решения Комиссии" : "Твои походы на модерации";
   }
   const STATUS = { pending: "на модерации", ok: "засчитан", rejected: "отклонён" };
   const fmtDate = (s) => new Date(s + ":00Z").toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
@@ -960,7 +1007,7 @@
           <span>${v.dur > 150 ? "🔥 долгая" : "обычная"}</span>
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
         </div>
-        ${v.tgLink ? `<div class="post-links"><a href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a></div>` : ""}
+        ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<div class="post-links"><a href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a></div>` : ""}
         ${v.status === "rejected" && v.reason ? `<div class="post-reason">Причина: ${esc(v.reason)}</div>` : ""}
         <div class="post-head" style="justify-content:space-between">
           <span class="post-pts">${pts != null ? "+" + fmt(pts) : ""}${v.total == null && v.status === "pending" ? '<small class="hint"> по талону</small>' : ""}</span>
@@ -980,13 +1027,46 @@
     if (ed) return openEdit(visits.find((x) => x.id === +ed));
     if (ok || no) {
       const v = visits.find((x) => x.id === +(ok || no));
-      D.moderate(v.id, ok ? "ok" : "rejected").then(() => {
-        v.status = ok ? "ok" : "rejected";
+      // причину отказа увидит автор — и в ленте, и в чате; «Отмена» — не отклонять
+      const reason = no ? prompt("Причина отказа — её увидит автор (можно оставить пустой)", "") : null;
+      if (no && reason === null) return;
+      const btns = $$("button", e.target.closest(".post-actions")); btns.forEach((b) => (b.disabled = true));
+      D.moderate(v.id, ok ? "ok" : "rejected", reason?.trim()).then(() => {
+        v.status = ok ? "ok" : "rejected"; v.reason = reason?.trim() || null;
         updateBadge(); renderFeed(); toast(ok ? "Засчитано — таблица пересчитывается" : "Отклонено");
-        return D.recompute();
-      }).catch((err) => toast("Не получилось: " + err.message));
+        recomputeSoon();
+      }).catch((err) => { btns.forEach((b) => (b.disabled = false)); toast("Не получилось: " + err.message); });
     } else if (bl) { e.preventDefault(); show("map"); openBath(+bl.dataset.bath, true); }
   });
+
+  // ---------- свежие данные после решений Комиссии: таблица, гонка, карта — без перезагрузки страницы ----------
+  let refreshTimer = null;
+  function recomputeSoon() {
+    clearTimeout(refreshTimer);
+    // пачку решений подряд пересчитываем один раз
+    refreshTimer = setTimeout(async () => {
+      try { await D.recompute(); await refreshData(); } catch (err) { toast("Таблица не пересчиталась: " + err.message); }
+    }, 1200);
+  }
+  async function refreshData() {
+    if (!D.live) return;
+    const fresh = await D.load();
+    standings.splice(0, standings.length, ...fresh.standings);
+    const freshIds = new Set(fresh.baths.map((b) => b.id));
+    for (let i = baths.length - 1; i >= 0; i--) if (!freshIds.has(baths[i].id)) { byId.delete(baths[i].id); baths.splice(i, 1); }
+    for (const nb of fresh.baths) {
+      const b = byId.get(nb.id);
+      if (!b) { hydrate(nb); baths.push(nb); byId.set(nb.id, nb); continue; }
+      Object.assign(b, { v26: nb.v26, hist: nb.hist, histBy: nb.histBy, type: nb.type, country: nb.country, region: nb.region,
+        lat: nb.lat, lng: nb.lng, precision: nb.precision, status: nb.status, isNew: nb.isNew });
+      hydrate(b);
+    }
+    visits = fresh.visits;
+    Object.keys(reviews).forEach((k) => delete reviews[k]); Object.assign(reviews, fresh.reviews);
+    rankTable(); renderKpis(); render(); renderRace(); renderTable(); updateBadge();
+    if (!$("#tWeek").hidden) renderWeek();
+    if (!$("#view-feed").hidden) renderFeed();
+  }
 
   // ---------- правка заявки Комиссией ----------
   function openEdit(v) {
@@ -1053,7 +1133,7 @@
           companions: people.filter((n) => n !== v.player), week: undefined, total: status === "ok" ? v.total : null });
         $("#editModal").hidden = true; updateBadge(); renderFeed();
         toast("Сохранено — таблица пересчитывается");
-        await D.recompute();
+        recomputeSoon();
       } catch (err) { toast("Не сохранилось: " + err.message); }
     };
     draw();
@@ -1076,6 +1156,15 @@
         <button class="btn sm solid" data-bok="${b.id}">Принять</button><button class="btn sm danger" data-bno="${b.id}">Дубль</button></div>`).join("")}` : ""}
     </div>`;
   }
+  $("#secPanel").addEventListener("input", (e) => {
+    const inp = e.target.closest("[data-dupq]"); if (!inp) return;
+    const id = +inp.dataset.dupq, q = inp.value.trim().toLowerCase(), sg = $(`[data-dupsg="${id}"]`);
+    if (q.length < 2) { sg.hidden = true; return; }
+    sg.innerHTML = baths.filter((b) => b.id !== id && !b.isNew && b.search.includes(q)).sort((a, b) => b.nAll - a.nAll).slice(0, 6)
+      .map((b) => `<button type="button" data-dupof="${id}" data-dupto="${b.id}"><span class="sn">${tdot(b.t)}${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("")
+      || '<div class="more">Не нашлось — попробуй другое слово</div>';
+    sg.hidden = false;
+  });
   $("#secPanel").addEventListener("click", async (e) => {
     const t = e.target.closest("button"); if (!t) return;
     try {
@@ -1086,20 +1175,35 @@
         const patch = { status: "ok", type: $(`[data-btype="${id}"]`).value, country: p.country || null, region: p.region || null };
         await D.moderateBath(id, patch);
         Object.assign(b, { isNew: false, t: patch.type, type: patch.type, country: patch.country, region: patch.region });
-        toast("Баня в справочнике"); D.recompute().catch(() => {});
+        toast("Баня в справочнике"); recomputeSoon();
       }
-      if (t.dataset.bno) { const id = +t.dataset.bno; await D.moderateBath(id, { status: "rejected" }); byId.get(id).isNew = false; toast("Баня отклонена"); }
+      if (t.dataset.bno) {
+        // дубль: сначала выбрать оригинал — походы переедут в него, иначе они останутся привязаны к отклонённой бане
+        const row = t.closest(".sec-row"), id = +t.dataset.bno;
+        row.insertAdjacentHTML("beforeend", `<div class="dup-pick"><input class="inp sm" data-dupq="${id}" placeholder="Какая это баня из справочника?" aria-label="Оригинал бани"><div class="suggest" data-dupsg="${id}" hidden></div></div>`);
+        t.disabled = true; $("[data-dupq]", row).focus();
+        return;
+      }
+      if (t.dataset.dupto) {
+        const dup = +t.dataset.dupof, orig = +t.dataset.dupto;
+        await D.mergeBath(dup, orig);
+        visits.forEach((v) => { if (v.bathId === dup) v.bathId = orig; });
+        byId.get(dup).isNew = false; byId.get(dup).status = "rejected";
+        toast(`Походы перенесены в «${byId.get(orig).name}», дубль убран`); recomputeSoon();
+      }
       renderSecPanel();
     } catch (err) { toast("Не получилось: " + err.message); }
   });
 
   // ---------- общее ----------
   $$("[data-close]").forEach((b) => b.addEventListener("click", () => (b.closest(".modal").hidden = true)));
-  $$(".modal").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m) m.hidden = true; }));
+  // формы (поход, правка заявки) не закрываем случайным тапом мимо и Esc — иначе вписанное пропадает; закрывает крестик
+  const FORMS = ["visitModal", "editModal"];
+  $$(".modal").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m && !FORMS.includes(m.id)) m.hidden = true; }));
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const open = $$(".modal").filter((m) => !m.hidden);
-    if (open.length) open.forEach((m) => (m.hidden = true)); else if (!$("#drawer").hidden) closeBath();
+    const open = $$(".modal").filter((m) => !m.hidden && !FORMS.includes(m.id));
+    if (open.length) open.forEach((m) => (m.hidden = true)); else if (!$("#drawer").hidden && $$(".modal").every((m) => m.hidden)) closeBath();
   });
   let tt;
   function toast(msg, html) {
@@ -1116,7 +1220,7 @@
     const cfg = window.EBL_CONFIG;
     if (!cfg.telegramBot || !cfg.telegramBotId) return toast("Вход через Telegram откроется совсем скоро");
     $("#loginBody").innerHTML = `<div class="eyebrow">Для участников лиги</div><h2>Вход в ЕБЛ</h2>
-      <p class="lead">Входи через Telegram тем же аккаунтом, что в группе. Мы видим только имя и username — телефон остаётся у Telegram.</p>
+      <p class="lead">Входи через Telegram тем же аккаунтом, что в группе. Мы видим имя, username и фото профиля — телефон остаётся у Telegram.</p>
       <button class="cta big tg-btn" id="tgLogin"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.5 4.5 2.8 11.7c-1 .4-1 1.8.1 2.1l4.6 1.4 1.8 5.5c.3.8 1.3 1 1.9.4l2.6-2.5 4.7 3.4c.8.6 1.9.1 2.1-.9L23 5.9c.2-1.1-.8-1.9-1.5-1.4Z" style="fill:currentColor;stroke:none"/></svg><span>Войти через Telegram</span></button>
       <p class="hint">Откроется страница Telegram — подтверди вход, и тебя вернёт сюда.</p>
       <p class="hint login-err" id="loginErr"></p>`;
@@ -1155,7 +1259,7 @@
       <button class="cta" id="claimBtn"><span>${waiting ? "Поменять заявку" : "Это я"}</span></button></div>
       <p class="hint" style="margin-top:14px"><button class="linkbtn" id="logoutBtn">Выйти</button></p>`;
     $("#claimBtn").onclick = async () => {
-      try { await D.claim($("#claimNick").value); toast("Заявка ушла в Комиссию"); me.claimedNick = $("#claimNick").value; openClaim(); }
+      try { await D.claim($("#claimNick").value); toast("Заявка ушла в Комиссию"); me.claimedNick = $("#claimNick").value; openClaim(); renderMe(); }
       catch (err) { toast(err.message); }
     };
     $("#logoutBtn").onclick = async () => { await D.logout(); location.reload(); };
@@ -1165,10 +1269,11 @@
     const btn = $("#meBtn");
     if (!D.live || (!me && !window.EBL_CONFIG.telegramBot)) { btn.hidden = true; return; }
     btn.hidden = false;
-    btn.classList.toggle("guest", !me);   // «Войти» видно всегда, ник на узком экране прячем до аватарки
-    if (!me) btn.innerHTML = `${icon("check")}<span>Войти</span>`;
-    else if (!me.nick) btn.innerHTML = `${ava(me.claimedNick || "?")}<span>${me.claimedNick ? "Ждём Комиссию" : "Кто ты?"}</span>`;
-    else btn.innerHTML = `${ava(me.nick)}<span>${esc(me.nick)}</span>`;
+    btn.classList.toggle("guest", !me);
+    btn.setAttribute("aria-label", !me ? "Войти через Telegram" : me.nick ? `Профиль: ${me.nick}` : "Выбрать свой ник");   // «Войти» видно всегда, ник на узком экране прячем до аватарки
+    if (!me) btn.innerHTML = `${icon("check")}<span class="me-name">Войти</span>`;
+    else if (!me.nick) btn.innerHTML = `${ava(me.claimedNick || "?")}<span class="me-name">${me.claimedNick ? "Ждём Комиссию" : "Кто ты?"}</span>`;
+    else btn.innerHTML = `${ava(me.nick)}<span class="me-name">${esc(me.nick)}</span>`;
     btn.onclick = () => {
       if (!me) return openLogin();
       if (!me.nick) return openClaim();
