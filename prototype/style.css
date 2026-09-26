@@ -215,9 +215,8 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .kpis b { font: 700 24px/1 var(--display); letter-spacing: -.02em; }
 .kpis span { font-size: 12px; color: var(--ink-2); }
 .filters { padding: 4px 16px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.filters .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -16px; padding-inline: 16px; }
-.filters .chips::-webkit-scrollbar { display: none; }
-.filters .chips button { padding: 5px 11px; flex: none; }
+.chips.types { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.chips.types button { justify-content: center; padding: 7px 10px; }
 .selrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .selrow .sel { height: 38px; font-size: 13px; }
 .count { padding: 8px 18px; font-size: 12px; color: var(--ink-3); border-top: 1px solid var(--line); }

@@ -65,7 +65,12 @@ const clearState = (tgId: number) => sb.from("bot_sessions").delete().eq("tg_id"
 // ---------- разбор свободного текста ----------
 const STOP = new Set(("был была были было сходил сходила сходили зашел зашли зашёл пошли парился парились попарились " +
   "в во на с со и а у к по за из от до мы я ты он сегодня вчера утром днем днём вечером ночью час часа часов ч мин минут минуты " +
-  "баня бане бани баню фото фотка отметка отметки уу ультра ультрауникальная ультрауникальную новая новую новой компанией один одни").split(" "));
+  "баня бане бани баню фото фотка отметка отметки уу ультра ультрауникальная ультрауникальную новая новую новой компанией один одни " +
+  "мной мною нами вместе тоже ещё еще всё все").split(" "));
+// слова, по которым одним баню не опознать — в поиске «хотя бы одно слово» не участвуют
+const GENERIC = new Set("банька баньку баньке банный банные сауна сауну сауне спа spa sauna отель отеле hotel частная частной парная комплекс термы".split(" "));
+// «Дружбе» → «друж», «Сандунах» → «сандун»: грубое отсечение окончаний для поиска по справочнику
+const stemOf = (w: string) => (w.length >= 6 ? w.slice(0, -2) : w.length === 5 ? w.slice(0, -1) : w);
 
 function parseDuration(text: string): { dur: number; start?: number; span: string } | null {
   let m = text.match(/(\d{1,2})[:.](\d{2})\s*(?:-|–|—|до)\s*(\d{1,2})[:.](\d{2})/);
@@ -95,6 +100,13 @@ function nickMatches(token: string, nick: string) {
 
 function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) {
   const ids = new Set<string>(), used = new Set<string>();
+  // @username из текста — на случай, если Telegram не прислал разметку
+  for (const m of text.matchAll(/@(\w{4,32})/g)) {
+    const u = m[1].toLowerCase();
+    used.add("@" + u);
+    const acc = u !== BOT && lg.accounts.find((a: Any) => a.tg_username?.toLowerCase() === u);
+    if (acc && acc.player_id !== authorId) ids.add(acc.player_id);
+  }
   for (const e of entities ?? []) {
     if (e.type === "mention") {
       const u = text.substr(e.offset + 1, e.length - 1).toLowerCase();
@@ -126,16 +138,17 @@ function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) 
   return { ids: [...ids], used };
 }
 
+// что осталось от поста после времени, компании, отметок и служебных слов — это и есть баня (регистр сохраняем)
 function bathQuery(text: string, durSpan: string | null, used: Set<string>) {
-  let t = text;
+  let t = text.replace(/@\w+/g, " ").replace(/\/banya(@\w+)?/gi, " ");
   if (durSpan) t = t.replace(durSpan, " ");
-  return norm(t).split(/[^\p{L}\p{N}-]+/u)
-    .filter((w) => w && !STOP.has(w) && !used.has(w) && !used.has("@" + w) && w !== BOT && !/^\d+$/.test(w) && w.length > 1)
+  return t.split(/[^\p{L}\p{N}-]+/u)
+    .filter((w) => { const n = norm(w); return n.length > 1 && !STOP.has(n) && !used.has(n) && !/^\d+$/.test(n); })
     .join(" ");
 }
 
 async function findBaths(q: string) {
-  const words = q.split(" ").filter((w) => w.length > 1);
+  const words = norm(q).split(" ").filter((w) => w.length > 1).map(stemOf);
   if (!words.length) return [];
   const cols = "id, name, region, country, type";
   let query = sb.from("baths").select(cols).neq("status", "rejected").limit(60);
@@ -143,9 +156,9 @@ async function findBaths(q: string) {
   let { data } = await query;
   let score: Record<number, number> = {};
   if (!data?.length) {
-    // хотя бы одно слово из названия
+    // хотя бы одно отличительное слово из названия
     const found = new Map<number, Any>();
-    for (const w of words.filter((w) => w.length > 2)) {
+    for (const w of words.filter((w) => w.length > 2 && !GENERIC.has(w) && ![...GENERIC].some((g) => g.startsWith(w)))) {
       const { data: part } = await sb.from("baths").select(cols).neq("status", "rejected").ilike("name", `%${w}%`).limit(40);
       for (const b of part ?? []) { found.set(b.id, b); score[b.id] = (score[b.id] ?? 0) + 1; }
     }
