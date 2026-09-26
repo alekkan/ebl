@@ -650,8 +650,12 @@ tr.below { color: var(--ink-2); }
   .p-head { padding: 24px 18px 16px; } .p-body { padding: 8px 18px 24px; }
 }
 @media (max-width: 560px) { .me-btn span { display: none; } .me-btn { padding: 4px; } .me-btn .ic { margin: 0 6px; } }
+.cta-short { display: none; }
+@media (max-width: 560px) {
+  .cta#addVisitBtn .cta-long { display: none; }
+  .cta#addVisitBtn .cta-short { display: inline; }
+  .cta#addVisitBtn { gap: 4px; padding: 10px 14px 10px 10px; }
+}
 @media (max-width: 420px) {
-  .cta#addVisitBtn span { display: none; }
-  .cta#addVisitBtn { padding: 10px; }
   .seg button { font-size: 12px; }
 }
