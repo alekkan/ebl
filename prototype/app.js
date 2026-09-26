@@ -822,25 +822,42 @@
   }
 
   // ---------- вход через Telegram ----------
+  // вход полноценной страницей Telegram (без всплывающих окон): Telegram возвращает на сайт с #tgAuthResult=…
   function openLogin() {
     if (!D.live) return;
-    if (!window.EBL_CONFIG.telegramBot) return toast("Вход через Telegram откроется совсем скоро");
+    const cfg = window.EBL_CONFIG;
+    if (!cfg.telegramBot || !cfg.telegramBotId) return toast("Вход через Telegram откроется совсем скоро");
     $("#loginBody").innerHTML = `<div class="eyebrow">Для участников лиги</div><h2>Вход в ЕБЛ</h2>
       <p class="lead">Входи через Telegram тем же аккаунтом, что в группе. Мы видим только имя и username — телефон остаётся у Telegram.</p>
-      <div id="tgWidget" class="tg-widget"></div>
-      <p class="hint">После нажатия откроется маленькое окно Telegram — нажми в нём «Принять». Не появилось? Разреши всплывающие окна для этого сайта (значок справа в адресной строке) или проверь сообщение от Telegram в приложении.</p>
+      <button class="cta big tg-btn" id="tgLogin"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.5 4.5 2.8 11.7c-1 .4-1 1.8.1 2.1l4.6 1.4 1.8 5.5c.3.8 1.3 1 1.9.4l2.6-2.5 4.7 3.4c.8.6 1.9.1 2.1-.9L23 5.9c.2-1.1-.8-1.9-1.5-1.4Z" style="fill:currentColor;stroke:none"/></svg><span>Войти через Telegram</span></button>
+      <p class="hint">Откроется страница Telegram — подтверди вход, и тебя вернёт сюда.</p>
       <p class="hint login-err" id="loginErr"></p>`;
-    const sc = document.createElement("script");
-    sc.async = true; sc.src = "https://telegram.org/js/telegram-widget.js?22";
-    sc.dataset.telegramLogin = window.EBL_CONFIG.telegramBot; sc.dataset.size = "large"; sc.dataset.radius = "12"; sc.dataset.onauth = "EBLonTelegramAuth(user)";
-    $("#tgWidget").append(sc);
+    $("#tgLogin").onclick = () => {
+      const back = location.origin + location.pathname;
+      location.href = "https://oauth.telegram.org/auth?bot_id=" + cfg.telegramBotId + "&origin=" + encodeURIComponent(location.origin)
+        + "&request_access=write&return_to=" + encodeURIComponent(back);
+    };
     $("#loginModal").hidden = false;
   }
-  window.EBLonTelegramAuth = async (user) => {
-    if (!user) { $("#loginErr").textContent = "Telegram не подтвердил вход — попробуй ещё раз."; return; }
-    $("#loginErr").textContent = "Входим…";
-    try { await D.login(user); location.reload(); } catch (err) { $("#loginErr").textContent = "Не получилось войти: " + err.message; }
-  };
+  // возврат от Telegram: #tgAuthResult=<base64 JSON>
+  async function finishTelegramLogin() {
+    const m = location.hash.match(/tgAuthResult=([^&]+)/);
+    if (!m) return false;
+    history.replaceState(null, "", location.pathname);
+    try {
+      const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");
+      const json = decodeURIComponent(escape(atob(b64 + "===".slice((b64.length + 3) % 4))));
+      const user = JSON.parse(json);
+      if (!user || user === false) throw new Error("Telegram не подтвердил вход");
+      toast("Входим…");
+      await D.login(user);
+      location.reload();
+    } catch (err) {
+      openLogin();
+      $("#loginErr").textContent = "Не получилось войти: " + err.message;
+    }
+    return true;
+  }
   function openClaim() {
     const waiting = me?.claimedNick;
     $("#loginBody").innerHTML = `<div class="eyebrow">Почти готово</div><h2>Кто ты в таблице?</h2>
@@ -874,6 +891,7 @@
     };
   }
   renderMe();
+  if (D.live) finishTelegramLogin();
 
   // пара примерных отзывов на самую посещаемую баню, чтобы в витрине было видно, как это выглядит
   const top = [...baths].sort((a, b) => b.n26 - a.n26)[0];

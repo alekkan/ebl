@@ -318,6 +318,7 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .login h2 { font: 800 28px/1.05 var(--display); margin: 0; letter-spacing: -.02em; }
 .login .lead { margin: 0; font-size: 15px; }
 .tg-widget { min-height: 48px; display: flex; align-items: center; }
+.tg-btn { background: #2aabee; box-shadow: 0 8px 20px -8px rgba(42, 171, 238, .6); color: #fff; }
 .login-err:not(:empty) { color: var(--ember); font-weight: 600; font-size: 13px; }
 .p-mini { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
 .linkbtn { border: 0; background: none; padding: 0; color: var(--ink-3); text-decoration: underline; font-size: 13px; }
