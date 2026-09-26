@@ -827,7 +827,9 @@
     if (!window.EBL_CONFIG.telegramBot) return toast("Вход через Telegram откроется совсем скоро");
     $("#loginBody").innerHTML = `<div class="eyebrow">Для участников лиги</div><h2>Вход в ЕБЛ</h2>
       <p class="lead">Входи через Telegram тем же аккаунтом, что в группе. Мы видим только имя и username — телефон остаётся у Telegram.</p>
-      <div id="tgWidget" class="tg-widget"></div><p class="hint" id="loginErr"></p>`;
+      <div id="tgWidget" class="tg-widget"></div>
+      <p class="hint">После нажатия откроется маленькое окно Telegram — нажми в нём «Принять». Не появилось? Разреши всплывающие окна для этого сайта (значок справа в адресной строке) или проверь сообщение от Telegram в приложении.</p>
+      <p class="hint login-err" id="loginErr"></p>`;
     const sc = document.createElement("script");
     sc.async = true; sc.src = "https://telegram.org/js/telegram-widget.js?22";
     sc.dataset.telegramLogin = window.EBL_CONFIG.telegramBot; sc.dataset.size = "large"; sc.dataset.radius = "12"; sc.dataset.onauth = "EBLonTelegramAuth(user)";
@@ -835,7 +837,9 @@
     $("#loginModal").hidden = false;
   }
   window.EBLonTelegramAuth = async (user) => {
-    try { await D.login(user); location.reload(); } catch (err) { $("#loginErr").textContent = err.message; }
+    if (!user) { $("#loginErr").textContent = "Telegram не подтвердил вход — попробуй ещё раз."; return; }
+    $("#loginErr").textContent = "Входим…";
+    try { await D.login(user); location.reload(); } catch (err) { $("#loginErr").textContent = "Не получилось войти: " + err.message; }
   };
   function openClaim() {
     const waiting = me?.claimedNick;
