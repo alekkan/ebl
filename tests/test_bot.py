@@ -4,7 +4,8 @@
 Перед запуском: supabase start && supabase db reset && supabase functions serve --env-file supabase/functions/.env
 Запуск: python3 tests/test_bot.py
 """
-import json, time
+import json, re, time
+from concurrent.futures import ThreadPoolExecutor
 from local import WEBHOOK_SECRET, check, req, sql
 
 CHAT, ME = -1001234567890, 900
@@ -14,14 +15,22 @@ sql(f"insert into player_accounts (player_id, tg_id, tg_username) select id, {ME
 sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 901, 'den_tg' from players where nick='Ден'")
 
 
-def post(text, mid):
-    ents = [{"type": "mention", "offset": text.find(m), "length": len(m)} for m in ("@eblsu_bot", "@den_tg") if m in text]
-    update = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
-              "from": {"id": ME, "is_bot": False, "first_name": "Alexey"}, "text": text, "entities": ents}}
+def post(text, mid, who=ME, chat=CHAT, chat_type="supergroup"):
+    ents = [{"type": "mention", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"@\w+", text)]
+    update = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": chat, "type": chat_type},
+              "from": {"id": who, "is_bot": False, "first_name": "Alexey"}, "text": text, "entities": ents}}
     s, _ = req("POST", "/functions/v1/tg-bot", update, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
     assert s == 200, s
-    st = sql(f"select state from bot_sessions where tg_id = {ME}")
+    st = sql(f"select state from bot_sessions where tg_id = {who}")
     return json.loads(st) if st else None
+
+
+def card(data, who=ME, chat=CHAT, chat_type="supergroup", cid="c"):
+    """Кнопка на карточке черновика. Локально Telegram не отвечает, у черновика нет id карточки — жмём «на неё же» (без message_id)."""
+    upd = {"update_id": 3000, "callback_query": {"id": cid, "from": {"id": who, "is_bot": False, "first_name": "X"}, "data": data,
+           "message": {"chat": {"id": chat, "type": chat_type}, "text": "карточка"}}}
+    s, _ = req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+    assert s == 200, s
 
 
 def nicks(ids):
@@ -49,6 +58,20 @@ st = case("@eblsu_bot Банька у Петровича на Валдае", 5)
 check("не нашёл и УУ не указана — спросит, новая ли", not st.get("newBath") and not st["candidates"] and st["query"], st)
 st = case("@eblsu_bot Василевские https://yandex.ru/maps/?pt=37.6176,55.7558&z=16", 6)
 check("ссылка на карту в посте даёт точку и не мешает поиску", st.get("geo") == {"lat": 55.7558, "lng": 37.6176} and st.get("bathName") == "Василевские", st)
+st = case("@eblsu_bot сегодня в Дружбе с 19 до 22", 8)
+check("«с 19 до 22» — три часа, заход в 19:00", st["dur"] == 180 and st.get("start") == 19 * 60, st)
+st = case("@eblsu_bot частная баня у Пингвина уу", 9)
+check("«частная» — это тип, а не часть названия", st.get("type") == "private" and "частн" not in (st.get("query") or "").lower(), st)
+st = case("@eblsu_bot Сандуны с Витьком, Королём, Пашкой и Серёгой", 10)
+check("«Витьком», «Королём», «Пашкой», «Серёгой» — падежи ников", nicks(st["company"]) == {"Витёк", "Король", "Пашок", "Серёга"}, st)
+sql("delete from bot_sessions")
+st = post("@eblsu_bot Сандуны 2ч с Лехой", 11, who=901)
+check("«с Лехой» — Леха (пишет Ден)", nicks(st["company"]) == {"Леха"}, st)
+sql("delete from bot_sessions")
+st = case("@eblsu_bot Сандуны 2ч. День длинный, по дороге десять минут стояли, данные потом, фильм, Виталий, пашня", 12)
+check("обычные слова — не ники: день, дороге, десять, данные, фильм, Виталий, пашня", nicks(st["company"]) == set(), st)
+st = case("@eblsu_bot Сандуны 2ч с @lekha_tg и @den_tg", 13)
+check("автор, отметивший сам себя, в компанию не попадает", nicks(st["company"]) == {"Ден"}, st)
 sql("delete from bot_sessions")
 check("сообщения без отметки бота игнорируются", post("просто болтаем про Сандуны", 7) is None)
 
@@ -64,12 +87,27 @@ print("Тип бани")
 sql("update baths set type = null where name = 'Василевские'")
 st = case("@eblsu_bot Василевские 2ч", 20)
 check("у бани нет типа — карточка спросит", st.get("bathId") and not st.get("bathType"), st)
-# кнопка на карточке (локально Telegram не отвечает, поэтому у черновика нет id карточки — жмём «на неё же»)
-upd = {"update_id": 2020, "callback_query": {"id": "t1", "from": {"id": ME, "is_bot": False, "first_name": "X"}, "data": "t:public",
-       "message": {"chat": {"id": CHAT, "type": "supergroup"}, "text": "карточка"}}}
-req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+card("t:public")
 check("автор выбрал «Общественная» — запомнено в черновике", json.loads(sql(f"select state from bot_sessions where tg_id = {ME}")).get("type") == "public")
 sql("delete from bot_sessions")
+
+print("Черновик и «В Комиссию»")
+st = post("Василевские", 40, chat=ME, chat_type="private")
+card("ed", chat=ME, chat_type="private")
+st = post("3 часа", 41, chat=ME, chat_type="private")
+check("время словами вместо кнопок закрывает вопрос «Сколько парились?»", st["dur"] == 180 and not st.get("awaiting"), st)
+sql("delete from bot_sessions")
+mine = lambda: int(sql("select count(*) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot' and v.created_at > now() - interval '5 minutes'"))
+before = mine()
+st = case("@eblsu_bot Василевские 2ч с Деном", 42)
+with ThreadPoolExecutor(2) as ex:
+    list(ex.map(lambda i: card("send", cid=f"s{i}"), range(2)))
+card("send", cid="s3")
+check("двойное нажатие «✅ В Комиссию» — один поход", mine() - before == 1, mine() - before)
+row = sql("select v.id || '|' || v.source || '|' || (v.tg_link is not null) || '|' || count(vp.player_id) from visits v join visit_players vp on vp.visit_id = v.id "
+          "join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot' group by v.id order by v.id desc limit 1").split("|")
+check("поход из бота сохранил ссылку на пост, компания записана", row[1:] == ["bot", "true", "2"], row)
+sql(f"delete from visits where id = {row[0]}")
 
 print("«Долгая была?» — на доверии")
 vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 5, now() - interval '3 hours', 60, id from players where nick='Леха' returning id").splitlines()[0]
@@ -78,6 +116,17 @@ press(f"yl:{vid}", 901)
 check("чужой кнопкой не отметить", sql(f"select duration_min from visits where id = {vid}") == "60")
 press(f"yl:{vid}", ME)
 check("участник жмёт «Да, долгая» — поход долгий без фото", int(sql(f"select duration_min from visits where id = {vid}")) > 150)
+sql(f"update visits set duration_min = 60, entered_at = now() - interval '2 days' where id = {vid}")
+press(f"yl:{vid}", ME)
+check("спустя сутки после захода кнопка уже не работает", sql(f"select duration_min from visits where id = {vid}") == "60")
+sql(f"delete from visits where id = {vid}")
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now() - interval '3 hours', 60, id, 'bot' from players where nick='Леха' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick='Леха'")
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id) values ({vid}, {CHAT}, 555, 556, 5)")
+with ThreadPoolExecutor(3) as ex:
+    ticks = list(ex.map(lambda _: req("POST", "/functions/v1/tg-bot?tick=1", {})[1], range(3)))
+check("параллельные ?tick=1 спрашивают про поход один раз", sum(t["claimed"].count(int(vid)) for t in ticks) == 1
+      and sql(f"select long_asked_at is not null from visits where id = {vid}") == "t", ticks)
 sql(f"delete from visits where id = {vid}")
 
 print("Решение Комиссии — одинаково откуда угодно")
@@ -111,4 +160,15 @@ check("решение — в чат лиги, ответом на этот по�
       and sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"), announced())
 check("и тоже только один раз", verdict() == {"announced": False})
 sql(f"delete from visits where id = {vid}")
+# старое решение по походу с сайта без поста: ?verdict открыт всем — повторно в чат не объявляем
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, status, moderated_at, created_at) select 5, now() - interval '5 hours', 120, id, "
+          "'rejected', now() - interval '1 hour', now() - interval '1 day' from players where nick='Махмуд' returning id").splitlines()[0]
+check("старое решение по ?verdict не переобъявляется", verdict() == {"announced": False} and sql(f"select count(*) from bot_posts where visit_id = {vid}") == "0")
+sql(f"update visits set moderated_at = now() where id = {vid}")
+check("свежее — объявляется", verdict() == {"announced": True})
+sql(f"delete from visits where id = {vid}")
+
+print("Диагностика")
+diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
+check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)
 print("Готово.")

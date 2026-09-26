@@ -81,12 +81,20 @@
   если долго нет — перепривязать домен: `cname: null`, затем `cname: ebl.su`. Потом включить HTTPS:
   `gh api -X PUT repos/alekkan/ebl/pages -F https_enforced=true`.
 - При смене адреса сайта: `/setdomain` у бота, `SITE_URL` в секретах, `ALLOWED_ORIGINS` (если задан).
+- Когда появится HTTPS — поменять `og:image` в `prototype/index.html` на `https://ebl.su/og.png` (пока http: без сертификата
+  Telegram картинку превью не скачает).
 
 ## Убрать тестовые данные
 
+> ⚠️ **Только по явным id.** С W39 в журнале настоящие походы с портала — удаление по дате (`posted_at < …`) снесёт их
+> вместе с очками. Тестовые походы в боевой базе — id 1–5. Сначала посмотри, что удаляешь.
+
 ```bash
-supabase db query --linked "delete from visits where posted_at < '2026-09-28 00:00+03'"   # всё, что отмечено до перехода
-supabase db query --linked "delete from baths where status = 'pending' and not exists (select 1 from visits v where v.bath_id = baths.id)"
+supabase db query --linked "select v.id, p.nick, v.posted_at, v.status, v.source from visits v join players p on p.id = v.created_by where v.id in (1, 2, 3, 4, 5)"
+supabase db query --linked "delete from visits where id in (1, 2, 3, 4, 5)"
+# новые бани без походов — тоже сначала список: среди них может быть настоящая заявка
+supabase db query --linked "select id, name, created_at from baths where status = 'pending' and not exists (select 1 from visits v where v.bath_id = baths.id)"
+supabase db query --linked "delete from baths where id in (<id тестовых бань из списка>)"
 curl -X POST https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/recompute
 ```
 

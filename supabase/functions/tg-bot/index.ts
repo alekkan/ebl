@@ -72,6 +72,7 @@ const clearState = (tgId: number) => sb.from("bot_sessions").delete().eq("tg_id"
 const STOP = new Set(("был была были было сходил сходила сходили зашел зашли зашёл пошли парился парились попарились " +
   "в во на с со и а у к по за из от до мы я ты он сегодня вчера утром днем днём вечером ночью час часа часов ч мин минут минуты " +
   "баня бане бани баню фото фотка отметка отметки уу ультра ультрауникальная ультрауникальную новая новую новой компанией один одни " +
+  "частная частной частную общественная общественной общественную хуитнес хуитнесе фитнес фитнесе спа " +
   "мной мною нами вместе тоже ещё еще всё все").split(" "));
 // слова, по которым одним баню не опознать — в поиске «хотя бы одно слово» не участвуют
 const GENERIC = new Set("банька баньку баньке банный банные сауна сауну сауне спа spa sauna отель отеле hotel частная частной парная комплекс термы".split(" "));
@@ -84,6 +85,12 @@ function parseDuration(text: string): { dur: number; start?: number; span: strin
     const a = +m[1] * 60 + +m[2], b = +m[3] * 60 + +m[4];
     return { dur: (b - a + 1440) % 1440 || 1440, start: a, span: m[0] };
   }
+  // «с 19 до 22», «с 19:30 до 22» — часы без минут тоже пишут
+  if ((m = text.match(/(?:^|[^\p{L}\d])с\s*(\d{1,2})(?:[:.](\d{2}))?\s*(?:-|–|—|до)\s*(\d{1,2})(?:[:.](\d{2}))?(?!\s*(?:ч|час|мин))(?![\d])/iu)) && +m[1] < 24 && +m[3] < 24) {
+    const a = +m[1] * 60 + (+m[2] || 0), b = +m[3] * 60 + (+m[4] || 0);
+    const dur = (b - a + 1440) % 1440;
+    if (dur >= 30 && dur <= 12 * 60) return { dur, start: a, span: m[0].trim() };
+  }
   if ((m = text.match(/полтора\s*час\p{L}*/iu))) return { dur: 90, span: m[0] };
   const words: Record<string, number> = { один: 1, два: 2, три: 3, четыре: 4, пять: 5 };
   if ((m = text.match(/(один|два|три|четыре|пять)\s+час\p{L}*/iu))) return { dur: words[m[1].toLowerCase()] * 60, span: m[0] };
@@ -94,14 +101,27 @@ function parseDuration(text: string): { dur: number; start?: number; span: strin
   return null;
 }
 
-// ник в тексте с учётом падежей: Леха→Лехой, Витёк→Витьком, Король→Королём, Шурик→Шуриком
+// ник в тексте — сам ник или его настоящие падежные формы: Ден→Деном, Леха→Лехой, Король→Королём, Витёк→Витьком.
+// «Начинается с ника» не годится: «день» становился Деном, «данные» — Даней, «Виталий» — Витьком, «фильм» — Филом.
+// Токен и ник уже приведены norm(): нижний регистр, ё → е.
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function nickForms(nick: string): RegExp | null {
+  let stem = nick, ends = "";
+  if (/(ек|ок)$/.test(nick) && nick.length >= 4) {             // Витёк → Витька, Витьком; Пашок → Пашка, Пашкой
+    stem = nick.slice(0, -2); ends = `(?:${nick.slice(-2)}|ька|ьку|ьком|ьке|ка|ки|ку|ком|кой|ке)`;
+  } else if (/а$/.test(nick) && nick.length >= 3) {            // Леха → Лехи, Лехе, Леху, Лехой
+    stem = nick.slice(0, -1); ends = "(?:а|ы|и|е|у|ой|ою)";
+  } else if (/я$/.test(nick) && nick.length >= 3) {            // Даня → Дани, Дане, Даню, Даней
+    stem = nick.slice(0, -1); ends = "(?:я|и|е|ю|ей|ею)";
+  } else if (/[ьй]$/.test(nick) && nick.length >= 3) {         // Король → Короля, Королю, Королём, Короле
+    stem = nick.slice(0, -1); ends = "(?:ь|й|я|ю|ем|е)";
+  } else if (/[бвгджзклмнпрстфхцчшщ]$/.test(nick)) {           // Ден → Дена, Дену, Деном, Дене
+    ends = "(?:а|у|ом|е|ы)?";
+  } else return null;                                          // латиница и прочее — только как есть
+  return new RegExp(`^${escRe(stem)}${ends}$`, "u");
+}
 function nickMatches(token: string, nick: string) {
-  if (token === nick) return true;
-  if (token.startsWith(nick) && token.length - nick.length <= 3) return true;
-  let stem = "";
-  if (/(ек|ок)$/.test(nick) && nick.length >= 5) stem = nick.slice(0, -2);
-  else if (/[аяоеиыуюь]$/.test(nick) && nick.length >= 4) stem = nick.slice(0, -1);
-  return !!stem && token.startsWith(stem) && token.length - stem.length <= 4;
+  return token === nick || !!nickForms(nick)?.test(token);
 }
 
 function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) {
@@ -113,16 +133,17 @@ function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) 
     const acc = u !== BOT && lg.accounts.find((a: Any) => a.tg_username?.toLowerCase() === u);
     if (acc && acc.player_id !== authorId) ids.add(acc.player_id);
   }
+  // автор в свою компанию не попадает никак: его строку submit() добавляет сам, повтор ломал вставку всей компании
   for (const e of entities ?? []) {
     if (e.type === "mention") {
       const u = text.substr(e.offset + 1, e.length - 1).toLowerCase();
       used.add("@" + u);
       if (u === BOT) continue;
       const acc = lg.accounts.find((a: Any) => a.tg_username?.toLowerCase() === u);
-      if (acc) ids.add(acc.player_id);
+      if (acc && acc.player_id !== authorId) ids.add(acc.player_id);
     } else if (e.type === "text_mention" && e.user) {
       const acc = lg.accounts.find((a: Any) => a.tg_id === e.user.id);
-      if (acc) ids.add(acc.player_id);
+      if (acc && acc.player_id !== authorId) ids.add(acc.player_id);
     }
   }
   const t = norm(text);
@@ -135,7 +156,7 @@ function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) 
     if (best) { used.add(tok); if (best.id !== authorId) ids.add(best.id); }
   }
   for (const p of lg.players.filter((p: Any) => p.nick.includes(" "))) {
-    const n = norm(p.nick).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const n = escRe(norm(p.nick));
     if (new RegExp(`(^|[\\s,])${n}(?=$|[\\s,.!])`, "u").test(t)) {
       n.split(" ").forEach((w) => used.add(w));
       if (p.id !== authorId) ids.add(p.id);
@@ -179,6 +200,13 @@ async function findBaths(q: string) {
 }
 
 const ULTRA = /(^|[^\p{L}])(уу|ультра\p{L}*|новая баня|новую баню|нигде не были|никто не был)(?![\p{L}])/iu;
+// тип бани словами в посте — «частная», «общественная», «хуитнес»: пригодится, если в справочнике тип не размечен
+function typeFromText(text: string): string | null {
+  if (/(^|[^\p{L}])частн\p{L}*/iu.test(text)) return "private";
+  if (/(^|[^\p{L}])общественн\p{L}*/iu.test(text)) return "public";
+  if (/(^|[^\p{L}])(хуитнес\p{L}*|фитнес\p{L}*|спа)(?![\p{L}])/iu.test(text)) return "spa";
+  return null;
+}
 
 // ---------- черновик и карточка ----------
 async function renderCard(st: Any, lg: Any) {
@@ -210,7 +238,7 @@ async function renderCard(st: Any, lg: Any) {
   if (st.geo) lines.push("📍 точка на карте есть");
   // тип не размечен (или баня новая) — спрашиваем: от него зависит +1 за общественную (п. 4); ответ необязательный
   const askType = st.newBath || (st.bathId && !st.bathType);
-  if (st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
+  if (askType && st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
   else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nСколько парились? По регламенту важно только, была ли долгая — больше 2,5 часа.");
@@ -250,7 +278,7 @@ async function startDraft(msg: Any, me: Any, lg: Any) {
     chat: msg.chat.id, chatType: msg.chat.type, chatUsername: msg.chat.username ?? null, source: msg.message_id, posted: msg.date,
     author: msg.from.id, authorId: me.id, authorNick: me.nick,
     dur: d && d.dur >= 60 ? d.dur : null, start: d?.start ?? null, company: comp.ids,
-    ultra: ULTRA.test(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
+    ultra: ULTRA.test(text), type: typeFromText(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
   };
   st.geo = await pointFromMessage(msg);
   await resolveBath(st);
@@ -296,7 +324,8 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       await resolveBath(st);
     } else {
       const d = parseDuration(text);
-      if (d && d.dur >= 60) { st.dur = d.dur; st.start = d.start ?? st.start; }
+      // время написали словами вместо кнопок — вопрос «Сколько парились?» закрыт
+      if (d && d.dur >= 60) { st.dur = d.dur; st.start = d.start ?? st.start; if (st.awaiting === "dur") st.awaiting = null; }
       const c = parseCompany(text, msg.entities ?? [], lg, me.id);
       if (c.ids.length) st.company = [...new Set([...(st.company ?? []), ...c.ids])];
     }
@@ -304,15 +333,23 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
   await showCard(st, lg, msg.from.id);
 }
 
+// не получилось — черновик возвращаем (его забрала кнопка «В Комиссию»), карточка с ошибкой и теми же кнопками
+async function submitFailed(st: Any, lg: Any, tgId: number, why: string) {
+  await setState(tgId, st);
+  const { text, kb } = await renderCard(st, lg);
+  return edit(st.chat, st.card, `⚠️ ${esc(why)}\n\n${text}`, kb);
+}
+
 async function submit(st: Any, lg: Any, tgId: number) {
-  let bathId = st.bathId;
+  // newBathId — баня, заведённая прошлой неудачной попыткой: повтор не плодит вторую такую же
+  let bathId = st.bathId ?? st.newBathId;
   if (!bathId) {
     const { data: nb, error } = await sb.from("baths").insert({
       name: st.newBath, status: "pending", created_by: st.authorId, type: st.type ?? null,
       ...(st.geo ? { lat: st.geo.lat, lng: st.geo.lng, precision: "exact", ...(await placeFor(st.geo)) } : {}),
     }).select().single();
-    if (error) return edit(st.chat, st.card, `Не получилось добавить баню: ${esc(error.message)}`);
-    bathId = nb.id;
+    if (error) return submitFailed(st, lg, tgId, `Не получилось добавить баню: ${error.message}`);
+    bathId = st.newBathId = nb.id;
   }
   const posted = new Date(st.posted * 1000);
   let entered: Date;
@@ -327,17 +364,22 @@ async function submit(st: Any, lg: Any, tgId: number) {
     bath_id: bathId, entered_at: entered.toISOString(), posted_at: posted.toISOString(), duration_min: st.dur ?? 60,
     created_by: st.authorId, source: "bot", tg_link: link, long_asked_at: st.dur != null ? new Date().toISOString() : null,
   }).select().single();
-  if (error) return edit(st.chat, st.card, `Не получилось сохранить поход: ${esc(error.message)}`);
-  await sb.from("visit_players").insert([st.authorId, ...(st.company ?? [])].map((id: string) => ({ visit_id: visit.id, player_id: id })));
+  if (error) return submitFailed(st, lg, tgId, `Не получилось сохранить поход: ${error.message}`);
+  // автор и компания без повторов: один дубль ключа отменял вставку всех строк, и поход оставался без людей
+  const people = [...new Set([st.authorId, ...(st.company ?? [])])];
+  const { error: pErr } = await sb.from("visit_players").insert(people.map((id: string) => ({ visit_id: visit.id, player_id: id })));
+  if (pErr) {
+    await sb.from("visits").delete().eq("id", visit.id);
+    return submitFailed(st, lg, tgId, `Не получилось записать компанию: ${pErr.message}`);
+  }
   if (st.geo && st.bathId) await setBathPoint(st.bathId, st.geo, lg.players.find((p: Any) => p.id === st.authorId)?.is_commission);
   // тип бани со слов автора — только если он не был размечен; ошибся — Комиссия поправит в карточке бани
   if (st.bathId && st.type) await sb.from("baths").update({ type: st.type }).eq("id", st.bathId).is("type", null);
   await sb.from("bot_posts").insert({ visit_id: visit.id, chat_id: st.chat, source_msg: st.source, card_msg: st.card, bath_id: bathId });
-  await clearState(tgId);
 
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
   const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
-    + (st.type ? `\n🏷 ${TYPE_RU[st.type]}${st.bathType ? "" : " — со слов автора"}` : "");
+    + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "");
   await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>\n\n${summary}`);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
@@ -365,7 +407,10 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
   const { data: v } = await sb.from("visits").select("id, status, baths(name)").eq("id", visitId).maybeSingle();
   if (!v) return answer(cq.id, "Поход не найден — возможно, его удалили");
   if (v.status !== "pending") return answer(cq.id, `Уже ${v.status === "ok" ? "засчитан" : "отклонён"}`);
-  await sb.from("visits").update({ status: ok ? "ok" : "rejected", moderated_by: me.id, moderated_at: new Date().toISOString() }).eq("id", visitId);
+  // только если всё ещё ждёт: двое из Комиссии могли нажать одновременно (или решили на сайте)
+  const { data: done } = await sb.from("visits").update({ status: ok ? "ok" : "rejected", moderated_by: me.id, moderated_at: new Date().toISOString() })
+    .eq("id", visitId).eq("status", "pending").select("id");
+  if (!done?.length) return answer(cq.id, "Уже решено");
   await answer(cq.id, ok ? "Засчитано" : "Отклонено");
   await announce(visitId);   // триггер в базе тоже позовёт — второй вызов ничего не сделает
 }
@@ -375,7 +420,9 @@ const setting = async (key: string) => (await sb.from("settings").select("value"
 // поход отметили на сайте (зовёт триггер: ?new=<id>): бот сам пишет о нём в чат лиги — это и есть пост похода,
 // вердикт потом придёт ответом на него; Комиссии в личку — то же уведомление с кнопками, что для походов из чата
 async function siteVisit(visitId: number): Promise<boolean> {
-  await new Promise((r) => setTimeout(r, 3000));   // сайт дописывает компанию следом за самим походом
+  // сайт пишет поход и компанию одной транзакцией (submit_visit), а pg_net зовёт нас после коммита —
+  // короткая пауза на случай старой страницы, которая дописывает компанию отдельным запросом
+  await new Promise((r) => setTimeout(r, 800));
   const { data: v } = await sb.from("visits")
     .select("status, source, bath_id, duration_min, created_at, baths(name, type), author:players!visits_created_by_fkey(nick), visit_players(players(nick))")
     .eq("id", visitId).maybeSingle();
@@ -411,15 +458,17 @@ async function siteVisit(visitId: number): Promise<boolean> {
 // 👍/💩 на пост и карточку, итог отдельным сообщением в ответ на пост, в личке Комиссии — кто решил, кнопки убираем.
 async function announce(visitId: number): Promise<boolean> {
   const { data: v } = await sb.from("visits")
-    .select("status, source, bath_id, reject_reason, baths(name), author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)")
+    .select("status, source, bath_id, reject_reason, moderated_at, baths(name), author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)")
     .eq("id", visitId).maybeSingle();
   if (!v || !["ok", "rejected"].includes(v.status)) return false;
+  const freshVerdict = !!v.moderated_at && Date.now() - new Date(v.moderated_at).getTime() < 15 * 60e3;
   // объявляет тот, кто первым отметил статус объявленным: кнопка и триггер могут прийти одновременно
   const { data: won } = await sb.from("bot_posts").update({ announced: v.status })
     .eq("visit_id", visitId).or(`announced.is.null,announced.neq.${v.status}`).select("chat_id, source_msg, card_msg");
   let post = won?.[0];
-  if (!post && v.source === "site") {
-    // поход с сайта: поста в группе нет — объявим отдельным сообщением в чате лиги (вставка строки — та же защита от повтора)
+  if (!post && v.source === "site" && freshVerdict) {
+    // поход с сайта: поста в группе нет — объявим отдельным сообщением в чате лиги (вставка строки — та же защита от повтора).
+    // Только свежее решение: ?verdict=<id> открыт всем, и старые походы иначе можно было «переобъявить» в чат
     const chat = Number(await setting("league_chat"));
     if (!chat) return false;
     const { data: fresh } = await sb.from("bot_posts").insert({ visit_id: visitId, chat_id: chat, source_msg: 0, bath_id: v.bath_id, announced: v.status })
@@ -491,21 +540,34 @@ async function implicitAnswer(msg: Any): Promise<boolean> {
   return true;
 }
 
-// «Долгая была?» — на доверии: один ответ «да» от участника делает поход долгим, ошибки правит Комиссия
-async function markLong(visitId: number, me: Any): Promise<boolean> {
+// «Долгая была?» — на доверии: один ответ «да» от участника делает поход долгим, ошибки правит Комиссия.
+// Спустя сутки после захода кнопка уже не работает: старый вопрос в чате не должен менять давно решённые походы.
+const LONG_STRANGER = "Это вопрос для тех, кто был в походе";
+const LONG_LATE = "Прошло больше суток — долгую теперь отмечает только Комиссия";
+async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late"> {
   const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", visitId).eq("player_id", me?.id ?? "").maybeSingle();
-  if (!vp) return false;
-  const { data: v } = await sb.from("visits").select("duration_min, status").eq("id", visitId).single();
+  if (!vp) return "stranger";
+  const { data: v } = await sb.from("visits").select("duration_min, status, entered_at").eq("id", visitId).single();
+  if (Date.now() - new Date(v.entered_at).getTime() > 864e5) return "late";
   if (v.duration_min <= LONG) await sb.from("visits").update({ duration_min: LONG + 1 }).eq("id", visitId);
   if (v.status === "ok") await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
-  return true;
+  return "ok";
+}
+
+// ответ участника под вопросом «Долгая была?» — по строке на ответ; повторное нажатие ничего не дописывает (null)
+function withLongAnswer(text: string, line: string): string | null {
+  const lines = text.split("\n");
+  if (lines.includes(line)) return null;
+  const answered = lines.some((l) => /: (долгая 🔥|обычная)$/u.test(l));
+  return `${text}${answered ? "\n" : "\n\n"}${line}`;
 }
 
 // ответ текстом на «Долгая была?» — кнопки удобнее, но «да»/«нет» тоже понимаем
 async function longAnswer(msg: Any, post: Any, me: Any) {
   const text = (msg.text ?? "").trim();
   if (/^(да|ага|угу|конечно|долгая|yes|\+)(?![\p{L}\p{N}])/iu.test(text)) {
-    if (!(await markLong(post.visit_id, me))) return send(msg.chat.id, "Этот вопрос для тех, кто был в походе 🙂", undefined, msg.message_id);
+    const res = await markLong(post.visit_id, me);
+    if (res !== "ok") return send(msg.chat.id, res === "late" ? LONG_LATE : `${LONG_STRANGER} 🙂`, undefined, msg.message_id);
     await react(msg.chat.id, msg.message_id, "🔥");
     return send(msg.chat.id, `🔥 ${esc(me.nick)}: долгая — +1 всей компании.`, undefined, msg.message_id);
   }
@@ -521,7 +583,13 @@ async function tick() {
     .lte("entered_at", new Date(now - LONG * 60e3).toISOString()).gte("entered_at", new Date(now - 864e5).toISOString());
   const lg = await league();
   let asked = 0;
+  const claimed: number[] = [];
   for (const v of data ?? []) {
+    // сначала забираем поход себе, потом спрашиваем: параллельные ?tick=1 не должны спросить дважды
+    const { data: mine } = await sb.from("visits").update({ long_asked_at: new Date().toISOString() })
+      .eq("id", v.id).is("long_asked_at", null).select("id");
+    if (!mine?.length) continue;
+    claimed.push(v.id);
     const post = (v as Any).bot_posts;
     const people = v.visit_players.map((x: Any) => {
       const acc = lg.accounts.find((a: Any) => a.player_id === x.player_id);
@@ -530,10 +598,9 @@ async function tick() {
     const r = await send(post.chat_id,
       `⏳ ${people.join(", ")}, прошло 2,5 часа. Долгая была — больше 2,5 ч?`,
       LONG_KB(v.id), post.source_msg);
-    await sb.from("visits").update({ long_asked_at: new Date().toISOString() }).eq("id", v.id);
     if (r.ok) { await sb.from("bot_posts").update({ ask_msg: r.result.message_id }).eq("visit_id", v.id); asked++; }
   }
-  return asked;
+  return { asked, claimed };
 }
 
 // ---------- обработчики ----------
@@ -597,6 +664,21 @@ async function onMessage(msg: Any) {
   return startDraft(msg, me, lg);
 }
 
+// дописываем ответ под вопросом «Долгая была?», если этот участник так ещё не отвечал
+function noteLongAnswer(cq: Any, vid: number, line: string) {
+  const next = withLongAnswer(cq.message?.text ?? "", line);
+  return next ? edit(cq.message.chat.id, cq.message.message_id, esc(next), LONG_KB(vid)) : undefined;
+}
+
+// «✅ В Комиссию»: черновик забираем удалением — второе нажатие (двойной тап, повтор вебхука) его уже не найдёт
+// и второй поход не создаст; если отправка сорвётся, submit() вернёт черновик
+async function sendDraft(cq: Any, tgId: number) {
+  const { data: taken } = await sb.from("bot_sessions").delete().eq("tg_id", tgId).select("state");
+  if (!taken?.length) return answer(cq.id, "Уже отправлено");
+  await answer(cq.id);
+  return submit(taken[0].state, await league(), tgId);
+}
+
 async function onCallback(cq: Any) {
   const data: string = cq.data ?? "", tgId = cq.from.id;
   const acc = await whoIs(tgId);
@@ -611,32 +693,34 @@ async function onCallback(cq: Any) {
   }
   if (data.startsWith("yl:")) {
     const vid = Number(data.slice(3));
-    if (!(await markLong(vid, me))) return answer(cq.id, "Это вопрос для тех, кто был в походе");
+    const res = await markLong(vid, me);
+    if (res !== "ok") return answer(cq.id, res === "late" ? LONG_LATE : LONG_STRANGER, res === "late");
     await answer(cq.id, "🔥 Долгая — +1 всей компании");
-    return edit(cq.message.chat.id, cq.message.message_id, `${esc(cq.message.text)}\n\n${esc(me.nick)}: долгая 🔥`, LONG_KB(vid));
+    return noteLongAnswer(cq, vid, `${me.nick}: долгая 🔥`);
   }
   if (data.startsWith("nl:")) {
     const vid = Number(data.slice(3));
     const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", vid).eq("player_id", me?.id ?? "").maybeSingle();
-    if (!vp) return answer(cq.id, "Это вопрос для тех, кто был в походе");
+    if (!vp) return answer(cq.id, LONG_STRANGER);
     await answer(cq.id, "Ок, обычная");
-    return edit(cq.message.chat.id, cq.message.message_id, `${esc(cq.message.text)}\n\n${esc(me.nick)}: обычная`, LONG_KB(vid));
+    return noteLongAnswer(cq, vid, `${me.nick}: обычная`);
   }
   const st = await getState(tgId);
+  if (!st && data === "send") return answer(cq.id, "Уже отправлено");
   if (!st || st.card !== cq.message?.message_id || st.chat !== cq.message?.chat?.id) {
     return answer(cq.id, "Это черновик другого участника — отметь бота в своём посте", true);
   }
+  if (data === "send") return sendDraft(cq, tgId);
   await answer(cq.id);
   const lg = await league();
   if (data === "x") { await clearState(tgId); return edit(st.chat, st.card, "Черновик отменён."); }
-  if (data === "send") return submit(st, lg, tgId);
   if (data.startsWith("b:")) {
     const b = (st.candidates ?? []).find((c: Any) => c.id === Number(data.slice(2)));
-    if (b) { st.bathId = b.id; st.bathName = b.name; st.bathType = b.type ?? null; st.type = null; st.newBath = null; st.candidates = []; }
+    if (b) { st.bathId = b.id; st.bathName = b.name; st.bathType = b.type ?? null; st.type = null; st.newBath = null; st.newBathId = null; st.candidates = []; }
   } else if (data === "nb") {
-    st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.bathType = null; st.type = null; st.candidates = [];
+    st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.newBathId = null; st.bathType = null; st.type = null; st.candidates = [];
   } else if (data === "eb") {
-    st.bathId = null; st.newBath = null; st.bathName = null; st.bathType = null; st.type = null; await resolveBath(st);
+    st.bathId = null; st.newBath = null; st.newBathId = null; st.bathName = null; st.bathType = null; st.type = null; await resolveBath(st);
   } else if (data.startsWith("t:") && TYPE_RU[data.slice(2)]) {
     st.type = data.slice(2);
   } else if (data === "ed") st.awaiting = "dur";
@@ -647,7 +731,7 @@ async function onCallback(cq: Any) {
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
-  if (url.searchParams.get("tick") === "1") return new Response(JSON.stringify({ asked: await tick() }), { headers: { "Content-Type": "application/json" } });
+  if (url.searchParams.get("tick") === "1") return new Response(JSON.stringify(await tick()), { headers: { "Content-Type": "application/json" } });
   // решение Комиссии принято не кнопкой бота — зовёт триггер в базе; объявляет только настоящий статус и только один раз
   if (url.searchParams.get("new")) {
     return new Response(JSON.stringify({ notified: await siteVisit(Number(url.searchParams.get("new"))) }), { headers: { "Content-Type": "application/json" } });
@@ -655,10 +739,11 @@ Deno.serve(async (req) => {
   if (url.searchParams.get("verdict")) {
     return new Response(JSON.stringify({ announced: await announce(Number(url.searchParams.get("verdict"))) }), { headers: { "Content-Type": "application/json" } });
   }
-  // диагностика без секретов: состояние вебхука у Telegram и последние ошибки обработки
+  // диагностика без секретов: состояние вебхука у Telegram и последние записи журнала — только время и тип,
+  // detail (данные кнопок, стек ошибки) наружу не отдаём: по нему видно, кто что решал
   if (url.searchParams.get("diag") === "1") {
     const info = await tg("getWebhookInfo", {});
-    const { data: log } = await sb.from("bot_log").select("at, kind, detail").order("id", { ascending: false }).limit(10);
+    const { data: log } = await sb.from("bot_log").select("at, kind").order("id", { ascending: false }).limit(10);
     const r = info.result ?? {};
     return new Response(JSON.stringify({ pending: r.pending_update_count, last_error: r.last_error_message, last_error_at: r.last_error_date,
       allowed: r.allowed_updates, url_ok: r.url === `${BASE}/functions/v1/tg-bot`, log }), { headers: { "Content-Type": "application/json" } });

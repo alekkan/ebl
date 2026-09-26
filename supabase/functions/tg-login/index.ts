@@ -16,18 +16,23 @@ const cors = (origin: string | null) => ({
   "Vary": "Origin",
 });
 
-const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+const FRESH_SEC = 3600; // данные входа живут час: утёкшей ссылкой #tgAuthResult (история браузера, скриншот) потом не войти
 
+// hash — hex HMAC-SHA256 с ключом sha256(bot_token); crypto.subtle.verify сравнивает подпись за постоянное время
 async function validTelegram(data: Record<string, string>) {
   const { hash, ...rest } = data;
-  if (!hash || !BOT_TOKEN) return false;
+  if (!hash || !BOT_TOKEN || !/^[0-9a-f]{64}$/i.test(hash)) return false;
+  const age = Date.now() / 1000 - Number(rest.auth_date);
+  if (!(age < FRESH_SEC && age > -300)) return false;   // NaN сюда тоже не пройдёт
   const check = Object.keys(rest).sort().map((k) => `${k}=${rest[k]}`).join("\n");
   const secret = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(BOT_TOKEN));
-  const key = await crypto.subtle.importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(check)));
-  const fresh = Date.now() / 1000 - Number(rest.auth_date) < 86400;
-  return sig === hash && fresh;
+  const key = await crypto.subtle.importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const sig = new Uint8Array(hash.match(/../g)!.map((h) => parseInt(h, 16)));
+  return crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(check));
 }
+
+// в ilike «_» и «%» — шаблоны: без экранирования «v_tek1987» входил в чужой заранее вписанный «vitek1987»
+const likeExact = (s: string) => s.replace(/[\\%_]/g, (c) => "\\" + c);
 
 Deno.serve(async (req) => {
   const headers = { ...cors(req.headers.get("Origin")), "Content-Type": "application/json" };
@@ -51,8 +56,9 @@ Deno.serve(async (req) => {
   // аккаунт: по telegram id, иначе по username, который Комиссия вписала заранее
   let { data: acc } = await sb.from("player_accounts").select("*").eq("tg_id", tgId).maybeSingle();
   if (!acc && username) {
-    const { data } = await sb.from("player_accounts").select("*").is("tg_id", null).ilike("tg_username", username).maybeSingle();
-    acc = data;
+    // точное совпадение без учёта регистра; сверяем ещё раз здесь — на случай шаблонов, которые PostgREST понимает сам («*»)
+    const { data } = await sb.from("player_accounts").select("*").is("tg_id", null).ilike("tg_username", likeExact(username)).limit(5);
+    acc = data?.find((a) => a.tg_username?.toLowerCase() === username.toLowerCase()) ?? null;
   }
   if (!acc) {
     const { data, error } = await sb.from("player_accounts").insert({ tg_id: tgId, tg_username: username, tg_name: name }).select().single();

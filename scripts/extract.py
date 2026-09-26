@@ -66,7 +66,13 @@ for row in ws.iter_rows(min_row=2, values_only=True):
                       "weekPts": {w: round(row[i], 2) for i, w in wk_cols if isinstance(row[i], (int, float))}})
 ws = wb["недельный зачет"]
 hdr = [c.value for c in ws[2]]
-wk_cols = [(i, int(h[1:]) if isinstance(h, str) else int(h)) for i, h in enumerate(hdr) if i >= 2 and h is not None]
+# недели в шапке идут подряд по убыванию; бывают опечатки (у W13 в таблице записано «11») — номер берём по соседу слева
+wk_cols, prev = [], None
+for i, h in enumerate(hdr):
+    if i < 2 or h is None: continue
+    m = re.fullmatch(r"W(\d+)", str(h).strip())
+    w = int(m.group(1)) if m else (prev - 1 if prev else None)
+    if w: wk_cols.append((i, w)); prev = w
 week_baths = {}
 for row in ws.iter_rows(min_row=3, values_only=True):
     if not row[0]: continue
