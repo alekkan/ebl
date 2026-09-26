@@ -43,8 +43,8 @@ const answer = (id: string, text?: string, alert = false) => tg("answerCallbackQ
 const postLink = (chat: Any, msg: number) =>
   chat.username ? `https://t.me/${chat.username}/${msg}` : String(chat.id).startsWith("-100") ? `https://t.me/c/${String(chat.id).slice(4)}/${msg}` : null;
 
-const DUR: [number, string][] = [[60, "1 ч"], [90, "1,5 ч"], [120, "2 ч"], [150, "2,5 ч"], [180, "3 ч"], [240, "4 ч+"]];
-const durLabel = (m: number | null) => (m == null ? "от часа" : DUR.find(([v]) => v === m)?.[1] ?? `${Math.floor(m / 60)} ч ${m % 60 ? (m % 60) + " мин" : ""}`.trim());
+// по регламенту важно одно: долгий поход (больше 150 минут) или обычный
+const durLabel = (m: number | null) => (m == null ? "от часа" : m > 150 ? "🔥 долгая, больше 2,5 ч" : "обычная, до 2,5 ч");
 
 // ---------- справочники ----------
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
@@ -207,9 +207,9 @@ async function renderCard(st: Any, lg: Any) {
   if (st.geo) lines.push("📍 точка на карте есть");
   if (st.dur != null && st.dur > LONG && !(st.photos ?? []).length) lines.push("⚠️ Долгий засчитают с фото отметок входа и выхода — пришли ответом на это сообщение.");
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
-  if (st.awaiting === "dur") lines.push("\nСколько парились?");
+  if (st.awaiting === "dur") lines.push("\nСколько парились? По регламенту важно только, была ли долгая — больше 2,5 часа.");
   const kb: Any[][] = st.awaiting === "dur"
-    ? [DUR.slice(0, 3).map(([m, l]) => btn(l, `d:${m}`)), DUR.slice(3).map(([m, l]) => btn(l, `d:${m}`)), [btn("Ещё паримся", "d:0")]]
+    ? [[btn("🧖 Обычная — до 2,5 ч", "d:120")], [btn("🔥 Долгая — больше 2,5 ч", "d:180")], [btn("Ещё паримся", "d:0")]]
     : [[btn("✅ В Комиссию", "send")], [btn("🏠 Баня", "eb"), btn("⏱ Время", "ed"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
   return { text: `${who}, всё верно?\n\n${lines.join("\n")}`, kb };
 }

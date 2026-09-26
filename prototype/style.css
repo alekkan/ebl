@@ -530,7 +530,13 @@ tr.below { color: var(--ink-2); }
 .picked small { color: var(--ink-2); }
 .newbath { display: grid; gap: 14px; padding: 16px; border-radius: var(--r); background: var(--panel-2); }
 #pickmap { height: 200px; border-radius: 12px; }
-.dur button { padding: 8px 14px; font-size: 14px; }
+.dur2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dur2 button { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border-radius: var(--r); border: 1.5px solid var(--line); background: var(--panel); color: var(--ink); transition: all .15s var(--ease); }
+.dur2 button b { font: 700 15px var(--display); }
+.dur2 button span { font-size: 12px; color: var(--ink-3); }
+.dur2 button:hover { border-color: var(--ink-3); }
+.dur2 button[aria-pressed="true"] { border-color: var(--oak); background: var(--oak-soft); }
+.dur2 button.long[aria-pressed="true"] { border-color: var(--ember); background: var(--ember-soft); }
 .proof { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--honey-soft); margin-top: 4px; }
 .upload { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; position: relative; }
 .upload input { position: absolute; opacity: 0; width: 1px; height: 1px; }

@@ -284,15 +284,12 @@
         </div>
 
         <div class="field">
-          <span class="lab">Сколько парился</span>
-          <div class="chips dur" id="vDurChips">
-            <button type="button" data-m="60">1 ч</button>
-            <button type="button" data-m="90">1,5 ч</button>
-            <button type="button" data-m="120" aria-pressed="true">2 ч</button>
-            <button type="button" data-m="150">2,5 ч</button>
-            <button type="button" data-m="180">3 ч</button>
-            <button type="button" data-m="240">4 ч+</button>
+          <span class="lab">Сколько парились</span>
+          <div class="dur2" id="vDurChips" role="group" aria-label="Сколько парились">
+            <button type="button" data-m="120" aria-pressed="true"><b>🧖 Обычная</b><span>от 1 до 2,5 часа</span></button>
+            <button type="button" data-m="180" aria-pressed="false" class="long"><b>🔥 Долгая</b><span>больше 2,5 часа · +1 с фото отметок</span></button>
           </div>
+          <span class="hint">Меньше часа поход не засчитывается.</span>
           <input type="hidden" id="vDur" value="120">
           <div class="proof" id="proofBox" hidden>
             <label class="check"><input type="checkbox" id="vProof"> Есть фото с отметками времени входа и выхода</label>

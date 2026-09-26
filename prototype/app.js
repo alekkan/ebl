@@ -787,7 +787,7 @@
         </div>
         <div><a class="post-bath" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a><div class="hint">${esc(b ? where(b) : "")}</div></div>
         <div class="post-meta">
-          <span>${v.dur >= 240 ? "4+ ч" : fmt(v.dur / 60) + " ч"}</span>
+          <span>${v.dur > 150 ? "🔥 долгая" : "обычная"}</span>
           ${v.proof ? `<span>фото с отметками${v.photos ? ` · ${v.photos}` : ""}</span>` : ""}
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
         </div>
