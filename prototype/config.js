@@ -3,5 +3,5 @@
 window.EBL_CONFIG = {
   supabaseUrl: "https://yeerkfdgmhcmvdqzaoio.supabase.co",
   supabaseKey: "sb_publishable_o9O2S8NXOlWQ2Wkyk7aIUw_p-AVyq29",
-  telegramBot: "",   // username бота без @ — пока пусто, кнопка входа скрыта
+  telegramBot: "eblsu_bot",   // username бота без @; домен входа задан в BotFather (/setdomain → ebl.su)
 };
