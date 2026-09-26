@@ -46,6 +46,8 @@ const postLink = (chat: Any, msg: number) =>
   chat.username ? `https://t.me/${chat.username}/${msg}` : String(chat.id).startsWith("-100") ? `https://t.me/c/${String(chat.id).slice(4)}/${msg}` : null;
 
 // по регламенту важно одно: долгий поход (больше 150 минут) или обычный
+const TYPE_RU: Record<string, string> = { public: "Общественная", spa: "Хуитнес", private: "Частная" };
+const TYPE_BTN: Record<string, string> = { public: "🏛 Общественная", spa: "🏋️ Хуитнес", private: "🪵 Частная" };
 const durLabel = (m: number | null) => (m == null ? "от часа" : m > 150 ? "🔥 долгая, больше 2,5 ч" : "обычная, до 2,5 ч");
 
 // ---------- справочники ----------
@@ -206,11 +208,16 @@ async function renderCard(st: Any, lg: Any) {
     `👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`,
   ];
   if (st.geo) lines.push("📍 точка на карте есть");
+  // тип не размечен (или баня новая) — спрашиваем: от него зависит +1 за общественную (п. 4); ответ необязательный
+  const askType = st.newBath || (st.bathId && !st.bathType);
+  if (st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
+  else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nСколько парились? По регламенту важно только, была ли долгая — больше 2,5 часа.");
   const kb: Any[][] = st.awaiting === "dur"
     ? [[btn("🧖 Обычная — до 2,5 ч", "d:120")], [btn("🔥 Долгая — больше 2,5 ч", "d:180")], [btn("Ещё паримся", "d:0")]]
-    : [[btn("✅ В Комиссию", "send")], [btn("🏠 Баня", "eb"), btn("⏱ Время", "ed"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
+    : [...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
+      [btn("✅ В Комиссию", "send")], [btn("🏠 Баня", "eb"), btn("⏱ Время", "ed"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
   return { text: `${who}, всё верно?\n\n${lines.join("\n")}`, kb };
 }
 
@@ -228,9 +235,9 @@ async function resolveBath(st: Any) {
   if (!st.query) { st.candidates = []; return; }
   const found = await findBaths(st.query);
   // одна уверенная находка без «УУ» — берём сразу; иначе уточняем
-  if (!st.ultra && found.length === 1) { st.bathId = found[0].id; st.bathName = found[0].name; st.candidates = []; return; }
+  if (!st.ultra && found.length === 1) { st.bathId = found[0].id; st.bathName = found[0].name; st.bathType = found[0].type ?? null; st.candidates = []; return; }
   if (st.ultra && !found.length) { st.newBath = st.query; st.bathName = st.query; st.candidates = []; return; }
-  st.candidates = found.map((b: Any) => ({ id: b.id, name: b.name, region: b.region }));
+  st.candidates = found.map((b: Any) => ({ id: b.id, name: b.name, region: b.region, type: b.type ?? null }));
 }
 
 // новый пост с отметкой бота — новый черновик
@@ -301,7 +308,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
   let bathId = st.bathId;
   if (!bathId) {
     const { data: nb, error } = await sb.from("baths").insert({
-      name: st.newBath, status: "pending", created_by: st.authorId,
+      name: st.newBath, status: "pending", created_by: st.authorId, type: st.type ?? null,
       ...(st.geo ? { lat: st.geo.lat, lng: st.geo.lng, precision: "exact", ...(await placeFor(st.geo)) } : {}),
     }).select().single();
     if (error) return edit(st.chat, st.card, `Не получилось добавить баню: ${esc(error.message)}`);
@@ -323,11 +330,14 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (error) return edit(st.chat, st.card, `Не получилось сохранить поход: ${esc(error.message)}`);
   await sb.from("visit_players").insert([st.authorId, ...(st.company ?? [])].map((id: string) => ({ visit_id: visit.id, player_id: id })));
   if (st.geo && st.bathId) await setBathPoint(st.bathId, st.geo, lg.players.find((p: Any) => p.id === st.authorId)?.is_commission);
+  // тип бани со слов автора — только если он не был размечен; ошибся — Комиссия поправит в карточке бани
+  if (st.bathId && st.type) await sb.from("baths").update({ type: st.type }).eq("id", st.bathId).is("type", null);
   await sb.from("bot_posts").insert({ visit_id: visit.id, chat_id: st.chat, source_msg: st.source, card_msg: st.card, bath_id: bathId });
   await clearState(tgId);
 
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
-  const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`;
+  const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
+    + (st.type ? `\n🏷 ${TYPE_RU[st.type]}${st.bathType ? "" : " — со слов автора"}` : "");
   await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>\n\n${summary}`);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
@@ -367,7 +377,7 @@ const setting = async (key: string) => (await sb.from("settings").select("value"
 async function siteVisit(visitId: number): Promise<boolean> {
   await new Promise((r) => setTimeout(r, 3000));   // сайт дописывает компанию следом за самим походом
   const { data: v } = await sb.from("visits")
-    .select("status, source, bath_id, duration_min, created_at, baths(name), author:players!visits_created_by_fkey(nick), visit_players(players(nick))")
+    .select("status, source, bath_id, duration_min, created_at, baths(name, type), author:players!visits_created_by_fkey(nick), visit_players(players(nick))")
     .eq("id", visitId).maybeSingle();
   // только свежий поход с сайта, который ждёт решения
   if (!v || v.source !== "site" || v.status !== "pending" || Date.now() - new Date(v.created_at).getTime() > 15 * 60e3) return false;
@@ -378,7 +388,8 @@ async function siteVisit(visitId: number): Promise<boolean> {
   if (!claim) return false;
   const vv = v as Any, author = vv.author?.nick;
   const company = (vv.visit_players ?? []).map((x: Any) => x.players?.nick).filter((n: string) => n && n !== author);
-  const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`;
+  const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
+    + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "");
   if (chat) {
     const r = await send(chat, `🌐 <b>${esc(author)}</b> отметил баню на сайте\n\n${summary}\n\nЖдёт Комиссию 👀`);
     if (r.ok) {
@@ -621,11 +632,13 @@ async function onCallback(cq: Any) {
   if (data === "send") return submit(st, lg, tgId);
   if (data.startsWith("b:")) {
     const b = (st.candidates ?? []).find((c: Any) => c.id === Number(data.slice(2)));
-    if (b) { st.bathId = b.id; st.bathName = b.name; st.newBath = null; st.candidates = []; }
+    if (b) { st.bathId = b.id; st.bathName = b.name; st.bathType = b.type ?? null; st.type = null; st.newBath = null; st.candidates = []; }
   } else if (data === "nb") {
-    st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.candidates = [];
+    st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.bathType = null; st.type = null; st.candidates = [];
   } else if (data === "eb") {
-    st.bathId = null; st.newBath = null; st.bathName = null; await resolveBath(st);
+    st.bathId = null; st.newBath = null; st.bathName = null; st.bathType = null; st.type = null; await resolveBath(st);
+  } else if (data.startsWith("t:") && TYPE_RU[data.slice(2)]) {
+    st.type = data.slice(2);
   } else if (data === "ed") st.awaiting = "dur";
   else if (data === "ec") st.awaiting = "company";
   else if (data.startsWith("d:")) { const m = Number(data.slice(2)); st.dur = m || null; st.start = null; st.awaiting = null; }

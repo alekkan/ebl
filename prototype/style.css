@@ -277,6 +277,11 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .d-hero.t-private { --tint: var(--honey-soft); } .d-hero.t-unknown { --tint: var(--panel-2); }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; padding-right: 40px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--panel); color: var(--ink-2); }
+.pill-sel { padding-right: 4px; cursor: pointer; box-shadow: inset 0 0 0 1.5px var(--line); }
+.pill-sel select { border: 0; background: none; font: inherit; color: inherit; padding: 0 4px 0 0; cursor: pointer; }
+.type-ask { margin-top: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--honey-soft); display: grid; gap: 8px; }
+.type-ask .lab small { font-weight: 500; color: var(--ink-3); }
+.type-ask .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill.ember { background: var(--ember-soft); color: var(--ember); }
 .pill.oak { background: var(--oak); color: var(--oak-ink); }
 .d-hero h2 { font: 700 22px/1.2 var(--display); letter-spacing: -.01em; margin: 12px 0 6px; text-wrap: balance; }

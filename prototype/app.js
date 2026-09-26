@@ -278,7 +278,9 @@
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
       <div class="d-hero t-${b.t}">
         <div class="pills">
-          <span class="pill">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>
+          ${canModerate && D.live
+            ? `<label class="pill pill-sel">${tdot(b.t)}<select id="dType" aria-label="Тип бани — меняет Комиссия">${b.t === "unknown" ? '<option value="" selected>Тип не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([t, l]) => `<option value="${t}" ${b.t === t ? "selected" : ""}>${l}</option>`).join("")}</select></label>`
+            : `<span class="pill">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
           ${b.t === "public" ? '<span class="pill oak">+1 очко</span>' : ""}
           ${b.isNew ? '<span class="pill ember">новая, на модерации</span>' : ""}
           ${!b.n26 && !b.nHist && !b.isNew ? '<span class="pill ember">кандидат в ультрауникальные</span>' : ""}
@@ -330,6 +332,13 @@
       </div>`;
     d.hidden = false;
     $(".x", d).onclick = closeBath;
+    $("#dType", d)?.addEventListener("change", async (e) => {
+      try {
+        await D.moderateBath(b.id, { type: e.target.value || null });
+        b.type = e.target.value || null; b.t = b.type || "unknown"; render(); openBath(b.id);
+        toast(`Тип: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); await D.recompute();
+      } catch (err) { toast("Не получилось: " + err.message); }
+    });
     $("#dVisit", d).onclick = () => openVisit({ bathId: id });
     $$("[data-player]", d).forEach((x) => (x.onclick = () => openPlayer(x.dataset.player)));
     const rateBtns = $$("#rvRate button", d);
@@ -637,6 +646,8 @@
   const vf = $("#visitForm");
   $("#vPlayer").innerHTML = [...players].sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("");
   let picked = null, newPin = null, pickMap = null, pickMarker = null, lastTotal = 0;
+  let pickedType = null;   // тип бани со слов автора — если в справочнике он не размечен
+  const TYPE_CHOICE = { public: "Общественная", spa: "Хуитнес", private: "Частная" };
 
   function openVisit({ bathId } = {}) {
     if (D.live && !me) return openLogin();
@@ -646,7 +657,7 @@
     $("#vPlayer").disabled = D.live;
     $("#vDate").value = mskNow();
     setDur(120);
-    picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0;
+    picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0; pickedType = null;
     if (pickMarker) { pickMarker.remove(); pickMarker = null; }
     $("#nbGeoState").textContent = "Или кликни на карте. Точку можно перетащить.";
     renderComp(); renderPicked(); calc();
@@ -685,8 +696,12 @@
     $("#vSuggest").hidden = true;
     if (picked && !isNew) {
       box.hidden = false;
-      box.innerHTML = `<div class="picked"><span><b>${esc(picked.name)}</b><small>${tdot(picked.t)} ${TYPE_LABEL[picked.t]} · ${esc(where(picked))}</small></span><button type="button" class="btn sm">Другая</button></div>`;
-      $("button", box).onclick = () => { picked = null; renderPicked(); calc(); $("#vBathQ").focus(); };
+      // тип не размечен — спрашиваем: от него зависит +1 за общественную (п. 4); ответ сохранится у бани
+      const ask = picked.t === "unknown" ? `<div class="type-ask"><span class="lab">Какая это баня? <small>тип не отмечен, за общественную +1</small></span>
+        <div class="chips">${Object.entries(TYPE_CHOICE).map(([t, l]) => `<button type="button" data-ptype="${t}" aria-pressed="${pickedType === t}">${tdot(t)}${l}</button>`).join("")}</div></div>` : "";
+      box.innerHTML = `<div class="picked"><span><b>${esc(picked.name)}</b><small>${tdot(picked.t)} ${TYPE_LABEL[picked.t]} · ${esc(where(picked))}</small></span><button type="button" class="btn sm" data-other>Другая</button></div>${ask}`;
+      $("[data-other]", box).onclick = () => { picked = null; pickedType = null; renderPicked(); calc(); $("#vBathQ").focus(); };
+      $$("[data-ptype]", box).forEach((b) => (b.onclick = () => { pickedType = pickedType === b.dataset.ptype ? null : b.dataset.ptype; renderPicked(); calc(); }));
     } else box.hidden = true;
     if (isNew) setTimeout(() => {
       if (!pickMap) {
@@ -762,6 +777,7 @@
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.new) { picked = "new"; $("#nbName").value = $("#vBathQ").value.trim(); }
     else picked = byId.get(+b.dataset.id);
+    pickedType = null;
     renderPicked(); calc();
   });
 
@@ -790,8 +806,9 @@
     if (sameDay) return { ...base, empty: "В эту баню сегодня уже отмечен поход — второй раз за сутки не считается" };
     const s = seasonOf(player), lines = [];
     lines.push(["Поход в баню", 1]);
-    if (b.t === "public") lines.push(["Общественная", 1]);
-    else if (b.t === "unknown") lines.push(["Общественная? Решит Комиссия", 0, "muted"]);
+    const bt = !isNew && b.t === "unknown" && pickedType ? pickedType : b.t;
+    if (bt === "public") lines.push(["Общественная", 1]);
+    else if (bt === "unknown") lines.push(["Общественная? Отметь тип бани выше", 0, "muted"]);
     if (isNew || !s.bathIds.has(b.id)) lines.push(["Уникальная", 1]);
     if (isNew) lines.push(["Ультрауникальная", 1]);
     else if (!b.n26 && !b.nHist) lines.push(["Ультра? Комиссия проверит", 0, "muted"]);
@@ -839,11 +856,13 @@
         ...(newPin ? { lat: newPin[0], lng: newPin[1], precision: "exact" } : {}) };
     }
     const payload = { bathId: picked.id, newBath, date: r.date, week: r.week, dur: r.dur,
+      bathType: picked !== "new" && picked.t === "unknown" ? pickedType : null,
       companions: r.comp, player: r.player, lines: r.lines.filter((l) => l[1]), total: r.total };
     vf.dataset.busy = "1"; $("#vSubmit span").textContent = "Отправляю…";
     try {
       const saved = await D.submitVisit(payload);
       if (payload.createdBath) { const nb = payload.createdBath; hydrate(nb); baths.push(nb); byId.set(nb.id, nb); }
+      if (payload.bathType && D.live) { const pb = byId.get(payload.bathId); if (pb && !pb.type) { pb.type = payload.bathType; pb.t = payload.bathType; } }
       if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur,
         lines: [], total: null, preview: r.total, status: "pending" });
       leafBurst($("#vSubmit"));

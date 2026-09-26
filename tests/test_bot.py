@@ -60,6 +60,17 @@ def press(data, who, mid=50):
     assert s == 200, s
 
 
+print("Тип бани")
+sql("update baths set type = null where name = 'Василевские'")
+st = case("@eblsu_bot Василевские 2ч", 20)
+check("у бани нет типа — карточка спросит", st.get("bathId") and not st.get("bathType"), st)
+# кнопка на карточке (локально Telegram не отвечает, поэтому у черновика нет id карточки — жмём «на неё же»)
+upd = {"update_id": 2020, "callback_query": {"id": "t1", "from": {"id": ME, "is_bot": False, "first_name": "X"}, "data": "t:public",
+       "message": {"chat": {"id": CHAT, "type": "supergroup"}, "text": "карточка"}}}
+req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+check("автор выбрал «Общественная» — запомнено в черновике", json.loads(sql(f"select state from bot_sessions where tg_id = {ME}")).get("type") == "public")
+sql("delete from bot_sessions")
+
 print("«Долгая была?» — на доверии")
 vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 5, now() - interval '3 hours', 60, id from players where nick='Леха' returning id").splitlines()[0]
 sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick='Леха'")

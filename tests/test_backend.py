@@ -53,6 +53,14 @@ check("долгий у всей компании, без фото", all(any(l[0]
 after = {n: float(sql(f"select total from standings where nick='{n}'")) for n in before}
 check("таблица выросла ровно на очки похода", all(abs(after[n] - before[n] - float(pts[n]["total"])) < 0.01 for n in before), (before, after))
 
+print("Тип бани со слов участника")
+sql("update baths set type = null where id = 20"); sql("update baths set type = 'spa' where id = 21")
+rpc = lambda bath, t, token: req("POST", "/rest/v1/rpc/suggest_bath_type", {"p_bath": bath, "p_type": t}, token=token)[0]
+check("участник размечает баню без типа", rpc(20, "public", shurik) == 204 and sql("select type from baths where id = 20") == "public")
+check("размеченный тип участник не меняет", rpc(21, "public", shurik) == 204 and sql("select type from baths where id = 21") == "spa")
+check("выдуманный тип не принимается", rpc(20, "banya", shurik) >= 400)
+check("без входа нельзя", req("POST", "/rest/v1/rpc/suggest_bath_type", {"p_bath": 20, "p_type": "public"})[0] in (401, 403))
+
 print("Точки бань")
 sql("update baths set precision='region' where id in (10, 11, 12)")
 put = lambda bath, inp: req("POST", "/functions/v1/bath-location", {"bath_id": bath, "input": inp}, token=shurik)

@@ -132,7 +132,7 @@ window.EBLData = (() => {
       check(await sb.from("reviews").upsert({ bath_id: bathId, player_id: cache.me.playerId, rating: rate, text }, { onConflict: "bath_id,player_id" }));
     },
 
-    // поход: v = { bathId | newBath, date (МСК), dur, companions, lines, total, player, week }
+    // поход: v = { bathId | newBath, bathType (тип не размеченной бани со слов автора), date (МСК), dur, companions, lines, total, player, week }
     async submitVisit(v) {
       if (!live) {
         if (v.newBath) {
@@ -149,6 +149,10 @@ window.EBLData = (() => {
       if (v.newBath) {
         const nb = check(await sb.from("baths").insert({ ...v.newBath, status: "pending", created_by: me }).select().single());
         bathId = nb.id; v.createdBath = { ...nb, v26: {}, hist: {}, histBy: {}, isNew: true };
+      }
+      // тип — до похода: уведомление Комиссии (триггер на новый поход) уже покажет его
+      if (v.bathType && !v.newBath) {
+        check(await sb.rpc("suggest_bath_type", { p_bath: bathId, p_type: v.bathType }));
       }
       const visit = check(await sb.from("visits").insert({ bath_id: bathId, entered_at: v.date + ":00+03:00", duration_min: v.dur, created_by: me }).select().single());
       const rows = [me, ...v.companions.map((nick) => cache.playerIds[nick])].map((id) => ({ visit_id: visit.id, player_id: id }));
