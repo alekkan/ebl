@@ -425,6 +425,9 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .pod.p1 .ava { position: relative; }
 .pod.p1::before { content: "👑"; position: absolute; top: -26px; left: 50%; transform: translateX(-50%) rotate(-12deg); font-size: 30px; line-height: 1; z-index: 2;
   filter: drop-shadow(0 3px 4px rgba(0, 0, 0, .2)); }
+td.crowns { text-align: left; white-space: nowrap; }
+td.crowns b { font: 700 13px var(--display); margin-left: 3px; color: color-mix(in srgb, var(--honey) 70%, var(--ink)); }
+th.crown-col { text-align: left; }
 .week-podium { margin: 6px auto 22px; }
 
 .tablecard { background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-s); overflow: hidden; }
