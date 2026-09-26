@@ -5,7 +5,8 @@
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (n) => (Math.round(n * 10) / 10).toLocaleString("ru-RU");
-  const plural = (n, a, b, c) => { n = Math.abs(Math.round(n)); const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
+  // дробные — всегда «очка»: 809,5 очка
+  const plural = (n, a, b, c) => { if (!Number.isInteger(+n)) return b; n = Math.abs(n); const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
   const TYPE_LABEL = { public: "Общественная", spa: "Хуитнес", private: "Частная", unknown: "Тип не указан" };
   const PREC_LABEL = { city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
   const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
@@ -203,7 +204,11 @@
       </button>`;
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
       : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
-    if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, paddingTopLeft: innerWidth > 760 ? [380, 0] : [0, 0] });
+    const pad = { paddingTopLeft: innerWidth > 760 ? [380, 0] : [0, 0] };
+    // при старте — Европа и Россия до Урала, где почти все бани; дальние страны видно, если отдалить
+    // рамка подобрана так, чтобы и на телефоне шириной 360 px влезла в зум 3, а не отскочила к целому миру
+    if (fit === "home") map.fitBounds([[43, 3], [62, 60]], { ...pad, animate: false });
+    else if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, ...pad });
   }
   $("#list").addEventListener("click", (e) => { const it = e.target.closest(".item[data-id]"); if (it) openBath(+it.dataset.id, true); });
 
@@ -250,11 +255,17 @@
     openId = id;
     $$(".item.active").forEach((x) => x.classList.remove("active"));
     $(`.item[data-id="${id}"]`)?.classList.add("active");
+    // на телефоне карточка — шторка снизу: поднимаем карту наверх, чтобы точка бани была видна над шторкой
+    const narrow = innerWidth <= 760;
+    if (narrow) $("#view-map").scrollTo({ top: 0, behavior: calm ? "auto" : "smooth" });
     if (fly && b.ll) {
       const z = Math.max(map.getZoom(), b.prec === "exact" ? 15 : 11);
       map.flyTo(b.ll, z, { duration: calm ? 0 : 0.7 });
       map.once("moveend", () => selectPin(id));
-    } else selectPin(id);
+    } else {
+      if (narrow && b.ll) map.panTo(b.ll, { animate: !calm });
+      selectPin(id);
+    }
     const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
     const rv = reviews[id] || [];
     const avg = rv.length ? rv.reduce((a, r) => a + r.rate, 0) / rv.length : 0;
@@ -473,7 +484,8 @@
     mark.textContent = heatYear === "all" ? "2023–26" : heatYear;
     mark.classList.remove("flash"); void mark.offsetWidth; mark.classList.add("flash");
     // вся лига — стартуем с европейской части России, где основной жар; участник — по его баням
-    if (fit && !player) heatMap.setView(innerWidth > 760 ? [55.4, 32] : [48.5, 38], innerWidth > 760 ? 5 : 4);
+    // на телефоне низ карты под шторкой — центр ниже, чтобы Европа и Россия попали в видимую часть
+    if (fit && !player) heatMap.setView(innerWidth > 760 ? [55.4, 32] : [43, 30], innerWidth > 760 ? 5 : 3);
     else if (fit && pts.length) heatMap.fitBounds(L.latLngBounds(pts.map((p) => [p[0], p[1]])).pad(0.1), { maxZoom: 9, paddingTopLeft: innerWidth > 760 ? [360, 0] : [0, 0] });
   }
   function setYear(y) {
@@ -613,6 +625,8 @@
         pickMap = L.map("pickmap", { attributionControl: false }).setView([55.75, 37.62], 9);
         L.tileLayer(TILE_URL, tileOpts).addTo(pickMap); syncTheme();
         pickMap.on("click", (e) => placePin([e.latlng.lat, e.latlng.lng], false));
+        // шторка на телефоне выезжает с анимацией — пересчитываем размер карты, когда он меняется, иначе серая полоса
+        new ResizeObserver(() => pickMap.invalidateSize()).observe($("#pickmap"));
       }
       pickMap.invalidateSize();
     }, 0);
@@ -1019,6 +1033,7 @@
     const btn = $("#meBtn");
     if (!D.live || (!me && !window.EBL_CONFIG.telegramBot)) { btn.hidden = true; return; }
     btn.hidden = false;
+    btn.classList.toggle("guest", !me);   // «Войти» видно всегда, ник на узком экране прячем до аватарки
     if (!me) btn.innerHTML = `${icon("check")}<span>Войти</span>`;
     else if (!me.nick) btn.innerHTML = `${ava(me.claimedNick || "?")}<span>${me.claimedNick ? "Ждём Комиссию" : "Кто ты?"}</span>`;
     else btn.innerHTML = `${ava(me.nick)}<span>${esc(me.nick)}</span>`;
@@ -1046,7 +1061,7 @@
   }
 
   updateBadge();
-  render(true);
+  render("home");
   const h = location.hash.slice(1);
   if (["heat", "table", "feed", "rules"].includes(h)) show(h);
 })();

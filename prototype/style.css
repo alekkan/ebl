@@ -59,6 +59,7 @@ body {
   margin: 0; background: var(--bg); color: var(--ink);
   font: 15px/1.5 var(--body); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
   display: grid; grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);   /* иначе широкая таблица раздувала страницу и телефон её уменьшал */
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -575,10 +576,10 @@ tr.below { color: var(--ink-2); }
 .bars div:hover { background: var(--ember); }
 .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.blist { display: grid; max-height: 260px; overflow: auto; }
+.blist { display: grid; max-height: 260px; overflow: auto; padding-right: 8px; }
 .blist button { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font-size: 14px; }
 .blist button:hover { color: var(--oak); }
-.blist b { font: 700 13px var(--display); color: var(--ember); }
+.blist b { font: 700 13px var(--display); color: var(--ember); flex: none; }
 .geo b { font: 700 22px var(--display); }
 .typerow { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 3px 0; }
 .typerow span:last-child { margin-left: auto; font-weight: 700; }
@@ -614,10 +615,12 @@ tr.below { color: var(--ink-2); }
   .nav .badge { position: absolute; top: 2px; right: 4px; }
   main { padding-bottom: calc(62px + env(safe-area-inset-bottom, 0px)); }
 
-  .view-map { display: flex; flex-direction: column; }
-  #map { position: relative; inset: auto; height: 42%; flex: none; }
+  /* карта сверху, панель со списком под ней — листается одним экраном, без прокрутки внутри прокрутки */
+  .view-map { display: block; overflow-y: auto; overscroll-behavior: contain; }
+  #map { position: relative; inset: auto; height: 46vh; height: 44svh; min-height: 250px; }
   .leaflet-control-zoom { display: none; }
-  .panel { position: relative; inset: auto; width: auto; flex: 1; min-height: 0; margin-top: -18px; border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px -12px rgba(0, 0, 0, .2); }
+  .panel { position: relative; inset: auto; width: auto; margin-top: -18px; border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px -12px rgba(0, 0, 0, .2); }
+  .list { flex: none; overflow: visible; padding-bottom: 16px; }
   .panel-head { padding: 16px 16px 10px; }
   .kpis b { font-size: 20px; }
   .filters { padding: 4px 16px 10px; }
@@ -627,11 +630,12 @@ tr.below { color: var(--ink-2); }
   .race-head { align-items: center; }
   .race-toggle { display: grid; place-items: center; border: 0; background: var(--panel-2); width: 30px; height: 30px; border-radius: 50%; flex: none; }
   .race.open .race-toggle .ic { transform: rotate(180deg); }
+  .view-map:has(#drawer:not([hidden])) .race { display: none; }   /* открыта баня — карта нужнее гонки */
   .heat-card { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 52%; border-radius: 22px 22px 0 0; padding: 16px; }
   .heat-card h2 { font-size: 21px; }
   .heat-year { top: 56px; bottom: auto; right: 16px; font-size: 56px; }
   .mapstyle { top: 10px; right: 12px; left: 12px; }
-  .drawer { position: fixed; z-index: 1600; top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 88%; border-radius: 24px 24px 0 0; }
+  .drawer { position: fixed; z-index: 1600; top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 62%; border-radius: 24px 24px 0 0; box-shadow: 0 -12px 32px -12px rgba(0, 0, 0, .35); }
 
   .page { padding-inline: 16px; }
   .podium { gap: 8px; }
@@ -649,10 +653,13 @@ tr.below { color: var(--ink-2); }
   .grid2, .cols2 { grid-template-columns: 1fr; }
   .stats.four { grid-template-columns: repeat(2, 1fr); }
   .p-head { padding: 24px 18px 16px; } .p-body { padding: 8px 18px 24px; }
+  .blist { max-height: none; overflow: visible; padding-right: 0; }   /* на телефоне листается вся карточка, без вложенной прокрутки */
+  .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); white-space: normal; }   /* над нижней навигацией, а не поверх */
 }
 /* между телефоном и широким экраном шапка не влезала (кнопка уезжала за край) — ужимаем по шагам */
 @media (max-width: 1060px) {
-  .me-btn span { display: none; } .me-btn { padding: 4px; } .me-btn .ic { margin: 0 6px; }
+  .me-btn:not(.guest) span { display: none; } .me-btn:not(.guest) { padding: 4px; }
+  .me-btn.guest { padding: 7px 14px 7px 10px; } .me-btn .ic { margin: 0; }
   .cta#addVisitBtn .cta-long { display: none; }
   .cta#addVisitBtn .cta-short { display: inline-block; }
 }
@@ -701,6 +708,13 @@ tr.below { color: var(--ink-2); }
 }
 @media (max-width: 760px) { .cta-puff { left: 48px; } }
 @media (max-width: 560px) {
+  /* пост в ленте: сверху аватарки и статус, под ними кто и когда — во всю ширину, чтобы дата не рассыпалась в столбик */
+  .post > .post-head:first-child { display: grid; grid-template-columns: 1fr auto; row-gap: 8px; }
+  .post > .post-head:first-child .stack { grid-area: 1 / 1; }
+  .post > .post-head:first-child .status { grid-area: 1 / 2; align-self: center; }
+  .post > .post-head:first-child .post-who { grid-area: 2 / 1 / 3 / -1; }
+  .post-head { flex-wrap: wrap; }
+  .post-actions { flex-wrap: wrap; }
   .cta#addVisitBtn { gap: 4px; padding: 10px 14px 10px 10px; }
   .cta-puff { left: 39px; top: 19px; --fx: -9px; }
 }
