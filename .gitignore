@@ -6,3 +6,4 @@ supabase/functions/.env
 supabase/.temp/
 supabase/.branches/
 scripts/mymaps*
+scripts/prefectures_*
