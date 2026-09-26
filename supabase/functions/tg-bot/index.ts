@@ -352,19 +352,31 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
 
 const setting = async (key: string) => (await sb.from("settings").select("value").eq("key", key).maybeSingle()).data?.value ?? null;
 
-// поход отметили на сайте (зовёт триггер: ?new=<id>) — Комиссии в личку то же уведомление с кнопками, что для походов из чата
+// поход отметили на сайте (зовёт триггер: ?new=<id>): бот сам пишет о нём в чат лиги — это и есть пост похода,
+// вердикт потом придёт ответом на него; Комиссии в личку — то же уведомление с кнопками, что для походов из чата
 async function siteVisit(visitId: number): Promise<boolean> {
   await new Promise((r) => setTimeout(r, 3000));   // сайт дописывает компанию следом за самим походом
   const { data: v } = await sb.from("visits")
-    .select("status, source, duration_min, created_at, baths(name), author:players!visits_created_by_fkey(nick), visit_players(players(nick))")
+    .select("status, source, bath_id, duration_min, created_at, baths(name), author:players!visits_created_by_fkey(nick), visit_players(players(nick))")
     .eq("id", visitId).maybeSingle();
-  // только свежий поход с сайта, который ждёт решения и о котором Комиссия ещё не знает
+  // только свежий поход с сайта, который ждёт решения
   if (!v || v.source !== "site" || v.status !== "pending" || Date.now() - new Date(v.created_at).getTime() > 15 * 60e3) return false;
-  const { count } = await sb.from("bot_notifications").select("visit_id", { count: "exact", head: true }).eq("visit_id", visitId);
-  if (count) return false;
+  // защита от повтора — строка поста: вставляет только первый вызов
+  const chat = Number(await setting("league_chat")) || 0;
+  const { data: claim } = await sb.from("bot_posts").insert({ visit_id: visitId, chat_id: chat, source_msg: 0, bath_id: v.bath_id })
+    .select("visit_id").maybeSingle();
+  if (!claim) return false;
   const vv = v as Any, author = vv.author?.nick;
   const company = (vv.visit_players ?? []).map((x: Any) => x.players?.nick).filter((n: string) => n && n !== author);
-  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`;
+  const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`;
+  if (chat) {
+    const r = await send(chat, `🌐 <b>${esc(author)}</b> отметил баню на сайте\n\n${summary}\n\nЖдёт Комиссию 👀`);
+    if (r.ok) {
+      await sb.from("bot_posts").update({ source_msg: r.result.message_id }).eq("visit_id", visitId);
+      await react(chat, r.result.message_id, "👀");
+    }
+  }
+  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n${summary}`;
   const lg = await league();
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   for (const c of commission) {
@@ -410,7 +422,8 @@ async function announce(visitId: number): Promise<boolean> {
     const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
     const who = vv.author?.nick, bath = esc(vv.baths?.name);
     const ptsLine = ok && pts?.length ? ": " + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
-    const where = v.source === "site" ? ` (отмечен на сайте)` : "";
+    // ответом на пост видно, о каком походе речь; отдельному сообщению (старые походы с сайта) — пометка
+    const where = v.source === "site" && !post.source_msg ? " (отмечен на сайте)" : "";
     if (post.source_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
     if (post.card_msg) await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
     const r = await send(post.chat_id, ok

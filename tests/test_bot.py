@@ -91,9 +91,12 @@ sql(f"delete from visits where id = {vid}")
 print("Поход с сайта")
 vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 5, now() - interval '2 hours', 180, id from players where nick='Махмуд' returning id").splitlines()[0]
 check("отмечен на сайте — бот знает, что он с сайта", sql(f"select source from visits where id = {vid}") == "site")
-check("Комиссии уходит уведомление (свежий, ждёт решения)", req("POST", f"/functions/v1/tg-bot?new={vid}", {})[1] == {"notified": True})
+req("POST", f"/functions/v1/tg-bot?new={vid}", {})   # триггер зовёт то же самое — кто первый, тот и пишет
+check("бот пишет о нём в чат лиги и Комиссии (свежий, ждёт решения)",
+      sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"))
+check("второй раз о том же походе не пишет", req("POST", f"/functions/v1/tg-bot?new={vid}", {})[1] == {"notified": False})
 sql(f"update visits set status = 'rejected', moderated_by = (select id from players where nick='Леха') where id = {vid}")
-check("решение объявляется в чате лиги отдельным сообщением", wait_announced("rejected")
+check("решение — в чат лиги, ответом на этот пост", wait_announced("rejected")
       and sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"), announced())
 check("и тоже только один раз", verdict() == {"announced": False})
 sql(f"delete from visits where id = {vid}")
