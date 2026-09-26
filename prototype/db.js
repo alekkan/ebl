@@ -80,7 +80,7 @@ window.EBLData = (() => {
       all("bath_counts", "bath_id, year, nick, n"),
       all("standings", "*"),
       all("reviews", "bath_id, rating, text, created_at, players(nick)"),
-      all("players", "id, nick, is_commission"),
+      all("players", "id, nick, is_commission, photo_url"),
       whoami(),
     ]);
     const byId = new Map(baths.map((b) => [b.id, Object.assign(b, { v26: {}, hist: {}, histBy: {}, isNew: b.status === "pending" })]));
@@ -104,6 +104,7 @@ window.EBLData = (() => {
         weekPts: s.week_pts, weekBaths: s.week_baths, updatedAt: s.updated_at })),
       reviews: rv, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
+      photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, p.photo_url])),
     };
   }
 

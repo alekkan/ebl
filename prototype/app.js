@@ -60,9 +60,14 @@
   const hue = (s) => { let h = 7; for (const ch of s) h = (h * 31 + ch.codePointAt(0)) % 360; return h; };
   const initials = (s) => s.trim().split(/\s+/).slice(0, 2).map((w) => [...w][0]).join("").toUpperCase();
   const commission = new Set(data.commission || []);
-  const ava = (name, cls = "") => commission.has(name)
-    ? `<span class="ava ${cls} kom" style="--h:${hue(name)}" title="${esc(name)} — Комиссия ЕБЛ">${esc(initials(name))}<svg class="seal" aria-hidden="true"><use href="#i-seal"/></svg></span>`
-    : `<span class="ava ${cls}" style="--h:${hue(name)}" aria-hidden="true">${esc(initials(name))}</span>`;
+  const photos = data.photos || {};
+  // фото из Telegram поверх инициалов; не загрузилось — остаются инициалы
+  const ava = (name, cls = "") => {
+    const kom = commission.has(name), photo = photos[name];
+    return `<span class="ava ${cls}${kom ? " kom" : ""}" style="--h:${hue(name)}" ${kom ? `title="${esc(name)} — Комиссия ЕБЛ"` : 'aria-hidden="true"'}>${esc(initials(name))}`
+      + (photo ? `<img src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "")
+      + (kom ? '<svg class="seal" aria-hidden="true"><use href="#i-seal"/></svg>' : "") + "</span>";
+  };
   const icon = (id) => `<svg class="ic" aria-hidden="true"><use href="#i-${id}"/></svg>`;
   const leafSvg = (on) => `<svg class="leaf ${on ? "on" : ""}" viewBox="-6 -17 12 18" aria-hidden="true"><use href="#oak-leaf"/></svg>`;
   const leaves = (n, cls = "") => `<span class="leaves ${cls}" title="${fmt(n)} из 5">${[1, 2, 3, 4, 5].map((i) => leafSvg(i <= Math.round(n))).join("")}</span>`;

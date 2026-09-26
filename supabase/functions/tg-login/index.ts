@@ -46,6 +46,8 @@ Deno.serve(async (req) => {
   const tgId = Number(tg.id);
   const username = tg.username ?? null;
   const name = [tg.first_name, tg.last_name].filter(Boolean).join(" ");
+  // фото профиля Telegram отдаёт, только если оно есть и открыто настройками приватности
+  const photo = tg.photo_url && /^https:\/\/(t\.me|telegram\.org|[a-z0-9-]+\.telegram\.org)\//.test(tg.photo_url) ? tg.photo_url : null;
 
   // аккаунт: по telegram id, иначе по username, который Комиссия вписала заранее
   let { data: acc } = await sb.from("player_accounts").select("*").eq("tg_id", tgId).maybeSingle();
@@ -75,7 +77,7 @@ Deno.serve(async (req) => {
       if (!authId) return fail(500, error.message);
     }
   }
-  await sb.from("player_accounts").update({ tg_id: tgId, tg_username: username, tg_name: name, auth_user: authId }).eq("id", acc.id);
+  await sb.from("player_accounts").update({ tg_id: tgId, tg_username: username, tg_name: name, tg_photo: photo, auth_user: authId }).eq("id", acc.id);
 
   const { data: link, error: linkErr } = await sb.auth.admin.generateLink({ type: "magiclink", email });
   if (linkErr) return fail(500, linkErr.message);
