@@ -1,0 +1,470 @@
+// Telegram-бот ЕБЛ (@eblsu_bot), вебхук.
+//
+// В общем чате: участник отмечает бота и пишет как есть — «@eblsu_bot Сандуны 3ч с Деном и @shurik» (+ фото).
+// Бот отвечает карточкой: что понял, чего не хватает; уточняет баню (в т.ч. новая ли она — УУ), время, компанию.
+// Пост в группе — документ похода (п. 5 регламента), его время определяет неделю (п. 6).
+// После «В Комиссию»: на посте 👀, Комиссии в личку — поход с кнопками; после решения — 👍 или 💩 и итог в карточке.
+// Через 2,5 часа после захода, если длительность не указана, бот спрашивает «Долгая была?» (п. 15).
+// В личке с ботом работает то же самое, только без отметки.
+//
+// Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>. Проверка «Долгая была?»: ?tick=1 (pg_cron).
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
+const BASE = Deno.env.get("SUPABASE_URL")!;
+const SITE = Deno.env.get("SITE_URL") ?? "https://alekkan.github.io/ebl/";
+const BOT = (Deno.env.get("TELEGRAM_BOT_USERNAME") ?? "eblsu_bot").toLowerCase();
+const LONG = 150; // минут — дольше этого поход долгий
+const sb = createClient(BASE, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
+// ---------- Telegram ----------
+const tg = (method: string, body: Record<string, unknown>) =>
+  fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }).then((r) => r.json()).catch(() => ({ ok: false }));
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+const btn = (text: string, data: string) => ({ text, callback_data: data });
+const send = (chat: number, text: string, kb?: Any[][], replyTo?: number) => tg("sendMessage", {
+  chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true,
+  ...(kb ? { reply_markup: { inline_keyboard: kb } } : {}),
+  ...(replyTo ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } } : {}),
+});
+const edit = (chat: number, msg: number, text: string, kb?: Any[][]) => tg("editMessageText", {
+  chat_id: chat, message_id: msg, text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: kb ?? [] },
+});
+const react = (chat: number, msg: number, emoji: string) =>
+  tg("setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] });
+const answer = (id: string, text?: string, alert = false) => tg("answerCallbackQuery", { callback_query_id: id, text, show_alert: alert });
+const postLink = (chat: Any, msg: number) =>
+  chat.username ? `https://t.me/${chat.username}/${msg}` : String(chat.id).startsWith("-100") ? `https://t.me/c/${String(chat.id).slice(4)}/${msg}` : null;
+
+const DUR: [number, string][] = [[60, "1 ч"], [90, "1,5 ч"], [120, "2 ч"], [150, "2,5 ч"], [180, "3 ч"], [240, "4 ч+"]];
+const durLabel = (m: number | null) => (m == null ? "от часа" : DUR.find(([v]) => v === m)?.[1] ?? `${Math.floor(m / 60)} ч ${m % 60 ? (m % 60) + " мин" : ""}`.trim());
+
+// ---------- справочники ----------
+const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
+async function league() {
+  const [{ data: players }, { data: accounts }] = await Promise.all([
+    sb.from("players").select("id, nick, is_commission"),
+    sb.from("player_accounts").select("player_id, tg_id, tg_username").not("player_id", "is", null),
+  ]);
+  return { players: players ?? [], accounts: accounts ?? [] };
+}
+async function whoIs(tgId: number) {
+  const { data } = await sb.from("player_accounts").select("player_id, claimed_nick, players(id, nick, is_commission)").eq("tg_id", tgId).maybeSingle();
+  return data;
+}
+const getState = async (tgId: number) => ((await sb.from("bot_sessions").select("state").eq("tg_id", tgId).maybeSingle()).data?.state ?? null) as Any;
+const setState = (tgId: number, state: Any) => sb.from("bot_sessions").upsert({ tg_id: tgId, state, updated_at: new Date().toISOString() });
+const clearState = (tgId: number) => sb.from("bot_sessions").delete().eq("tg_id", tgId);
+
+// ---------- разбор свободного текста ----------
+const STOP = new Set(("был была были было сходил сходила сходили зашел зашли зашёл пошли парился парились попарились " +
+  "в во на с со и а у к по за из от до мы я ты он сегодня вчера утром днем днём вечером ночью час часа часов ч мин минут минуты " +
+  "баня бане бани баню фото фотка отметка отметки уу ультра ультрауникальная ультрауникальную новая новую новой компанией один одни").split(" "));
+
+function parseDuration(text: string): { dur: number; start?: number; span: string } | null {
+  let m = text.match(/(\d{1,2})[:.](\d{2})\s*(?:-|–|—|до)\s*(\d{1,2})[:.](\d{2})/);
+  if (m) {
+    const a = +m[1] * 60 + +m[2], b = +m[3] * 60 + +m[4];
+    return { dur: (b - a + 1440) % 1440 || 1440, start: a, span: m[0] };
+  }
+  if ((m = text.match(/полтора\s*час\p{L}*/iu))) return { dur: 90, span: m[0] };
+  const words: Record<string, number> = { один: 1, два: 2, три: 3, четыре: 4, пять: 5 };
+  if ((m = text.match(/(один|два|три|четыре|пять)\s+час\p{L}*/iu))) return { dur: words[m[1].toLowerCase()] * 60, span: m[0] };
+  if ((m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:ч(?![\p{L}])|час\p{L}*|h(?![\p{L}]))(?:\s*(\d{1,2})\s*мин\p{L}*)?/iu))) {
+    return { dur: Math.round(parseFloat(m[1].replace(",", ".")) * 60) + (m[2] ? +m[2] : 0), span: m[0] };
+  }
+  if ((m = text.match(/(\d{2,3})\s*мин\p{L}*/iu))) return { dur: +m[1], span: m[0] };
+  return null;
+}
+
+// ник в тексте с учётом падежей: Леха→Лехой, Витёк→Витьком, Король→Королём, Шурик→Шуриком
+function nickMatches(token: string, nick: string) {
+  if (token === nick) return true;
+  if (token.startsWith(nick) && token.length - nick.length <= 3) return true;
+  let stem = "";
+  if (/(ек|ок)$/.test(nick) && nick.length >= 5) stem = nick.slice(0, -2);
+  else if (/[аяоеиыуюь]$/.test(nick) && nick.length >= 4) stem = nick.slice(0, -1);
+  return !!stem && token.startsWith(stem) && token.length - stem.length <= 4;
+}
+
+function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) {
+  const ids = new Set<string>(), used = new Set<string>();
+  for (const e of entities ?? []) {
+    if (e.type === "mention") {
+      const u = text.substr(e.offset + 1, e.length - 1).toLowerCase();
+      used.add("@" + u);
+      if (u === BOT) continue;
+      const acc = lg.accounts.find((a: Any) => a.tg_username?.toLowerCase() === u);
+      if (acc) ids.add(acc.player_id);
+    } else if (e.type === "text_mention" && e.user) {
+      const acc = lg.accounts.find((a: Any) => a.tg_id === e.user.id);
+      if (acc) ids.add(acc.player_id);
+    }
+  }
+  const t = norm(text);
+  const tokens = t.split(/[^\p{L}\p{N}_@]+/u).filter(Boolean);
+  const single = lg.players.filter((p: Any) => !p.nick.includes(" "));
+  for (const tok of tokens) {
+    if (tok.startsWith("@")) continue;
+    // самый длинный подходящий ник: «Денисом» — это Денис, а не Ден
+    const best = single.filter((p: Any) => nickMatches(tok, norm(p.nick))).sort((a: Any, b: Any) => b.nick.length - a.nick.length)[0];
+    if (best) { used.add(tok); if (best.id !== authorId) ids.add(best.id); }
+  }
+  for (const p of lg.players.filter((p: Any) => p.nick.includes(" "))) {
+    const n = norm(p.nick).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(^|[\\s,])${n}(?=$|[\\s,.!])`, "u").test(t)) {
+      n.split(" ").forEach((w) => used.add(w));
+      if (p.id !== authorId) ids.add(p.id);
+    }
+  }
+  return { ids: [...ids], used };
+}
+
+function bathQuery(text: string, durSpan: string | null, used: Set<string>) {
+  let t = text;
+  if (durSpan) t = t.replace(durSpan, " ");
+  return norm(t).split(/[^\p{L}\p{N}-]+/u)
+    .filter((w) => w && !STOP.has(w) && !used.has(w) && !used.has("@" + w) && w !== BOT && !/^\d+$/.test(w) && w.length > 1)
+    .join(" ");
+}
+
+async function findBaths(q: string) {
+  const words = q.split(" ").filter((w) => w.length > 1);
+  if (!words.length) return [];
+  const cols = "id, name, region, country, type";
+  let query = sb.from("baths").select(cols).neq("status", "rejected").limit(60);
+  for (const w of words) query = query.ilike("name", `%${w}%`);
+  let { data } = await query;
+  let score: Record<number, number> = {};
+  if (!data?.length) {
+    // хотя бы одно слово из названия
+    const found = new Map<number, Any>();
+    for (const w of words.filter((w) => w.length > 2)) {
+      const { data: part } = await sb.from("baths").select(cols).neq("status", "rejected").ilike("name", `%${w}%`).limit(40);
+      for (const b of part ?? []) { found.set(b.id, b); score[b.id] = (score[b.id] ?? 0) + 1; }
+    }
+    data = [...found.values()];
+  } else score = Object.fromEntries(data.map((b: Any) => [b.id, words.length]));
+  if (!data.length) return [];
+  const { data: counts } = await sb.from("bath_counts").select("bath_id, n").in("bath_id", data.map((b: Any) => b.id));
+  const pop: Record<number, number> = {};
+  for (const c of counts ?? []) pop[c.bath_id] = (pop[c.bath_id] ?? 0) + c.n;
+  return data.map((b: Any) => ({ ...b, visits: pop[b.id] ?? 0 }))
+    .sort((a: Any, b: Any) => (score[b.id] - score[a.id]) || (b.visits - a.visits)).slice(0, 6);
+}
+
+const ULTRA = /(^|[^\p{L}])(уу|ультра\p{L}*|новая баня|новую баню|нигде не были|никто не был)(?![\p{L}])/iu;
+
+// ---------- черновик и карточка ----------
+async function renderCard(st: Any, lg: Any) {
+  const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
+  const who = `<b>${esc(st.authorNick)}</b>`;
+  if (!st.bathId && !st.newBath) {
+    const rows: Any[][] = (st.candidates ?? []).map((b: Any) => [btn(`${b.name}${b.region ? " · " + b.region : ""}`.slice(0, 58), `b:${b.id}`)]);
+    let text: string;
+    if (st.ultra && rows.length) {
+      text = `${who}, похоже, это одна из этих — в них лига уже была. Или точно новая?`;
+      rows.push([btn("🆕 Точно новая — УУ", "nb")]);
+    } else if (rows.length) {
+      text = `${who}, в какой бане? Выбери или ответь на это сообщение названием.`;
+      if (st.query) rows.push([btn(`🆕 Нет в списке — новая «${st.query.slice(0, 24)}»`, "nb")]);
+    } else if (st.query) {
+      text = `${who}, не нашёл «${esc(st.query)}» в справочнике. Это новая баня — ультрауникальная? Или ответь на это сообщение названием по-другому.`;
+      rows.push([btn("🆕 Да, новая — УУ", "nb")]);
+    } else {
+      text = `${who}, в какой бане парились? Ответь на это сообщение названием.`;
+    }
+    rows.push([btn("✖️ Отмена", "x")]);
+    return { text, kb: rows };
+  }
+  const lines = [
+    `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 новая, кандидат в УУ" : ""}`,
+    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — через 2,5 часа спрошу, была ли долгая" : ""}`,
+    `👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`,
+  ];
+  if ((st.photos ?? []).length) lines.push(`📷 фото: ${st.photos.length}`);
+  if (st.dur != null && st.dur > LONG && !(st.photos ?? []).length) lines.push("⚠️ Долгий засчитают с фото отметок входа и выхода — пришли ответом на это сообщение.");
+  if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
+  if (st.awaiting === "dur") lines.push("\nСколько парились?");
+  const kb: Any[][] = st.awaiting === "dur"
+    ? [DUR.slice(0, 3).map(([m, l]) => btn(l, `d:${m}`)), DUR.slice(3).map(([m, l]) => btn(l, `d:${m}`)), [btn("Ещё паримся", "d:0")]]
+    : [[btn("✅ В Комиссию", "send")], [btn("🏠 Баня", "eb"), btn("⏱ Время", "ed"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
+  return { text: `${who}, всё верно?\n\n${lines.join("\n")}`, kb };
+}
+
+async function showCard(st: Any, lg: Any, tgId: number) {
+  const { text, kb } = await renderCard(st, lg);
+  if (st.card) await edit(st.chat, st.card, text, kb);
+  else {
+    const r = await send(st.chat, text, kb, st.chatType === "private" ? undefined : st.source);
+    if (r.ok) st.card = r.result.message_id;
+  }
+  await setState(tgId, st);
+}
+
+async function resolveBath(st: Any) {
+  if (!st.query) { st.candidates = []; return; }
+  const found = await findBaths(st.query);
+  // одна уверенная находка без «УУ» — берём сразу; иначе уточняем
+  if (!st.ultra && found.length === 1) { st.bathId = found[0].id; st.bathName = found[0].name; st.candidates = []; return; }
+  if (st.ultra && !found.length) { st.newBath = st.query; st.bathName = st.query; st.candidates = []; return; }
+  st.candidates = found.map((b: Any) => ({ id: b.id, name: b.name, region: b.region }));
+}
+
+async function uploadPhoto(playerId: string, photo: Any[]) {
+  const f = await tg("getFile", { file_id: photo[photo.length - 1].file_id });
+  if (!f.ok) return null;
+  const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${f.result.file_path}`);
+  if (!r.ok) return null;
+  const path = `${playerId}/${Date.now()}-tg.jpg`;
+  const { error } = await sb.storage.from("proofs").upload(path, new Uint8Array(await r.arrayBuffer()), { contentType: "image/jpeg" });
+  return error ? null : path;
+}
+
+// новый пост с отметкой бота — новый черновик
+async function startDraft(msg: Any, me: Any, lg: Any) {
+  const text: string = msg.text ?? msg.caption ?? "";
+  const entities = msg.entities ?? msg.caption_entities ?? [];
+  const d = parseDuration(text);
+  const comp = parseCompany(text, entities, lg, me.id);
+  const st: Any = {
+    chat: msg.chat.id, chatType: msg.chat.type, chatUsername: msg.chat.username ?? null, source: msg.message_id, posted: msg.date,
+    author: msg.from.id, authorId: me.id, authorNick: me.nick,
+    dur: d && d.dur >= 60 ? d.dur : null, start: d?.start ?? null, company: comp.ids, photos: [],
+    ultra: ULTRA.test(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
+  };
+  if (msg.photo) { const p = await uploadPhoto(me.id, msg.photo); if (p) st.photos.push(p); }
+  await resolveBath(st);
+  await showCard(st, lg, msg.from.id);
+}
+
+// ответ на карточку — дополняем черновик
+async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
+  const text: string = (msg.text ?? msg.caption ?? "").trim();
+  if (msg.photo) { const p = await uploadPhoto(me.id, msg.photo); if (p) st.photos = [...(st.photos ?? []), p]; }
+  if (text) {
+    if (st.awaiting === "company") {
+      st.company = /^(один|одна|одни|сам|сама|никого)$/i.test(text) ? [] : parseCompany(text, msg.entities ?? [], lg, me.id).ids;
+      st.awaiting = null;
+    } else if (!st.bathId && !st.newBath) {
+      st.query = bathQuery(text, null, new Set()); st.ultra = st.ultra || ULTRA.test(text);
+      await resolveBath(st);
+    } else {
+      const d = parseDuration(text);
+      if (d && d.dur >= 60) { st.dur = d.dur; st.start = d.start ?? st.start; }
+      const c = parseCompany(text, msg.entities ?? [], lg, me.id);
+      if (c.ids.length) st.company = [...new Set([...(st.company ?? []), ...c.ids])];
+    }
+  }
+  await showCard(st, lg, msg.from.id);
+}
+
+async function submit(st: Any, lg: Any, tgId: number) {
+  let bathId = st.bathId;
+  if (!bathId) {
+    const { data: nb, error } = await sb.from("baths").insert({ name: st.newBath, status: "pending", created_by: st.authorId }).select().single();
+    if (error) return edit(st.chat, st.card, `Не получилось добавить баню: ${esc(error.message)}`);
+    bathId = nb.id;
+  }
+  const posted = new Date(st.posted * 1000);
+  let entered: Date;
+  if (st.start != null) {
+    // «с 18:00 до 21:00» — заход сегодня по Москве в 18:00 (если это время ещё не наступило — вчера)
+    const msk = new Date(posted.getTime() + 3 * 3600e3);
+    entered = new Date(Date.UTC(msk.getUTCFullYear(), msk.getUTCMonth(), msk.getUTCDate(), 0, st.start) - 3 * 3600e3);
+    if (entered > posted) entered = new Date(entered.getTime() - 864e5);
+  } else entered = st.dur != null ? new Date(posted.getTime() - st.dur * 60e3) : posted;
+  const link = st.chatType === "private" ? null : postLink({ id: st.chat, username: st.chatUsername }, st.source);
+  const { data: visit, error } = await sb.from("visits").insert({
+    bath_id: bathId, entered_at: entered.toISOString(), posted_at: posted.toISOString(), duration_min: st.dur ?? 60,
+    created_by: st.authorId, tg_link: link, long_asked_at: st.dur != null ? new Date().toISOString() : null,
+  }).select().single();
+  if (error) return edit(st.chat, st.card, `Не получилось сохранить поход: ${esc(error.message)}`);
+  await sb.from("visit_players").insert([
+    { visit_id: visit.id, player_id: st.authorId, has_proof: (st.photos ?? []).length > 0 && st.dur != null && st.dur > LONG, photos: st.photos ?? [] },
+    ...(st.company ?? []).map((id: string) => ({ visit_id: visit.id, player_id: id, has_proof: false, photos: [] })),
+  ]);
+  await sb.from("bot_posts").insert({ visit_id: visit.id, chat_id: st.chat, source_msg: st.source, card_msg: st.card });
+  await clearState(tgId);
+
+  const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
+  const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
+    + ((st.photos ?? []).length ? `\n📷 фото: ${st.photos.length}` : "");
+  await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>\n\n${summary}`);
+  if (st.chatType !== "private") await react(st.chat, st.source, "👀");
+
+  const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
+  for (const c of commission) {
+    const r = await send(c.tg_id, `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}`,
+      [[btn("✅ Засчитать", `ok:${visit.id}`), btn("❌ Отклонить", `no:${visit.id}`)]]);
+    if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visit.id, chat_id: c.tg_id, message_id: r.result.message_id });
+  }
+}
+
+async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
+  if (!me?.is_commission) return answer(cq.id, "Это кнопка для Комиссии", true);
+  const { data: v } = await sb.from("visits").select("id, status, baths(name)").eq("id", visitId).maybeSingle();
+  if (!v) return answer(cq.id, "Поход не найден — возможно, его удалили");
+  if (v.status !== "pending") return answer(cq.id, `Уже ${v.status === "ok" ? "засчитан" : "отклонён"}`);
+  await sb.from("visits").update({ status: ok ? "ok" : "rejected", moderated_by: me.id, moderated_at: new Date().toISOString() }).eq("id", visitId);
+  await answer(cq.id, ok ? "Засчитано" : "Отклонено");
+  if (ok) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+
+  const verdict = ok ? `✅ Засчитано — ${esc(me.nick)}` : `❌ Отклонено — ${esc(me.nick)}`;
+  const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id").eq("visit_id", visitId);
+  for (const n of notes ?? []) await edit(n.chat_id, n.message_id, `${esc(cq.message?.text ?? "")}\n\n${verdict}`);
+
+  const { data: post } = await sb.from("bot_posts").select("chat_id, source_msg, card_msg").eq("visit_id", visitId).maybeSingle();
+  if (post) {
+    const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
+    const ptsLine = ok && pts?.length ? "\n" + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
+    if (post.chat_id < 0) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
+    if (post.card_msg) {
+      await tg("editMessageText", {
+        chat_id: post.chat_id, message_id: post.card_msg, parse_mode: "HTML",
+        text: `${ok ? "👍 Засчитано Комиссией" : "💩 Комиссия не засчитала"} · ${esc((v as Any).baths?.name)}${ptsLine}`,
+      });
+    }
+  }
+}
+
+// «Долгая была?» — ответ фото на вопрос бота
+async function longAnswer(msg: Any, post: Any, me: Any) {
+  const { data: vp } = await sb.from("visit_players").select("photos").eq("visit_id", post.visit_id).eq("player_id", me.id).maybeSingle();
+  if (!vp) return send(msg.chat.id, "Этот вопрос для тех, кто был в походе 🙂", undefined, msg.message_id);
+  if (!msg.photo) return send(msg.chat.id, "Пришли фото с отметкой выхода ответом на вопрос — так Комиссия засчитает долгий.", undefined, msg.message_id);
+  const path = await uploadPhoto(me.id, msg.photo);
+  if (!path) return send(msg.chat.id, "Фото не сохранилось, попробуй ещё раз.", undefined, msg.message_id);
+  await sb.from("visit_players").update({ has_proof: true, photos: [...(vp.photos ?? []), path] }).eq("visit_id", post.visit_id).eq("player_id", me.id);
+  const { data: v } = await sb.from("visits").select("duration_min, status").eq("id", post.visit_id).single();
+  if (v.duration_min <= LONG) await sb.from("visits").update({ duration_min: LONG + 1 }).eq("id", post.visit_id);
+  if (v.status === "ok") await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+  await react(msg.chat.id, msg.message_id, "🔥");
+  await send(msg.chat.id, `📷 ${esc(me.nick)} — долгий, фото приложено. Комиссия проверит отметки.`, undefined, msg.message_id);
+}
+
+async function tick() {
+  const now = Date.now();
+  const { data } = await sb.from("visits")
+    .select("id, entered_at, status, bot_posts!inner(chat_id, source_msg), visit_players(player_id)")
+    .is("long_asked_at", null).neq("status", "rejected").lte("duration_min", LONG)
+    .lte("entered_at", new Date(now - LONG * 60e3).toISOString()).gte("entered_at", new Date(now - 864e5).toISOString());
+  const lg = await league();
+  let asked = 0;
+  for (const v of data ?? []) {
+    const post = (v as Any).bot_posts;
+    const people = v.visit_players.map((x: Any) => {
+      const acc = lg.accounts.find((a: Any) => a.player_id === x.player_id);
+      return acc?.tg_username ? "@" + acc.tg_username : esc(lg.players.find((p: Any) => p.id === x.player_id)?.nick);
+    });
+    const r = await send(post.chat_id,
+      `⏳ ${people.join(", ")}, прошло 2,5 часа. Долгая была? Кто пробыл больше 2,5 ч — ответьте на это сообщение фото с отметкой выхода.`,
+      [[btn("Нет, обычная", `nl:${v.id}`)]], post.source_msg);
+    await sb.from("visits").update({ long_asked_at: new Date().toISOString() }).eq("id", v.id);
+    if (r.ok) { await sb.from("bot_posts").update({ ask_msg: r.result.message_id }).eq("visit_id", v.id); asked++; }
+  }
+  return asked;
+}
+
+// ---------- обработчики ----------
+const mentionsBot = (msg: Any) => {
+  const text: string = msg.text ?? msg.caption ?? "";
+  const ents = msg.entities ?? msg.caption_entities ?? [];
+  return ents.some((e: Any) => (e.type === "mention" && text.substr(e.offset + 1, e.length - 1).toLowerCase() === BOT)
+    || (e.type === "bot_command" && /^\/banya/i.test(text.substr(e.offset, e.length))));
+};
+
+async function onMessage(msg: Any) {
+  const chat = msg.chat.id, tgId = msg.from?.id, isPrivate = msg.chat.type === "private";
+  if (!tgId || msg.from.is_bot) return;
+  const text: string = (msg.text ?? msg.caption ?? "").trim();
+  const replyTo = msg.reply_to_message?.message_id;
+
+  // ответ на «Долгая была?»
+  if (replyTo && msg.reply_to_message.from?.username?.toLowerCase() === BOT) {
+    const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id").eq("chat_id", chat).eq("ask_msg", replyTo).maybeSingle();
+    if (post) { const acc = await whoIs(tgId); return acc?.players ? longAnswer(msg, post, acc.players) : undefined; }
+  }
+
+  const st = await getState(tgId);
+  const replyToCard = st && st.chat === chat && (isPrivate || (replyTo && replyTo === st.card));
+  if (!isPrivate && !mentionsBot(msg) && !replyToCard) return;   // в группе — только отметки и ответы боту
+
+  const acc = await whoIs(tgId);
+  const me = acc?.players as Any;
+  if (!me) {
+    return send(chat, acc?.claimed_nick
+      ? `Заявка «это ${esc(acc.claimed_nick)}» ждёт Комиссию — как подтвердят, можно отмечать походы.`
+      : `Чтобы отмечать походы, войди на сайте через Telegram и выбери свой ник: ${SITE}`, undefined, isPrivate ? undefined : msg.message_id);
+  }
+  if (isPrivate && (text === "/start" || text === "/help")) {
+    return send(chat, `Привет, ${esc(me.nick)}! Отмечай походы в общем чате: <i>@${BOT} Сандуны 3ч с Деном</i> + фото. Здесь тоже можно — просто напиши.\nТаблица: ${SITE}`);
+  }
+  if (text === "/cancel" || text === `/cancel@${BOT}`) { await clearState(tgId); return send(chat, "Черновик отменён."); }
+
+  const lg = await league();
+  if (replyToCard && !mentionsBot(msg)) return continueDraft(msg, st, me, lg);
+  return startDraft(msg, me, lg);
+}
+
+async function onCallback(cq: Any) {
+  const data: string = cq.data ?? "", tgId = cq.from.id;
+  const acc = await whoIs(tgId);
+  const me = acc?.players as Any;
+  if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
+  if (data.startsWith("nl:")) {
+    const vid = Number(data.slice(3));
+    const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", vid).eq("player_id", me?.id ?? "").maybeSingle();
+    if (!vp) return answer(cq.id, "Это вопрос для тех, кто был в походе");
+    await answer(cq.id, "Ок, обычная");
+    return edit(cq.message.chat.id, cq.message.message_id, `${esc(cq.message.text)}\n\n${esc(me.nick)}: обычная`, [[btn("Нет, обычная", `nl:${vid}`)]]);
+  }
+  const st = await getState(tgId);
+  if (!st || st.card !== cq.message?.message_id || st.chat !== cq.message?.chat?.id) {
+    return answer(cq.id, "Это черновик другого участника — отметь бота в своём посте", true);
+  }
+  await answer(cq.id);
+  const lg = await league();
+  if (data === "x") { await clearState(tgId); return edit(st.chat, st.card, "Черновик отменён."); }
+  if (data === "send") return submit(st, lg, tgId);
+  if (data.startsWith("b:")) {
+    const b = (st.candidates ?? []).find((c: Any) => c.id === Number(data.slice(2)));
+    if (b) { st.bathId = b.id; st.bathName = b.name; st.newBath = null; st.candidates = []; }
+  } else if (data === "nb") {
+    st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.candidates = [];
+  } else if (data === "eb") {
+    st.bathId = null; st.newBath = null; st.bathName = null; await resolveBath(st);
+  } else if (data === "ed") st.awaiting = "dur";
+  else if (data === "ec") st.awaiting = "company";
+  else if (data.startsWith("d:")) { const m = Number(data.slice(2)); st.dur = m || null; st.start = null; st.awaiting = null; }
+  return showCard(st, lg, tgId);
+}
+
+Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  if (url.searchParams.get("tick") === "1") return new Response(JSON.stringify({ asked: await tick() }), { headers: { "Content-Type": "application/json" } });
+  if (SECRET && url.searchParams.get("setup") === SECRET) {
+    const hook = await tg("setWebhook", { url: `${BASE}/functions/v1/tg-bot`, secret_token: SECRET, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
+    const cmds = await tg("setMyCommands", { commands: [
+      { command: "banya", description: "Отметить поход: /banya Сандуны 3ч с Деном" },
+      { command: "cancel", description: "Отменить черновик" },
+    ] });
+    const me = await tg("getMe", {});
+    return new Response(JSON.stringify({ webhook: hook.ok, commands: cmds.ok, bot: me.result?.username, note: hook.description }), { headers: { "Content-Type": "application/json" } });
+  }
+  if (!SECRET || req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return new Response("forbidden", { status: 403 });
+  const update = await req.json().catch(() => ({}));
+  try {
+    if (update.message) await onMessage(update.message);
+    else if (update.callback_query) await onCallback(update.callback_query);
+  } catch (e) {
+    console.error("tg-bot", e);
+  }
+  return new Response("ok");
+});
