@@ -279,7 +279,7 @@
         ${!b.ll || b.prec !== "exact" ? `<div class="note-soft geo-fix">
           <span>${b.ll ? `Точка на карте примерная — ${PREC_LABEL[b.prec] || "по названию"}.` : "Этой бани ещё нет на карте."}</span>
           ${D.live && member ? `<button class="btn sm" id="geoFixBtn" type="button">📍 Знаю, где это</button>
-          <form id="geoFixForm" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на Яндекс/Google Карты или 55.7558, 37.6173" required>
+          <form id="geoFixForm" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
           <button class="btn sm solid" type="submit">Поставить</button></form>` : D.live ? `<span class="hint">Войди — и сможешь поставить точную точку.</span>` : ""}
         </div>` : ""}
         <div class="d-actions">

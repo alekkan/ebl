@@ -9,7 +9,7 @@
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>. Проверка «Долгая была?»: ?tick=1 (pg_cron).
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { hasLocationHint, parseLocation } from "../_shared/geo.ts";
+import { hasLocationHint, locate, looksLikeAddress, parseLocation } from "../_shared/geo.ts";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
@@ -339,12 +339,13 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (st.chatType !== "private") await react(st.chat, st.source, "👀");
 
   // точка на карте: у новой бани её может не быть, у старой — стоять по центру города или региона
-  const { data: bath } = await sb.from("baths").select("lat, precision").eq("id", bathId).single();
-  if (bath?.lat == null || bath?.precision !== "exact") {
+  const { data: bath } = await sb.from("baths").select("lat, precision, geo_mute_until").eq("id", bathId).single();
+  const muted = bath?.geo_mute_until && new Date(bath.geo_mute_until) > new Date();
+  if ((bath?.lat == null || bath?.precision !== "exact") && !muted) {
     const r = await send(st.chat, `📍 «${esc(st.bathName)}» ${bath?.lat == null ? "ещё нет на карте" : "стоит на карте примерно"}. `
-      + "Пришли геопозицию (📎 → Геопозиция) или ссылку на Яндекс/Google Карты ответом на это сообщение — поставлю точную точку.",
-      undefined, st.chatType === "private" ? undefined : st.card);
-    if (r.ok) await sb.from("bot_posts").update({ geo_msg: r.result.message_id }).eq("visit_id", visit.id);
+      + "Скинь следующим сообщением ссылку на баню в Яндекс/Google Картах, адрес или геопозицию (📎 → Геопозиция) — поставлю точную точку.",
+      [[btn("🙅 Отстань", `gx:${visit.id}`)]], st.chatType === "private" ? undefined : st.card);
+    if (r.ok) await sb.from("bot_posts").update({ geo_msg: r.result.message_id, geo_at: new Date().toISOString() }).eq("visit_id", visit.id);
   }
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
@@ -368,18 +369,61 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
   const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id").eq("visit_id", visitId);
   for (const n of notes ?? []) await edit(n.chat_id, n.message_id, `${esc(cq.message?.text ?? "")}\n\n${verdict}`);
 
-  const { data: post } = await sb.from("bot_posts").select("chat_id, source_msg, card_msg").eq("visit_id", visitId).maybeSingle();
-  if (post) {
+  // в группе: реакция на пост и итог отдельным сообщением в ответ на пост (прошлые сообщения бота не трогаем)
+  const { data: post } = await sb.from("bot_posts").select("chat_id, source_msg").eq("visit_id", visitId).maybeSingle();
+  if (post && post.chat_id < 0) {
     const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
-    const ptsLine = ok && pts?.length ? "\n" + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
-    if (post.chat_id < 0) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
-    if (post.card_msg) {
-      await tg("editMessageText", {
-        chat_id: post.chat_id, message_id: post.card_msg, parse_mode: "HTML",
-        text: `${ok ? "👍 Засчитано Комиссией" : "💩 Комиссия не засчитала"} · ${esc((v as Any).baths?.name)}${ptsLine}`,
-      });
-    }
+    const { data: author } = await sb.from("visits").select("players!visits_created_by_fkey(nick)").eq("id", visitId).single();
+    const who = (author as Any)?.players?.nick;
+    const ptsLine = ok && pts?.length ? ": " + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
+    await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
+    await send(post.chat_id, ok
+      ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${esc((v as Any).baths?.name)}»${ptsLine}`
+      : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${esc((v as Any).baths?.name)}». Если это ошибка — напишите Комиссии.`,
+      undefined, post.source_msg);
   }
+}
+
+// ответ на вопрос про точку: геопозиция, ссылка с точкой, адрес или ссылка на карточку организации
+async function geoAnswer(msg: Any, post: Any, me: Any) {
+  const { data: b } = await sb.from("baths").select("id, name, lat, lng, precision").eq("id", post.bath_id).single();
+  const loc = msg.location ?? msg.venue?.location;
+  // найденный адрес сверяем с примерной точкой бани, чтобы не поставить точку в другом городе
+  const near = b?.lat != null && b.precision !== "exact" ? { lat: b.lat, lng: b.lng } : null;
+  const maxKm = { city: 80, region: 400, country: 1500 }[b?.precision as string] ?? 400;
+  const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", near, maxKm);
+  if (!p) {
+    return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с номером дома или геопозицию (📎 → Геопозиция).",
+      [[btn("🙅 Отстань", `gx:${post.visit_id}`)]], msg.message_id);
+  }
+  const done = await setBathPoint(post.bath_id, p, me.is_commission);
+  await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", post.visit_id);
+  if (done) await react(msg.chat.id, msg.message_id, "👍");
+  return send(msg.chat.id, done ? `📍 «${esc(b?.name)}» теперь на карте точно — спасибо!` : "У этой бани уже стоит точная точка — поменять её может Комиссия.", undefined, msg.message_id);
+}
+
+// ответ без «Ответить»: следующее сообщение автора после вопроса про точку (15 мин)
+// или фото участника после «Долгая была?» (30 мин)
+async function implicitAnswer(msg: Any): Promise<boolean> {
+  const chat = msg.chat.id, hasGeo = !!(msg.location || msg.venue), text = msg.text ?? msg.caption ?? "";
+  const geoLike = hasGeo || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text);
+  if (!geoLike && !msg.photo) return false;
+  const acc = await whoIs(msg.from.id);
+  const me = acc?.players as Any;
+  if (!me) return false;
+  if (geoLike) {
+    const { data: posts } = await sb.from("bot_posts").select("visit_id, bath_id, visits!inner(created_by)")
+      .eq("chat_id", chat).not("geo_msg", "is", null).gte("geo_at", new Date(Date.now() - 15 * 60e3).toISOString())
+      .eq("visits.created_by", me.id).order("geo_at", { ascending: false }).limit(1);
+    if (posts?.length) { await geoAnswer(msg, posts[0], me); return true; }
+  }
+  if (msg.photo) {
+    const { data: posts } = await sb.from("bot_posts").select("visit_id, chat_id, visits!inner(long_asked_at, visit_players!inner(player_id))")
+      .eq("chat_id", chat).not("ask_msg", "is", null).eq("visits.visit_players.player_id", me.id)
+      .gte("visits.long_asked_at", new Date(Date.now() - 30 * 60e3).toISOString()).limit(1);
+    if (posts?.length) { await longAnswer(msg, posts[0], me); return true; }
+  }
+  return false;
 }
 
 // «Долгая была?» — ответ фото на вопрос бота
@@ -446,22 +490,20 @@ async function onMessage(msg: Any) {
   if (replyTo && msg.reply_to_message.from?.username?.toLowerCase() === BOT) {
     const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id").eq("chat_id", chat).eq("ask_msg", replyTo).maybeSingle();
     if (post) { const acc = await whoIs(tgId); return acc?.players ? longAnswer(msg, post, acc.players) : undefined; }
-    const { data: geoPost } = await sb.from("bot_posts").select("bath_id").eq("chat_id", chat).eq("geo_msg", replyTo).maybeSingle();
+    const { data: geoPost } = await sb.from("bot_posts").select("visit_id, bath_id").eq("chat_id", chat).eq("geo_msg", replyTo).maybeSingle();
     if (geoPost?.bath_id) {
       const acc = await whoIs(tgId);
-      if (!acc?.players) return;
-      const p = await pointFromMessage(msg);
-      if (!p) return send(chat, "Не смог достать координаты. Пришли геопозицию (📎 → Геопозиция) или ссылку, где видна точка на карте.", undefined, msg.message_id);
-      const done = await setBathPoint(geoPost.bath_id, p, (acc.players as Any).is_commission);
-      if (done) await react(chat, msg.message_id, "👍");
-      return send(chat, done ? `📍 Точка поставлена — спасибо! ${SITE}` : "У этой бани уже стоит точная точка — поменять её может Комиссия.", undefined, msg.message_id);
+      return acc?.players ? geoAnswer(msg, geoPost, acc.players) : undefined;
     }
   }
 
   const saved = await getState(tgId);
   const st = saved && Date.now() - (saved.ts ?? 0) < DRAFT_TTL ? saved : null;
   const replyToCard = st && st.chat === chat && (isPrivate || (replyTo && replyTo === st.card));
-  if (!isPrivate && !mentionsBot(msg) && !replyToCard) return;   // в группе — только отметки и ответы боту
+  if (!isPrivate && !mentionsBot(msg) && !replyToCard) {
+    await implicitAnswer(msg);   // вдруг это ответ на вопрос бота без «Ответить»
+    return;                      // остальное в группе — не нам
+  }
 
   const acc = await whoIs(tgId);
   const me = acc?.players as Any;
@@ -488,6 +530,17 @@ async function onCallback(cq: Any) {
   const acc = await whoIs(tgId);
   const me = acc?.players as Any;
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
+  if (data.startsWith("gx:")) {
+    if (!me) return answer(cq.id, "Кнопка для участников лиги");
+    const vid = Number(data.slice(3));
+    const { data: post } = await sb.from("bot_posts").select("bath_id, baths(name)").eq("visit_id", vid).maybeSingle();
+    if (post?.bath_id) {
+      await sb.from("baths").update({ geo_mute_until: new Date(Date.now() + 30 * 864e5).toISOString() }).eq("id", post.bath_id);
+      await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", vid);
+    }
+    await answer(cq.id, "Ок, не пристаю");
+    return edit(cq.message.chat.id, cq.message.message_id, `🙅 Ок, про «${esc((post as Any)?.baths?.name ?? "эту баню")}» месяц не спрашиваю. Точку можно поставить на сайте: ${SITE}`);
+  }
   if (data.startsWith("nl:")) {
     const vid = Number(data.slice(3));
     const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", vid).eq("player_id", me?.id ?? "").maybeSingle();
@@ -543,7 +596,12 @@ Deno.serve(async (req) => {
   const m = update.message;
   const addressed = !m || m.chat?.type === "private" || mentionsBot(m) || m.new_chat_members
     || m.reply_to_message?.from?.username?.toLowerCase() === BOT;
-  if (!addressed) return new Response("ok");
+  const text = m?.text ?? m?.caption ?? "";
+  const maybeAnswer = m && (m.location || m.venue || m.photo || /https?:\/\//.test(text) || looksLikeAddress(text));
+  if (!addressed) {
+    if (maybeAnswer) { try { await onMessage(m); } catch (e) { console.error("tg-bot", e); } }
+    return new Response("ok");
+  }
   await sb.from("bot_log").insert({ kind: m ? `message:${m.chat?.type}` : update.callback_query ? "callback" : "other",
     detail: m ? `ents=${JSON.stringify((m.entities ?? m.caption_entities ?? []).map((e: Any) => e.type))}` : update.callback_query?.data ?? null });
   try {

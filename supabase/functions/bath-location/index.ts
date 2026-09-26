@@ -1,7 +1,7 @@
 // Уточнить точку бани с сайта: участник лиги присылает ссылку на карту или координаты.
 // Участник может поставить точку, только если сейчас она примерная; Комиссия — любую.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { parseLocation } from "../_shared/geo.ts";
+import { locate } from "../_shared/geo.ts";
 
 const ALLOWED = (Deno.env.get("ALLOWED_ORIGINS") ?? "https://ebl.su,https://www.ebl.su,https://alekkan.github.io,http://localhost:8765")
   .split(",").map((s) => s.trim());
@@ -25,10 +25,13 @@ Deno.serve(async (req) => {
   if (!acc?.player_id) return fail(403, "Точки ставят участники лиги");
 
   const body = await req.json().catch(() => ({}));
-  const p = await parseLocation(String(body.input ?? ""));
-  if (!p) return fail(422, "Не получилось достать координаты. В ссылке на карточку организации их нет — нажми на саму точку бани на карте, скопируй ссылку «Поделиться» или вставь координаты вида 55.7558, 37.6173");
-  const { data: b } = await sb.from("baths").select("id, precision, lat").eq("id", Number(body.bath_id)).maybeSingle();
+  const { data: b } = await sb.from("baths").select("id, precision, lat, lng").eq("id", Number(body.bath_id)).maybeSingle();
   if (!b) return fail(404, "Баня не найдена");
+  // адрес сверяем с примерной точкой бани, чтобы не уехать в другой город
+  const near = b.lat != null && b.precision !== "exact" ? { lat: b.lat, lng: b.lng } : null;
+  const maxKm = ({ city: 80, region: 400, country: 1500 } as Record<string, number>)[b.precision ?? ""] ?? 400;
+  const p = await locate(String(body.input ?? ""), near, maxKm);
+  if (!p) return fail(422, "Не нашёл, где это. Вставь ссылку на баню в Яндекс/Google Картах, адрес с номером дома или координаты вида 55.7558, 37.6173");
   // deno-lint-ignore no-explicit-any
   if (b.precision === "exact" && b.lat != null && !(acc.players as any)?.is_commission) return fail(409, "Точная точка уже стоит — поменять её может Комиссия");
   const { error } = await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact" }).eq("id", b.id);
