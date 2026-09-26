@@ -1048,7 +1048,10 @@
     };
   }
   renderMe();
-  if (D.live) finishTelegramLogin();
+  if (D.live) finishTelegramLogin().then((back) => {
+    // вошёл, но ник не выбрал — без этого шага Комиссии нечего подтверждать; раньше его пропускали, не заметив кнопку в углу
+    if (!back && me && !me.nick && !me.claimedNick) openClaim();
+  });
 
   // пара примерных отзывов на самую посещаемую баню, чтобы в витрине было видно, как это выглядит
   const top = [...baths].sort((a, b) => b.n26 - a.n26)[0];
