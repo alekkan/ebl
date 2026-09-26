@@ -331,6 +331,8 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .sec-row:last-child { border-bottom: 0; }
 .sec-row > span { flex: 1; min-width: 200px; }
 .sec-row .sel { width: auto; height: 34px; font-size: 13px; }
+.sec-row .inp.sm { width: 150px; height: 34px; font-size: 13px; padding: 0 10px; }
+@media (max-width: 560px) { .sec-row .inp.sm { flex: 1 1 40%; width: auto; } }
 .post-pts small { font-family: var(--body); font-weight: 500; }
 
 /* ---------- тепловая карта ---------- */

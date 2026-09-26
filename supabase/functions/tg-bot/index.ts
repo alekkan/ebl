@@ -10,6 +10,7 @@
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>. Проверка «Долгая была?»: ?tick=1 (pg_cron).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { hasLocationHint, locate, looksLikeAddress, parseLocation } from "../_shared/geo.ts";
+import { matchPlace, reversePlace } from "../_shared/place.ts";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
@@ -259,10 +260,19 @@ async function pointFromMessage(msg: Any) {
 
 // точка бани: новую ставим всегда, существующую — только если сейчас она примерная (или ставит Комиссия)
 async function setBathPoint(bathId: number, p: { lat: number; lng: number }, byCommission = false) {
-  const { data: b } = await sb.from("baths").select("precision, lat").eq("id", bathId).single();
+  const { data: b } = await sb.from("baths").select("precision, lat, country, region").eq("id", bathId).single();
   if (!byCommission && b?.precision === "exact" && b?.lat != null) return false;
-  await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact" }).eq("id", bathId);
+  // страну и регион не знали (новая баня) — берём по точке: без них не посчитать бонусы за регион и страну (п. 14)
+  const place = b?.country && b?.region ? {} : await placeFor(p, b);
+  await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact", ...place }).eq("id", bathId);
   return true;
+}
+
+// страна и регион по точке — в написании Комиссии («Кировская обл»); уже заполненное не трогаем
+async function placeFor(p: { lat: number; lng: number }, have: Any = {}) {
+  const { data: known } = await sb.from("bath_places").select("country, region, n").limit(5000);
+  const pl = matchPlace(await reversePlace(p.lat, p.lng), known ?? []);
+  return { ...(!have?.country && pl.country ? { country: pl.country } : {}), ...(!have?.region && pl.region ? { region: pl.region } : {}) };
 }
 
 // ответ на карточку — дополняем черновик
@@ -292,7 +302,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (!bathId) {
     const { data: nb, error } = await sb.from("baths").insert({
       name: st.newBath, status: "pending", created_by: st.authorId,
-      ...(st.geo ? { lat: st.geo.lat, lng: st.geo.lng, precision: "exact" } : {}),
+      ...(st.geo ? { lat: st.geo.lat, lng: st.geo.lng, precision: "exact", ...(await placeFor(st.geo)) } : {}),
     }).select().single();
     if (error) return edit(st.chat, st.card, `Не получилось добавить баню: ${esc(error.message)}`);
     bathId = nb.id;

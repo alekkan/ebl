@@ -643,13 +643,25 @@
     fillRegion(p);
   }
   // страна и регион по точке (если ещё не заполнены) — от них зависят очки за новый регион и страну
+  // название из OpenStreetMap — к написанию, которое уже есть у бань лиги («Кировская область» → «Кировская обл»),
+  // иначе бонус «новый регион» дадут там, где участник уже был (то же делает бот: _shared/place.ts)
+  function matchPlace(country, region) {
+    const stem = (s) => regionKey(s).split(/[\s-]/)[0].slice(0, 7);
+    const c = baths.find((b) => b.country && regionKey(b.country) === regionKey(country))?.country ?? country ?? "";
+    if (!region) return { country: c, region: "" };
+    const same = baths.filter((b) => b.country === c && b.region), freq = {};
+    same.forEach((b) => (freq[b.region] = (freq[b.region] || 0) + 1));
+    const names = Object.keys(freq).sort((x, y) => freq[y] - freq[x]);
+    const hit = names.find((n) => regionKey(n) === regionKey(region)) ?? names.find((n) => stem(n) === stem(region));
+    return { country: c, region: hit ?? region.replace(/\s+область$/i, " обл").replace(/^Республика\s+/i, "") };
+  }
   async function fillRegion([lat, lng]) {
     if ($("#nbCountry").value.trim() && $("#nbRegion").value.trim()) return;
     try {
       const r = await (await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=5&accept-language=ru&lat=${lat}&lon=${lng}`)).json();
-      const a = r.address || {};
-      if (!$("#nbCountry").value.trim() && a.country) $("#nbCountry").value = a.country;
-      if (!$("#nbRegion").value.trim() && (a.state || a.region || a.city)) $("#nbRegion").value = a.state || a.region || a.city;
+      const a = r.address || {}, p = matchPlace(a.country, a.state || a.region || a.city);
+      if (!$("#nbCountry").value.trim() && p.country) $("#nbCountry").value = p.country;
+      if (!$("#nbRegion").value.trim() && p.region) $("#nbRegion").value = p.region;
       calc();
     } catch { /* без автозаполнения */ }
   }
@@ -685,9 +697,13 @@
   });
 
   // что уже есть у участника в сезоне: бани, регионы, страны (таблица + свои походы не в отказе)
+  // ключ региона как в движке очков (_shared/scoring.js): «Московская обл.» = «Московская обл», «Кировская область» = «Кировская обл»
+  const regionKey = (s) => ` ${String(s ?? "").toLowerCase().replace(/ё/g, "е").replace(/[.,«»"()]/g, " ")} `
+    .replace(/ область /g, " обл ").replace(/ (республика|респ|город|г) /g, " ").replace(/ автономный округ /g, " ао ").replace(/\s+/g, " ").trim();
+  const placeKey = (b) => regionKey(b.country) + "/" + regionKey(b.region);
   function seasonOf(player) {
     const bathIds = new Set(), regions = new Set(), countries = new Set();
-    const add = (b) => { if (!b) return; bathIds.add(b.id); if (b.region) regions.add(b.country + "/" + b.region); if (b.country) countries.add(b.country); };
+    const add = (b) => { if (!b) return; bathIds.add(b.id); if (b.region) regions.add(placeKey(b)); if (b.country) countries.add(regionKey(b.country)); };
     baths.forEach((b) => b.v26?.[player] && add(b));
     visits.filter((v) => v.status !== "rejected" && (v.player === player || v.companions.includes(player))).forEach((v) => add(byId.get(v.bathId)));
     return { bathIds, regions, countries };
@@ -710,8 +726,8 @@
     if (isNew || !s.bathIds.has(b.id)) lines.push(["Уникальная", 1]);
     if (isNew) lines.push(["Ультрауникальная", 1]);
     else if (!b.n26 && !b.nHist) lines.push(["Ультра? Комиссия проверит", 0, "muted"]);
-    if (b.region && b.country && !s.regions.has(b.country + "/" + b.region)) lines.push([`Новый регион · ${b.region}`, 1]);
-    if (b.country && !s.countries.has(b.country)) lines.push([`Новая страна · ${b.country}`, 1]);
+    if (b.region && b.country && !s.regions.has(placeKey(b))) lines.push([`Новый регион · ${b.region}`, 1]);
+    if (b.country && !s.countries.has(regionKey(b.country))) lines.push([`Новая страна · ${b.country}`, 1]);
     if (dur > 150) lines.push(["Долгий поход", 1]);
     const n = comp.length + 1;
     if (n >= 9) lines.push([`Компания ККК · ${n}`, 3]);
@@ -947,6 +963,8 @@
       ${accounts.length ? `<h3>Заявки «это я» · ${accounts.length}</h3>${accounts.map((a) => `<div class="sec-row"><span><b>${esc(a.tg_name || "")}</b> ${a.tg_username ? "@" + esc(a.tg_username) : ""} — говорит, что это <b>${esc(a.claimed_nick)}</b></span>
         <button class="btn sm solid" data-link="${a.id}" data-nick="${esc(a.claimed_nick)}">Подтвердить</button></div>`).join("")}` : ""}
       ${newOnes.length ? `<h3>Новые бани · ${newOnes.length}</h3>${newOnes.map((b) => `<div class="sec-row"><span><b>${esc(b.name)}</b> · ${esc(where(b))}</span>
+        <input class="inp sm" data-bcountry="${b.id}" value="${esc(b.country || "")}" placeholder="Страна" aria-label="Страна">
+        <input class="inp sm" data-bregion="${b.id}" value="${esc(b.region || "")}" placeholder="Регион — как в таблице" aria-label="Регион">
         <select class="sel" data-btype="${b.id}"><option value="public" ${b.type === "public" ? "selected" : ""}>Общественная</option><option value="spa" ${b.type === "spa" ? "selected" : ""}>Хуитнес</option><option value="private" ${b.type === "private" ? "selected" : ""}>Частная</option></select>
         <button class="btn sm solid" data-bok="${b.id}">Принять</button><button class="btn sm danger" data-bno="${b.id}">Дубль</button></div>`).join("")}` : ""}
     </div>`;
@@ -955,7 +973,14 @@
     const t = e.target.closest("button"); if (!t) return;
     try {
       if (t.dataset.link) { await D.linkAccount(t.dataset.link, t.dataset.nick); toast(`${t.dataset.nick} привязан`); }
-      if (t.dataset.bok) { const id = +t.dataset.bok; await D.moderateBath(id, { status: "ok", type: $(`[data-btype="${id}"]`).value }); byId.get(id).isNew = false; toast("Баня в справочнике"); }
+      if (t.dataset.bok) {
+        // страна и регион нужны для бонусов п. 14 — Комиссия проверяет их вместе с типом
+        const id = +t.dataset.bok, b = byId.get(id), p = matchPlace($(`[data-bcountry="${id}"]`).value.trim(), $(`[data-bregion="${id}"]`).value.trim());
+        const patch = { status: "ok", type: $(`[data-btype="${id}"]`).value, country: p.country || null, region: p.region || null };
+        await D.moderateBath(id, patch);
+        Object.assign(b, { isNew: false, t: patch.type, type: patch.type, country: patch.country, region: patch.region });
+        toast("Баня в справочнике"); D.recompute().catch(() => {});
+      }
       if (t.dataset.bno) { const id = +t.dataset.bno; await D.moderateBath(id, { status: "rejected" }); byId.get(id).isNew = false; toast("Баня отклонена"); }
       renderSecPanel();
     } catch (err) { toast("Не получилось: " + err.message); }

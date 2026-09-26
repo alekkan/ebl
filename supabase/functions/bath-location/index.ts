@@ -2,6 +2,7 @@
 // Участник может поставить точку, только если сейчас она примерная; Комиссия — любую.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { locate } from "../_shared/geo.ts";
+import { matchPlace, reversePlace } from "../_shared/place.ts";
 
 const ALLOWED = (Deno.env.get("ALLOWED_ORIGINS") ?? "https://ebl.su,https://www.ebl.su,http://ebl.su,http://www.ebl.su,https://alekkan.github.io,http://localhost:8765")
   .split(",").map((s) => s.trim());
@@ -30,7 +31,7 @@ Deno.serve(async (req) => {
     const p = await locate(String(body.input ?? ""));
     return p ? new Response(JSON.stringify(p), { headers }) : fail(422, "Не нашёл, где это. Вставь ссылку на баню в картах, адрес с номером дома или координаты");
   }
-  const { data: b } = await sb.from("baths").select("id, precision, lat, lng").eq("id", Number(body.bath_id)).maybeSingle();
+  const { data: b } = await sb.from("baths").select("id, precision, lat, lng, country, region").eq("id", Number(body.bath_id)).maybeSingle();
   if (!b) return fail(404, "Баня не найдена");
   // адрес сверяем с примерной точкой бани, чтобы не уехать в другой город
   const near = b.lat != null && b.precision !== "exact" ? { lat: b.lat, lng: b.lng } : null;
@@ -39,7 +40,14 @@ Deno.serve(async (req) => {
   if (!p) return fail(422, "Не нашёл, где это. Вставь ссылку на баню в Яндекс/Google Картах, адрес с номером дома или координаты вида 55.7558, 37.6173");
   // deno-lint-ignore no-explicit-any
   if (b.precision === "exact" && b.lat != null && !(acc.players as any)?.is_commission) return fail(409, "Точная точка уже стоит — поменять её может Комиссия");
-  const { error } = await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact" }).eq("id", b.id);
+  // страну и регион не знали — берём по точке в написании Комиссии: без них не посчитать бонусы за регион и страну (п. 14)
+  let place = {};
+  if (!b.country || !b.region) {
+    const { data: known } = await sb.from("bath_places").select("country, region, n").limit(5000);
+    const pl = matchPlace(await reversePlace(p.lat, p.lng), known ?? []);
+    place = { ...(!b.country && pl.country ? { country: pl.country } : {}), ...(!b.region && pl.region ? { region: pl.region } : {}) };
+  }
+  const { error } = await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact", ...place }).eq("id", b.id);
   if (error) return fail(500, error.message);
   return new Response(JSON.stringify(p), { headers });
 });

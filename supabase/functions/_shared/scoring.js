@@ -37,6 +37,14 @@ export function placePoints(rows) {
 
 const companyPts = (n) => (n >= 9 ? 3 : n >= 6 ? 2 : n >= 3 ? 1 : 0);
 
+// Ключ страны/региона для сравнения (п. 14): в таблице встречается и «Московская обл», и «Московская обл.»,
+// а OpenStreetMap пишет «Кировская область», «Республика Татарстан» — это один и тот же регион
+export function regionKey(s) {
+  return ` ${String(s ?? "").toLowerCase().replace(/ё/g, "е").replace(/[.,«»"()]/g, " ")} `
+    .replace(/ область /g, " обл ").replace(/ (республика|респ|город|г) /g, " ")
+    .replace(/ автономный округ /g, " ао ").replace(/\s+/g, " ").trim();
+}
+
 /**
  * @param {object} p
  * @param {number} p.season
@@ -66,8 +74,8 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
   const remember = (nick, bathId) => {
     const b = baths.get(bathId);
     setOf(seen, nick).add(bathId);
-    if (b?.region && b?.country) setOf(regions, nick).add(b.country + "/" + b.region);
-    if (b?.country) setOf(countries, nick).add(b.country);
+    if (b?.region && b?.country) setOf(regions, nick).add(regionKey(b.country) + "/" + regionKey(b.region));
+    if (b?.country) setOf(countries, nick).add(regionKey(b.country));
   };
   for (const lv of legacyVisits) {
     everVisited.add(lv.bath_id);
@@ -109,8 +117,8 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     if (kp) { lines.push(["company", kp]); r.k += kp; }
     if (!setOf(seen, e.nick).has(e.v.bath_id)) { lines.push(["unique", 1]); r.u += 1; }
     if (ultraDay.get(e.v.bath_id) === e.v.day) { lines.push(["ultra", 1]); r.uu += 1; }
-    if (b.region && b.country && !setOf(regions, e.nick).has(b.country + "/" + b.region)) { lines.push(["region", 1]); r.reg += 1; }
-    if (b.country && !setOf(countries, e.nick).has(b.country)) { lines.push(["country", 1]); r.reg += 1; }
+    if (b.region && b.country && !setOf(regions, e.nick).has(regionKey(b.country) + "/" + regionKey(b.region))) { lines.push(["region", 1]); r.reg += 1; }
+    if (b.country && !setOf(countries, e.nick).has(regionKey(b.country))) { lines.push(["country", 1]); r.reg += 1; }
     if (e.v.duration_min > 150) { lines.push(["long", 1]); r.long += 1; }
     remember(e.nick, e.v.bath_id);
     const pts = lines.reduce((a, l) => a + l[1], 0);

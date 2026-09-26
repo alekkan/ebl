@@ -61,6 +61,9 @@ check("ссылка Яндекс Карт", put(11, "https://yandex.ru/maps/?ll=
 check("ссылка Google Maps", put(12, "https://www.google.com/maps/place/X/@55.76,37.62,17z/data=!3d55.7640555!4d37.6245285")[1] == {"lat": 55.7640555, "lng": 37.6245285})
 check("точную точку участник не перезаписывает", put(10, "55.1111, 37.1111")[0] == 409)
 check("без входа нельзя", req("POST", "/functions/v1/bath-location", {"bath_id": 10, "input": "55.7,37.6"})[0] == 401)
+sql("update baths set country = null, region = null, precision = 'region' where id = 13")
+put(13, "58.6036, 49.6601")   # Киров
+check("страна и регион по точке — в написании таблицы (п. 14)", sql("select country || ' / ' || region from baths where id = 13") == "Россия / Кировская обл")
 # убираем за собой: иначе следующий прогон упрётся в «одна баня в сутки»
 sql(f"delete from visits where id = {vid}")
 sql("update settings set value = '40' where key = 'cutover_week'")
