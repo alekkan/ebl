@@ -339,9 +339,9 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (st.chatType !== "private") await react(st.chat, st.source, "👀");
 
   // точка на карте: у новой бани её может не быть, у старой — стоять по центру города или региона
-  const { data: bath } = await sb.from("baths").select("lat, precision, geo_mute_until").eq("id", bathId).single();
-  const muted = bath?.geo_mute_until && new Date(bath.geo_mute_until) > new Date();
-  if ((bath?.lat == null || bath?.precision !== "exact") && !muted) {
+  // необязательно: попросить точку, если бани нет на карте или она стоит примерно
+  const { data: bath } = await sb.from("baths").select("lat, precision").eq("id", bathId).single();
+  if (bath?.lat == null || bath?.precision !== "exact") {
     const r = await send(st.chat, `📍 «${esc(st.bathName)}» ${bath?.lat == null ? "ещё нет на карте" : "стоит на карте примерно"}. `
       + "Скинь следующим сообщением ссылку на баню в Яндекс/Google Картах, адрес или геопозицию (📎 → Геопозиция) — поставлю точную точку.",
       [[btn("🙅 Отстань", `gx:${visit.id}`)]], st.chatType === "private" ? undefined : st.card);
@@ -532,14 +532,10 @@ async function onCallback(cq: Any) {
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
   if (data.startsWith("gx:")) {
     if (!me) return answer(cq.id, "Кнопка для участников лиги");
-    const vid = Number(data.slice(3));
-    const { data: post } = await sb.from("bot_posts").select("bath_id, baths(name)").eq("visit_id", vid).maybeSingle();
-    if (post?.bath_id) {
-      await sb.from("baths").update({ geo_mute_until: new Date(Date.now() + 30 * 864e5).toISOString() }).eq("id", post.bath_id);
-      await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", vid);
-    }
-    await answer(cq.id, "Ок, не пристаю");
-    return edit(cq.message.chat.id, cq.message.message_id, `🙅 Ок, про «${esc((post as Any)?.baths?.name ?? "эту баню")}» месяц не спрашиваю. Точку можно поставить на сайте: ${SITE}`);
+    // просто закрываем этот вопрос: больше не ждём ответа на него
+    await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", Number(data.slice(3)));
+    await answer(cq.id, "Ок");
+    return edit(cq.message.chat.id, cq.message.message_id, `🙅 Ок, без точки. Её можно поставить потом на сайте: ${SITE}`);
   }
   if (data.startsWith("nl:")) {
     const vid = Number(data.slice(3));
