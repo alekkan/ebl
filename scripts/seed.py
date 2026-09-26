@@ -1,14 +1,16 @@
 """Собирает supabase/seed.sql из выгрузки таблицы (prototype/data/*.json).
 
 Запуск: python3 scripts/extract.py && python3 scripts/seed.py
-Остаток 2026 года (legacy_visits за 2026 и legacy_standings) должен покрывать недели до cutover_week:
-перед запуском портала перевыгрузи таблицу после закрытия последней «табличной» недели.
+Остаток 2026 года (legacy_visits за 2026 и legacy_standings) — всё, что Комиссия внесла в таблицу.
+Неделя перехода (cutover_week) — общая: бани из таблицы и из журнала портала складываются, места за неё считает портал.
+Поэтому после выгрузки в таблицу больше ничего не вносим — только через бота и сайт, иначе поход посчитается дважды.
+id бани — номер строки в таблице: перед заливкой сверь, что строки не сдвинулись (см. docs/operations.md).
 """
 import json, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "prototype" / "data"
-CUTOVER_WEEK = 40          # первая неделя, которую считает портал (пн 28.09.2026)
+CUTOVER_WEEK = 39          # портал считает с W39 (решение лиги 26.09.2026): её бани из таблицы + журнал портала
 COMMISSION = ["Витёк", "Леха"]   # Комиссия ЕБЛ: Виктор Кудрявцев ведёт таблицу, Леха — портал
 
 baths = json.loads((DATA / "baths.json").read_text())
@@ -47,7 +49,7 @@ out.append(",\n".join(lv) + "\non conflict (bath_id, year, nick) do update set n
 ls = []
 for s in standings:
     wp = {str(w): v for w, v in s["weekPts"].items() if int(w) < CUTOVER_WEEK}
-    wb = {str(w): v for w, v in s["weekBaths"].items() if int(w) < CUTOVER_WEEK}
+    wb = {str(w): v for w, v in s["weekBaths"].items() if int(w) <= CUTOVER_WEEK}   # бани недели перехода — в общий зачёт недели
     ls.append(f"  ({q(s['name'])}, {num(s['total'])}, {num(s['baths'])}, {num(s['u'])}, {num(s['uu'])}, {num(s['long'])}, "
               f"{num(s['k'])}, {num(s['pub'])}, {num(s['reg'])}, {js(wp)}, {js(wb)})")
 out.append("insert into public.legacy_standings (nick, total, baths, u, uu, long, k, pub, reg, week_pts, week_baths) values")
