@@ -800,7 +800,7 @@
           </span>` : ""}
         </div>
       </article>`;
-    }).join("") : `<div class="empty">${markSvg()}<b>Тут пока тихо</b><p>Отметь первую баню — поход появится здесь, а Комиссия засчитает его в таблицу.</p><button class="cta" id="emptyCta">${icon("plus")}<span>Отметить баню</span></button></div>`;
+    }).join("") : `<div class="empty">${markSvg()}<b>Тут пока тихо</b><p>Добавь первую баню — поход появится здесь, а Комиссия засчитает его в таблицу.</p><button class="cta" id="emptyCta">${icon("plus")}<span>Добавить баню</span></button></div>`;
     $("#emptyCta")?.addEventListener("click", () => openVisit());
   }
   $("#secMode").addEventListener("change", renderFeed);
