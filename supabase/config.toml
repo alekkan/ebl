@@ -425,3 +425,6 @@ verify_jwt = false
 
 [functions.tg-bot]
 verify_jwt = false
+
+[functions.bath-location]
+verify_jwt = false

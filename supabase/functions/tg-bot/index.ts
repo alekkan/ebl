@@ -9,6 +9,7 @@
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>. Проверка «Долгая была?»: ?tick=1 (pg_cron).
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { hasLocationHint, parseLocation } from "../_shared/geo.ts";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
@@ -140,7 +141,7 @@ function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) 
 
 // что осталось от поста после времени, компании, отметок и служебных слов — это и есть баня (регистр сохраняем)
 function bathQuery(text: string, durSpan: string | null, used: Set<string>) {
-  let t = text.replace(/@\w+/g, " ").replace(/\/banya(@\w+)?/gi, " ");
+  let t = text.replace(/https?:\/\/\S+/g, " ").replace(/-?\d{1,3}\.\d{3,}/g, " ").replace(/@\w+/g, " ").replace(/\/banya(@\w+)?/gi, " ");
   if (durSpan) t = t.replace(durSpan, " ");
   return t.split(/[^\p{L}\p{N}-]+/u)
     .filter((w) => { const n = norm(w); return n.length > 1 && !STOP.has(n) && !used.has(n) && !/^\d+$/.test(n); })
@@ -202,6 +203,7 @@ async function renderCard(st: Any, lg: Any) {
     `👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`,
   ];
   if ((st.photos ?? []).length) lines.push(`📷 фото: ${st.photos.length}`);
+  if (st.geo) lines.push("📍 точка на карте есть");
   if (st.dur != null && st.dur > LONG && !(st.photos ?? []).length) lines.push("⚠️ Долгий засчитают с фото отметок входа и выхода — пришли ответом на это сообщение.");
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nСколько парились?");
@@ -253,19 +255,38 @@ async function startDraft(msg: Any, me: Any, lg: Any) {
     ultra: ULTRA.test(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
   };
   if (msg.photo) { const p = await uploadPhoto(me.id, msg.photo); if (p) st.photos.push(p); }
+  st.geo = await pointFromMessage(msg);
   await resolveBath(st);
   await showCard(st, lg, msg.from.id);
+}
+
+// геопозиция из Telegram или ссылка на карту/координаты в тексте
+async function pointFromMessage(msg: Any) {
+  const loc = msg.location ?? msg.venue?.location;
+  if (loc) return { lat: loc.latitude, lng: loc.longitude };
+  const text = msg.text ?? msg.caption ?? "";
+  return hasLocationHint(text) ? await parseLocation(text) : null;
+}
+
+// точка бани: новую ставим всегда, существующую — только если сейчас она примерная (или ставит Комиссия)
+async function setBathPoint(bathId: number, p: { lat: number; lng: number }, byCommission = false) {
+  const { data: b } = await sb.from("baths").select("precision, lat").eq("id", bathId).single();
+  if (!byCommission && b?.precision === "exact" && b?.lat != null) return false;
+  await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact" }).eq("id", bathId);
+  return true;
 }
 
 // ответ на карточку — дополняем черновик
 async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
   const text: string = (msg.text ?? msg.caption ?? "").trim();
+  const geo = await pointFromMessage(msg);
+  if (geo) st.geo = geo;
   if (msg.photo) { const p = await uploadPhoto(me.id, msg.photo); if (p) st.photos = [...(st.photos ?? []), p]; }
   if (text) {
     if (st.awaiting === "company") {
       st.company = /^(один|одна|одни|сам|сама|никого)$/i.test(text) ? [] : parseCompany(text, msg.entities ?? [], lg, me.id).ids;
       st.awaiting = null;
-    } else if (!st.bathId && !st.newBath) {
+    } else if (!st.bathId && !st.newBath && !hasLocationHint(text)) {
       st.query = bathQuery(text, null, new Set()); st.ultra = st.ultra || ULTRA.test(text);
       await resolveBath(st);
     } else {
@@ -281,7 +302,10 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
 async function submit(st: Any, lg: Any, tgId: number) {
   let bathId = st.bathId;
   if (!bathId) {
-    const { data: nb, error } = await sb.from("baths").insert({ name: st.newBath, status: "pending", created_by: st.authorId }).select().single();
+    const { data: nb, error } = await sb.from("baths").insert({
+      name: st.newBath, status: "pending", created_by: st.authorId,
+      ...(st.geo ? { lat: st.geo.lat, lng: st.geo.lng, precision: "exact" } : {}),
+    }).select().single();
     if (error) return edit(st.chat, st.card, `Не получилось добавить баню: ${esc(error.message)}`);
     bathId = nb.id;
   }
@@ -303,7 +327,8 @@ async function submit(st: Any, lg: Any, tgId: number) {
     { visit_id: visit.id, player_id: st.authorId, has_proof: (st.photos ?? []).length > 0 && st.dur != null && st.dur > LONG, photos: st.photos ?? [] },
     ...(st.company ?? []).map((id: string) => ({ visit_id: visit.id, player_id: id, has_proof: false, photos: [] })),
   ]);
-  await sb.from("bot_posts").insert({ visit_id: visit.id, chat_id: st.chat, source_msg: st.source, card_msg: st.card });
+  if (st.geo && st.bathId) await setBathPoint(st.bathId, st.geo, lg.players.find((p: Any) => p.id === st.authorId)?.is_commission);
+  await sb.from("bot_posts").insert({ visit_id: visit.id, chat_id: st.chat, source_msg: st.source, card_msg: st.card, bath_id: bathId });
   await clearState(tgId);
 
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
@@ -311,6 +336,15 @@ async function submit(st: Any, lg: Any, tgId: number) {
     + ((st.photos ?? []).length ? `\n📷 фото: ${st.photos.length}` : "");
   await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>\n\n${summary}`);
   if (st.chatType !== "private") await react(st.chat, st.source, "👀");
+
+  // точка на карте: у новой бани её может не быть, у старой — стоять по центру города или региона
+  const { data: bath } = await sb.from("baths").select("lat, precision").eq("id", bathId).single();
+  if (bath?.lat == null || bath?.precision !== "exact") {
+    const r = await send(st.chat, `📍 «${esc(st.bathName)}» ${bath?.lat == null ? "ещё нет на карте" : "стоит на карте примерно"}. `
+      + "Пришли геопозицию (📎 → Геопозиция) или ссылку на Яндекс/Google Карты ответом на это сообщение — поставлю точную точку.",
+      undefined, st.chatType === "private" ? undefined : st.card);
+    if (r.ok) await sb.from("bot_posts").update({ geo_msg: r.result.message_id }).eq("visit_id", visit.id);
+  }
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   for (const c of commission) {
@@ -399,10 +433,20 @@ async function onMessage(msg: Any) {
   const text: string = (msg.text ?? msg.caption ?? "").trim();
   const replyTo = msg.reply_to_message?.message_id;
 
-  // ответ на «Долгая была?»
+  // ответ на «Долгая была?» или на просьбу прислать точку
   if (replyTo && msg.reply_to_message.from?.username?.toLowerCase() === BOT) {
     const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id").eq("chat_id", chat).eq("ask_msg", replyTo).maybeSingle();
     if (post) { const acc = await whoIs(tgId); return acc?.players ? longAnswer(msg, post, acc.players) : undefined; }
+    const { data: geoPost } = await sb.from("bot_posts").select("bath_id").eq("chat_id", chat).eq("geo_msg", replyTo).maybeSingle();
+    if (geoPost?.bath_id) {
+      const acc = await whoIs(tgId);
+      if (!acc?.players) return;
+      const p = await pointFromMessage(msg);
+      if (!p) return send(chat, "Не смог достать координаты. Пришли геопозицию (📎 → Геопозиция) или ссылку, где видна точка на карте.", undefined, msg.message_id);
+      const done = await setBathPoint(geoPost.bath_id, p, (acc.players as Any).is_commission);
+      if (done) await react(chat, msg.message_id, "👍");
+      return send(chat, done ? `📍 Точка поставлена — спасибо! ${SITE}` : "У этой бани уже стоит точная точка — поменять её может Комиссия.", undefined, msg.message_id);
+    }
   }
 
   const st = await getState(tgId);

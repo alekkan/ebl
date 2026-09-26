@@ -284,6 +284,9 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .stats div { background: var(--panel-2); border-radius: var(--r); padding: 12px; display: grid; gap: 4px; align-content: start; }
 .stats b { font: 700 22px/1 var(--display); letter-spacing: -.02em; }
 .stats span { font-size: 12px; color: var(--ink-2); line-height: 1.25; }
+.geo-fix { display: grid; gap: 8px; }
+.geo-fix form { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.geo-fix .inp { height: 34px; font-size: 13px; }
 .note-soft { font-size: 13px; background: var(--honey-soft); color: color-mix(in srgb, var(--honey) 40%, var(--ink)); padding: 10px 12px; border-radius: 12px; }
 h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 0 0 10px; }
 .who { display: flex; flex-wrap: wrap; gap: 6px; }

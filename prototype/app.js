@@ -276,8 +276,12 @@
           <div><b>${who.length}</b><span>${plural(who.length, "участник", "участника", "участников")}</span></div>
           <div><b>${avg ? fmt(avg) : "—"}</b><span>${avg ? leaves(avg) : "нет оценок"}</span></div>
         </div>
-        ${b.prec && b.prec !== "exact" ? `<div class="note-soft">Точка на карте примерная — ${PREC_LABEL[b.prec]}. В боевой версии любой сможет поставить точный пин.</div>` : ""}
-        ${!b.ll ? `<div class="note-soft">Координаты ещё ищутся.</div>` : ""}
+        ${!b.ll || b.prec !== "exact" ? `<div class="note-soft geo-fix">
+          <span>${b.ll ? `Точка на карте примерная — ${PREC_LABEL[b.prec] || "по названию"}.` : "Этой бани ещё нет на карте."}</span>
+          ${D.live && member ? `<button class="btn sm" id="geoFixBtn" type="button">📍 Знаю, где это</button>
+          <form id="geoFixForm" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на Яндекс/Google Карты или 55.7558, 37.6173" required>
+          <button class="btn sm solid" type="submit">Поставить</button></form>` : D.live ? `<span class="hint">Войди — и сможешь поставить точную точку.</span>` : ""}
+        </div>` : ""}
         <div class="d-actions">
           <button class="cta" id="dVisit">${icon("plus")}<span>Я тут парился</span></button>
           <a class="btn" target="_blank" rel="noopener" href="https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}">${icon("route")}Маршрут</a>
@@ -314,6 +318,15 @@
     const rateBtns = $$("#rvRate button", d);
     const setRate = (n) => rateBtns.forEach((x) => { const on = +x.dataset.r <= n; x.setAttribute("aria-checked", String(+x.dataset.r === n)); $(".leaf", x).classList.toggle("on", on); });
     rateBtns.forEach((x) => (x.onclick = () => setRate(+x.dataset.r)));
+    $("#geoFixBtn", d)?.addEventListener("click", () => { $("#geoFixBtn", d).hidden = true; $("#geoFixForm", d).hidden = false; $("#geoFixInput", d).focus(); });
+    $("#geoFixForm", d)?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const p = await D.setBathLocation(id, $("#geoFixInput", d).value.trim());
+        b.lat = p.lat; b.lng = p.lng; b.precision = "exact"; hydrate(b);
+        render(); openBath(id, true); toast("📍 Точка поставлена — спасибо!");
+      } catch (err) { toast(err.message); }
+    });
     $("#rvLogin", d)?.addEventListener("click", () => (me ? openClaim() : openLogin()));
     const rvForm = $("#rvForm", d);
     if (rvForm) rvForm.onsubmit = async (e) => {

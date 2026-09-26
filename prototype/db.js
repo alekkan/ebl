@@ -197,6 +197,17 @@ window.EBLData = (() => {
     async linkAccount(accountId, nick) {
       check(await sb.from("player_accounts").update({ player_id: cache.playerIds[nick], claimed_nick: null }).eq("id", accountId));
     },
+    // точка бани по ссылке на карту или координатам — разбирает edge-функция (короткие ссылки раскрываются там)
+    async setBathLocation(bathId, input) {
+      const { data: { session } } = await sb.auth.getSession();
+      const r = await fetch(cfg.supabaseUrl + "/functions/v1/bath-location", {
+        method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: "Bearer " + (session?.access_token ?? "") },
+        body: JSON.stringify({ bath_id: bathId, input }),
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Точка не сохранилась");
+      return body;
+    },
     async moderateBath(bathId, patch) { check(await sb.from("baths").update(patch).eq("id", bathId)); },
     async photoUrl(path) {
       const { data } = await sb.storage.from("proofs").createSignedUrl(path, 3600);
