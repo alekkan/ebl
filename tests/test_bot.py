@@ -68,4 +68,23 @@ check("чужой кнопкой не отметить", sql(f"select duration_m
 press(f"yl:{vid}", ME)
 check("участник жмёт «Да, долгая» — поход долгий без фото", int(sql(f"select duration_min from visits where id = {vid}")) > 150)
 sql(f"delete from visits where id = {vid}")
+
+print("Решение Комиссии — одинаково откуда угодно")
+# на локальном стенде триггер должен звать локальные функции, а не боевого бота
+sql("""update settings set value = '"http://supabase_kong_ebl:8000/functions/v1"' where key = 'functions_url'""")
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 5, now() - interval '2 hours', 90, id from players where nick='Леха' returning id").splitlines()[0]
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id) values ({vid}, {CHAT}, 777, 778, 5)")
+announced = lambda: sql(f"select coalesce(announced, '') from bot_posts where visit_id = {vid}")
+def wait_announced(want):
+    for _ in range(30):
+        if announced() == want: return True
+        time.sleep(0.3)
+    return False
+sql(f"update visits set status = 'rejected', moderated_by = (select id from players where nick='Витёк') where id = {vid}")
+check("отклонили не кнопкой (как с сайта) — бот объявляет сам", wait_announced("rejected"), announced())
+verdict = lambda: req("POST", f"/functions/v1/tg-bot?verdict={vid}", {})[1]
+check("повторный вызов ничего не шлёт второй раз", verdict() == {"announced": False})
+sql(f"update visits set status = 'ok' where id = {vid}")
+check("передумали и засчитали — объявляется новое решение", wait_announced("ok"), announced())
+sql(f"delete from visits where id = {vid}")
 print("Готово.")

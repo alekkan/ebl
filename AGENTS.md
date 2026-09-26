@@ -41,6 +41,7 @@
 ```bash
 supabase start && supabase db reset
 docker exec supabase_db_ebl psql -U postgres -c "select cron.unschedule(jobname) from cron.job"
+docker exec supabase_db_ebl psql -U postgres -c "update settings set value = '\"http://supabase_kong_ebl:8000/functions/v1\"' where key = 'functions_url'"   # триггер вердикта — на локального бота
 cp -n supabase/functions/.env.example supabase/functions/.env
 supabase functions serve --env-file supabase/functions/.env     # в отдельном терминале
 python3 tests/test_backend.py

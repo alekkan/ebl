@@ -98,6 +98,7 @@ curl -X POST https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/recompute
 supabase start
 supabase db reset                                   # схема + seed.sql
 docker exec supabase_db_ebl psql -U postgres -c "select cron.unschedule(jobname) from cron.job"   # иначе локальный cron дёргает боевые функции
+docker exec supabase_db_ebl psql -U postgres -c "update settings set value = '\"http://supabase_kong_ebl:8000/functions/v1\"' where key = 'functions_url'"   # триггер вердикта — на локального бота
 cp supabase/functions/.env.example supabase/functions/.env
 supabase functions serve --env-file supabase/functions/.env
 python3 tests/test_backend.py && python3 tests/test_bot.py

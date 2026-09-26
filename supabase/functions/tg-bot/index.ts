@@ -333,10 +333,10 @@ async function submit(st: Any, lg: Any, tgId: number) {
   }
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
+  const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}`;
   for (const c of commission) {
-    const r = await send(c.tg_id, `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}`,
-      [[btn("✅ Засчитать", `ok:${visit.id}`), btn("❌ Отклонить", `no:${visit.id}`)]]);
-    if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visit.id, chat_id: c.tg_id, message_id: r.result.message_id });
+    const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visit.id}`), btn("❌ Отклонить", `no:${visit.id}`)]]);
+    if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visit.id, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
   }
 }
 
@@ -347,26 +347,46 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
   if (v.status !== "pending") return answer(cq.id, `Уже ${v.status === "ok" ? "засчитан" : "отклонён"}`);
   await sb.from("visits").update({ status: ok ? "ok" : "rejected", moderated_by: me.id, moderated_at: new Date().toISOString() }).eq("id", visitId);
   await answer(cq.id, ok ? "Засчитано" : "Отклонено");
+  await announce(visitId);   // триггер в базе тоже позовёт — второй вызов ничего не сделает
+}
+
+// Решение Комиссии — в Telegram, одинаково для кнопок бота, сайта и правки заявки (оттуда зовёт триггер: ?verdict=<id>):
+// 👍/💩 на пост и карточку, итог отдельным сообщением в ответ на пост, в личке Комиссии — кто решил, кнопки убираем.
+async function announce(visitId: number): Promise<boolean> {
+  const { data: v } = await sb.from("visits")
+    .select("status, reject_reason, baths(name), author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)")
+    .eq("id", visitId).maybeSingle();
+  if (!v || !["ok", "rejected"].includes(v.status)) return false;
+  // объявляет тот, кто первым отметил статус объявленным: кнопка и триггер могут прийти одновременно
+  const { data: won } = await sb.from("bot_posts").update({ announced: v.status })
+    .eq("visit_id", visitId).or(`announced.is.null,announced.neq.${v.status}`).select("chat_id, source_msg, card_msg");
+  const post = won?.[0];
+  if (!post) return false;
+  const ok = v.status === "ok", vv = v as Any;
   if (ok) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
 
-  const verdict = ok ? `✅ Засчитано — ${esc(me.nick)}` : `❌ Отклонено — ${esc(me.nick)}`;
-  const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id").eq("visit_id", visitId);
-  for (const n of notes ?? []) await edit(n.chat_id, n.message_id, `${esc(cq.message?.text ?? "")}\n\n${verdict}`);
+  const verdict = `${ok ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
+    + (!ok && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "");
+  const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id, text").eq("visit_id", visitId);
+  for (const n of notes ?? []) {
+    if (n.text) await edit(n.chat_id, n.message_id, `${n.text}\n\n${verdict}`);
+    else await tg("editMessageReplyMarkup", { chat_id: n.chat_id, message_id: n.message_id, reply_markup: { inline_keyboard: [] } });
+  }
 
   // в группе: реакция на пост и итог отдельным сообщением в ответ на пост (прошлые сообщения бота не трогаем)
-  const { data: post } = await sb.from("bot_posts").select("chat_id, source_msg, card_msg").eq("visit_id", visitId).maybeSingle();
-  if (post && post.chat_id < 0) {
+  if (post.chat_id < 0) {
     const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
-    const { data: author } = await sb.from("visits").select("players!visits_created_by_fkey(nick)").eq("id", visitId).single();
-    const who = (author as Any)?.players?.nick;
+    const who = vv.author?.nick, bath = esc(vv.baths?.name);
     const ptsLine = ok && pts?.length ? ": " + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
     await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
     if (post.card_msg) await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
     await send(post.chat_id, ok
-      ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${esc((v as Any).baths?.name)}»${ptsLine}`
-      : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${esc((v as Any).baths?.name)}». Если это ошибка — напишите Комиссии.`,
+      ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${ptsLine}`
+      : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${bath}».`
+        + (v.reject_reason ? ` Причина: ${esc(v.reject_reason)}.` : "") + " Если это ошибка — напишите Комиссии.",
       undefined, post.source_msg);
   }
+  return true;
 }
 
 // ответ на вопрос про точку: геопозиция, ссылка с точкой, адрес или ссылка на карточку организации
@@ -557,6 +577,10 @@ async function onCallback(cq: Any) {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   if (url.searchParams.get("tick") === "1") return new Response(JSON.stringify({ asked: await tick() }), { headers: { "Content-Type": "application/json" } });
+  // решение Комиссии принято не кнопкой бота — зовёт триггер в базе; объявляет только настоящий статус и только один раз
+  if (url.searchParams.get("verdict")) {
+    return new Response(JSON.stringify({ announced: await announce(Number(url.searchParams.get("verdict"))) }), { headers: { "Content-Type": "application/json" } });
+  }
   // диагностика без секретов: состояние вебхука у Telegram и последние ошибки обработки
   if (url.searchParams.get("diag") === "1") {
     const info = await tg("getWebhookInfo", {});
