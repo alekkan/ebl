@@ -60,7 +60,8 @@ async function whoIs(tgId: number) {
   return data;
 }
 const getState = async (tgId: number) => ((await sb.from("bot_sessions").select("state").eq("tg_id", tgId).maybeSingle()).data?.state ?? null) as Any;
-const setState = (tgId: number, state: Any) => sb.from("bot_sessions").upsert({ tg_id: tgId, state, updated_at: new Date().toISOString() });
+const setState = (tgId: number, state: Any) => sb.from("bot_sessions").upsert({ tg_id: tgId, state: { ...state, ts: Date.now() }, updated_at: new Date().toISOString() });
+const DRAFT_TTL = 6 * 3600e3; // черновик старше 6 часов не подхватываем — новый пост начинает новый
 const clearState = (tgId: number) => sb.from("bot_sessions").delete().eq("tg_id", tgId);
 
 // ---------- разбор свободного текста ----------
@@ -449,7 +450,8 @@ async function onMessage(msg: Any) {
     }
   }
 
-  const st = await getState(tgId);
+  const saved = await getState(tgId);
+  const st = saved && Date.now() - (saved.ts ?? 0) < DRAFT_TTL ? saved : null;
   const replyToCard = st && st.chat === chat && (isPrivate || (replyTo && replyTo === st.card));
   if (!isPrivate && !mentionsBot(msg) && !replyToCard) return;   // в группе — только отметки и ответы боту
 
@@ -460,10 +462,13 @@ async function onMessage(msg: Any) {
       ? `Заявка «это ${esc(acc.claimed_nick)}» ждёт Комиссию — как подтвердят, можно отмечать походы.`
       : `Чтобы отмечать походы, войди на сайте через Telegram и выбери свой ник: ${SITE}`, undefined, isPrivate ? undefined : msg.message_id);
   }
-  if (isPrivate && (text === "/start" || text === "/help")) {
+  const greeting = /^(\/start|\/help|start|старт|привет|хай|hi|hello)(?![\p{L}\p{N}])/iu.test(text);
+  if (isPrivate && greeting) {
+    await clearState(tgId);
     return send(chat, `Привет, ${esc(me.nick)}! Отмечай походы в общем чате: <i>@${BOT} Сандуны 3ч с Деном</i> + фото. Здесь тоже можно — просто напиши.\nТаблица: ${SITE}`);
   }
   if (text === "/cancel" || text === `/cancel@${BOT}`) { await clearState(tgId); return send(chat, "Черновик отменён."); }
+  if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
 
   const lg = await league();
   if (replyToCard && !mentionsBot(msg)) return continueDraft(msg, st, me, lg);
