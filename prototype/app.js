@@ -381,6 +381,10 @@
     return `<svg class="spark" width="${W}" height="${H}" viewBox="-3 0 ${W + 6} ${H}" aria-label="очки за места, последние 12 недель"><polygon points="0,${H} ${pts.join(" ")} ${W},${H}" fill="var(--oak-soft)"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--oak)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${lx}" cy="${ly}" r="3" fill="var(--ember)"/></svg>`;
   }
   const ranked = [...standings].sort((a, b) => b.total - a.total || b.baths - a.baths).map((s, i) => ({ ...s, place: i + 1 }));
+  // короны — победы в закрытых неделях; ничья за первое место — корона каждому
+  const crowns = {};
+  for (let w = 1; w < curWeek; w++) for (const r of weekRows(w)) if (r.place === 1) crowns[r.name] = (crowns[r.name] || 0) + 1;
+  ranked.forEach((s) => (s.crowns = crowns[s.name] || 0));
   const playedWeeks = Math.max(...standings.flatMap((s) => Object.keys(s.weekPts).map(Number)));
   $("#tableEyebrow").innerHTML = `Сезон 2026 · разыграно <b>${playedWeeks}</b> ${plural(playedWeeks, "неделя", "недели", "недель")}`;
   const renderTimer = () => ($("#tableTimer").innerHTML = `${icon("clock")}до конца W${curWeek} <b>${timeLeft()}</b>`);
@@ -397,10 +401,11 @@
     const byTotal = sortKey === "total" && sortDir < 0;
     const th = (k, l, cls = "") => `<th data-k="${k}" class="${cls} ${k === sortKey ? "on" : ""}">${l}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</th>`;
     $("#standings").innerHTML = `
-      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("total", "Очки")}${COLS.map(([k, l]) => th(k, l)).join("")}<th class="l">12 недель</th></tr></thead>
+      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", "👑", "crown-col")}${th("total", "Очки")}${COLS.map(([k, l]) => th(k, l)).join("")}<th class="l">12 недель</th></tr></thead>
       <tbody>${rows.map((s) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""} ${byTotal && s.place === 16 ? "cut" : ""} ${byTotal && s.place > 16 ? "below" : ""}">
         <td class="pos">${s.place}</td>
         <td class="l who-cell"><span>${ava(s.name, "sm")}${esc(s.name)}</span></td>
+        <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : "Пока без побед в неделях"}">${s.crowns ? `👑<b>${s.crowns}</b>` : ""}</td>
         <td class="pts">${fmt(s.total)}</td>
         ${COLS.map(([k]) => `<td>${s[k] ?? 0}</td>`).join("")}
         <td class="l">${spark(s)}</td></tr>`).join("")}</tbody>`;
@@ -464,7 +469,7 @@
     const wins = (n) => weeks.filter((w) => w < curWeek && placeOf[w]?.[n] === 1).length;
     const rows = [...ranked].filter((s) => weeks.some((w) => s.weekBaths[w])).sort((a, b) => wins(b.name) - wins(a.name) || a.place - b.place);
     $("#weekGrid").innerHTML = `
-      <thead><tr><th class="l">Участник</th><th title="Побед в неделях">🥇</th>${weeks.map((w) => `<th data-w="${w}" class="${w === viewWeek ? "on" : ""}">W${w}</th>`).join("")}</tr></thead>
+      <thead><tr><th class="l">Участник</th><th title="Побед в неделях">👑</th>${weeks.map((w) => `<th data-w="${w}" class="${w === viewWeek ? "on" : ""}">W${w}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((s) => `<tr data-player="${esc(s.name)}"><td class="l who-cell"><span>${ava(s.name, "sm")}${esc(s.name)}</span></td><td class="wins">${wins(s.name) || ""}</td>
         ${weeks.map((w) => { const b = s.weekBaths[w] ?? 0, p = placeOf[w]?.[s.name];
           return `<td class="${b ? (p <= 3 ? "c p" + p : "c") : "z"} ${w === viewWeek ? "on" : ""}" title="W${w}: ${b} ${plural(b, "баня", "бани", "бань")}${p ? `, ${p} место` : ""}">${b || ""}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
