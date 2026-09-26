@@ -125,6 +125,18 @@ check("отклонённой бане тип не ставится — ни т�
       and sql("select coalesce(type, '') from baths where id = 23") == "")
 sql(f"update baths set status = 'ok', type = {t23 if t23 == 'null' else repr(t23)} where id = 23")
 
+print("Новая баня и отказ по походу")
+nb = sql("insert into baths (name, status, created_by) select 'Кандидат Боровенка', 'pending', id from players where nick='Шурик' returning id").splitlines()[0]
+cv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by) select {nb}, now() - interval '3 hours', 120, id from players where nick='Шурик' returning id").splitlines()[0]
+sql(f"update visits set status = 'rejected' where id = {cv}")
+check("отклонили единственный поход в новую баню — баня тоже отклонена", sql(f"select status from baths where id = {nb}") == "rejected")
+sql(f"update visits set status = 'pending' where id = {cv}")
+check("вернули поход — баня снова ждёт решения", sql(f"select status from baths where id = {nb}") == "pending")
+sql(f"update visits set bath_id = 5 where id = {cv}")
+check("перенесли поход в другую баню — кандидат без походов отклонён", sql(f"select status from baths where id = {nb}") == "rejected")
+check("баня из справочника от отказа не страдает", sql("select status from baths where id = 5") == "ok")
+sql(f"delete from visits where id = {cv}"); sql(f"delete from baths where id = {nb}")
+
 print("Точки бань")
 sql("update baths set precision='region' where id in (10, 11, 12)")
 put = lambda bath, inp: req("POST", "/functions/v1/bath-location", {"bath_id": bath, "input": inp}, token=shurik)
