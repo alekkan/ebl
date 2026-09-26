@@ -257,6 +257,8 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .race-list .rv b { font: 700 14px var(--display); }
 .race-list .rv small { display: block; font-size: 11px; color: var(--ember); font-weight: 700; }
 .race-foot { font-size: 12px; color: var(--ink-3); margin-top: 8px; padding-left: 6px; }
+.race-more { display: block; width: 100%; margin-top: 8px; padding: 8px; border: 0; border-radius: 10px; background: var(--oak-soft); color: var(--oak); font-weight: 700; font-size: 13px; }
+.race-more:hover { background: color-mix(in srgb, var(--oak) 18%, var(--panel)); }
 .race-toggle { display: none; }
 
 /* карточка бани */
@@ -431,6 +433,35 @@ td.pts { font: 700 15px var(--display); }
 tr.cut { border-bottom: 2px dashed var(--ember); }
 tr.below { color: var(--ink-2); }
 .spark { display: block; }
+/* недельный зачёт */
+.tmode { max-width: 420px; margin: 0 0 22px; }
+.tmode button { padding: 9px 10px; font-size: 14px; }
+.week-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.week-title { flex: 1; display: grid; gap: 2px; }
+.week-title b { font: 800 30px/1 var(--display); letter-spacing: -.01em; }
+.week-title span { font-size: 14px; color: var(--ink-2); }
+.wk-arrow { width: 42px; height: 42px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--panel); display: grid; place-items: center; color: var(--ink); flex: none; }
+.wk-arrow .ic { transform: rotate(90deg); }
+.wk-arrow.next .ic { transform: rotate(-90deg); }
+.wk-arrow:disabled { opacity: .35; }
+.wk-arrow:not(:disabled):hover { border-color: var(--ink-3); }
+.week-table { cursor: pointer; }
+.week-table td.pos { font-size: 16px; }
+.week-table tr.p1 td { background: color-mix(in srgb, var(--honey) 12%, var(--panel)); }
+.week-table td.wk-pts { font: 700 15px var(--display); color: var(--ember); }
+.week-grid th, .week-grid td { padding: 8px 6px; text-align: center; min-width: 38px; }
+.week-grid th.l, .week-grid td.l { text-align: left; }
+.week-grid th[data-w] { cursor: pointer; }
+.week-grid th.on { color: var(--oak); }
+.week-grid td.on { box-shadow: inset 2px 0 0 var(--oak-soft), inset -2px 0 0 var(--oak-soft); }
+.week-grid td.c { font-weight: 700; }
+.week-grid td.z { color: var(--ink-3); }
+.week-grid td.p1 { background: color-mix(in srgb, var(--honey) 38%, transparent); }
+.week-grid td.p2 { background: color-mix(in srgb, #b8bfc6 45%, transparent); }
+.week-grid td.p3 { background: color-mix(in srgb, #c98a55 32%, transparent); }
+.week-grid td.wins { font: 700 14px var(--display); color: var(--honey); }
+.week-grid td.who-cell { position: sticky; left: 0; background: var(--panel); z-index: 1; }
+.week-grid tr { cursor: pointer; }
 .cupnote { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); margin: 14px 6px 0; }
 .cupnote i { width: 24px; border-top: 2px dashed var(--ember); flex: none; }
 .legend-cols { font-size: 13px; color: var(--ink-3); margin: 10px 6px 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
@@ -628,7 +659,7 @@ tr.below { color: var(--ink-2); }
   .filters { padding: 4px 16px 10px; }
   .race { top: 10px; left: 12px; right: 12px; bottom: auto; width: auto; padding: 8px 8px 8px 14px; border-radius: 16px; }
   .race .race-title { font-size: 14px; }
-  .race:not(.open) .race-list, .race:not(.open) .race-foot { display: none; }
+  .race:not(.open) .race-list, .race:not(.open) .race-foot, .race:not(.open) .race-more { display: none; }
   .race-head { align-items: center; }
   .race-toggle { display: grid; place-items: center; border: 0; background: var(--panel-2); width: 30px; height: 30px; border-radius: 50%; flex: none; }
   .race.open .race-toggle .ic { transform: rotate(180deg); }
@@ -666,6 +697,7 @@ tr.below { color: var(--ink-2); }
   .cta#addVisitBtn .cta-short { display: inline-block; }
 }
 @media (max-width: 900px) { .brand .word { display: none; } .nav button { padding: 8px 10px; } }
+@media (min-width: 761px) and (max-width: 900px) { .nav button .ic { display: none; } }   /* «Войти» с подписью — шапке нужно место */
 .cta-short { display: none; }
 /* плюс, а при наведении — ковш: замах, бросок воды на надпись и хлопок мелкого пара над ней */
 #addVisitBtn { position: relative; overflow: visible; }

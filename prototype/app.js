@@ -236,10 +236,12 @@
           <span><span class="rn">${esc(n)}</span><span class="rbar" style="--w:${(c / max) * 100}%"></span></span>
           <span class="rv"><b>${c}</b><small>+${fmt(pts[n])}</small></span>
         </li>`).join("")}</ol>
-      <div class="race-foot">${rows.length > 5 ? `и ещё ${rows.length - 5} в гонке · ` : ""}${DATA_NOTE}</div>`;
+      <div class="race-foot">${rows.length > 5 ? `и ещё ${rows.length - 5} в гонке · ` : ""}${DATA_NOTE}</div>
+      <button class="race-more" type="button">Весь недельный зачёт →</button>`;
     $("#race").classList.toggle("open", wasOpen);
     $(".race-toggle", $("#race")).onclick = () => $("#race").classList.toggle("open");
     $$("#race [data-player]").forEach((li) => (li.onclick = () => openPlayer(li.dataset.player)));
+    $(".race-more", $("#race")).onclick = () => window.openWeekly();
   }
   renderRace();
   setInterval(() => { renderRace(); renderTimer(); }, 60e3);
@@ -394,6 +396,73 @@
         ${COLS.map(([k]) => `<td>${s[k] ?? 0}</td>`).join("")}
         <td class="l">${spark(s)}</td></tr>`).join("")}</tbody>`;
   }
+  // ---------- недельный зачёт: как лист «недельный зачёт» у Комиссии ----------
+  // W1 — с 1 января до первого воскресенья, дальше пн–вс (п. 6)
+  function weekRange(w) {
+    const jan1 = new Date(Date.UTC(2026, 0, 1)), firstMon = new Date(jan1);
+    firstMon.setUTCDate(1 + ((8 - jan1.getUTCDay()) % 7));
+    const start = w === 1 ? jan1 : new Date(firstMon.getTime() + (w - 2) * 7 * 864e5);
+    const end = w === 1 ? new Date(firstMon.getTime() - 864e5) : new Date(start.getTime() + 6 * 864e5);
+    const d = (x, m) => x.toLocaleDateString("ru-RU", { day: "numeric", ...(m ? { month: "long" } : {}), timeZone: "UTC" });
+    return start.getUTCMonth() === end.getUTCMonth() ? `${d(start)}–${d(end, true)}` : `${d(start, true)} — ${d(end, true)}`;
+  }
+  // места недели: у закрытой — из таблицы, у идущей — «если закончится сейчас»
+  function weekRows(w) {
+    const rows = standings.map((s) => [s.name, s.weekBaths[w] ?? 0]).filter((r) => r[1] > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"));
+    const live = w >= curWeek, proj = live ? placePoints(rows) : {};
+    let place = 0, prev = null;
+    return rows.map(([n, c], i) => {
+      if (c !== prev) { place = i + 1; prev = c; }
+      const s = standings.find((x) => x.name === n);
+      return { name: n, baths: c, place, pts: live ? proj[n] : s.weekPts[w] ?? 0 };
+    });
+  }
+  let viewWeek = curWeek;
+  function renderWeek() {
+    const live = viewWeek >= curWeek, rows = weekRows(viewWeek);
+    $("#wTitle").innerHTML = `<b>W${viewWeek}</b><span>${weekRange(viewWeek)}${live ? ` · идёт, до конца ${timeLeft()}` : " · итоги"}</span>`;
+    $("#wPrev").disabled = viewWeek <= 1; $("#wNext").disabled = viewWeek >= curWeek;
+    $("#weekTable").innerHTML = rows.length ? `
+      <thead><tr><th>#</th><th class="l">Участник</th><th>Бань</th><th>${live ? "Будет за место" : "За место"}</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr data-player="${esc(r.name)}" class="${r.place <= 3 ? "top3 p" + r.place : ""}">
+        <td class="pos">${r.place <= 3 ? ["🥇", "🥈", "🥉"][r.place - 1] : r.place}</td>
+        <td class="l who-cell"><span>${ava(r.name, "sm")}${esc(r.name)}</span></td>
+        <td class="pts">${r.baths}</td>
+        <td class="wk-pts">${r.pts ? "+" + fmt(r.pts) : "—"}</td></tr>`).join("")}</tbody>`
+      : `<tbody><tr><td class="l" style="padding:22px">${live ? "На этой неделе пока никто не парился. Самое время." : "На этой неделе никто не парился — неделя не разыгрывалась."}</td></tr></tbody>`;
+    $("#wNote").textContent = live
+      ? "Очки за место начислятся после воскресенья 22:59 МСК. Поделили место — делят и очки (п. 7)."
+      : `Всего за неделю: ${rows.reduce((a, r) => a + r.baths, 0)} ${plural(rows.reduce((a, r) => a + r.baths, 0), "баня", "бани", "бань")}.`;
+    renderWeekGrid();
+  }
+  function renderWeekGrid() {
+    const weeks = Array.from({ length: curWeek }, (_, i) => curWeek - i);   // свежие недели слева
+    const placeOf = {};
+    for (const w of weeks) for (const r of weekRows(w)) (placeOf[w] ||= {})[r.name] = r.place;
+    const wins = (n) => weeks.filter((w) => w < curWeek && placeOf[w]?.[n] === 1).length;
+    const rows = [...ranked].filter((s) => weeks.some((w) => s.weekBaths[w])).sort((a, b) => wins(b.name) - wins(a.name) || a.place - b.place);
+    $("#weekGrid").innerHTML = `
+      <thead><tr><th class="l">Участник</th><th title="Побед в неделях">🥇</th>${weeks.map((w) => `<th data-w="${w}" class="${w === viewWeek ? "on" : ""}">W${w}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((s) => `<tr data-player="${esc(s.name)}"><td class="l who-cell"><span>${ava(s.name, "sm")}${esc(s.name)}</span></td><td class="wins">${wins(s.name) || ""}</td>
+        ${weeks.map((w) => { const b = s.weekBaths[w] ?? 0, p = placeOf[w]?.[s.name];
+          return `<td class="${b ? (p <= 3 ? "c p" + p : "c") : "z"} ${w === viewWeek ? "on" : ""}" title="W${w}: ${b} ${plural(b, "баня", "бани", "бань")}${p ? `, ${p} место` : ""}">${b || ""}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
+  }
+  function setTableMode(m) {
+    $$("#tMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
+    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week";
+    $("#podium").hidden = m !== "season";
+    if (m === "week") renderWeek();
+  }
+  $("#tMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) setTableMode(b.dataset.m); });
+  $("#wPrev").onclick = () => { viewWeek = Math.max(1, viewWeek - 1); renderWeek(); };
+  $("#wNext").onclick = () => { viewWeek = Math.min(curWeek, viewWeek + 1); renderWeek(); };
+  $("#weekGrid").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-w]"); if (th) { viewWeek = +th.dataset.w; renderWeek(); $("#tWeek").scrollIntoView({ behavior: calm ? "auto" : "smooth" }); return; }
+    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player);
+  });
+  $("#weekTable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player); });
+  window.openWeekly = () => { show("table"); setTableMode("week"); };
+
   $("#standings").addEventListener("click", (e) => {
     const th = e.target.closest("th[data-k]");
     if (th) { const k = th.dataset.k; sortDir = k === sortKey ? -sortDir : k === "place" ? 1 : -1; sortKey = k; renderTable(); return; }

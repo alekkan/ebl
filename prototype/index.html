@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;600;700;800&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
-<link rel="stylesheet" href="style.css?v=20260926203316">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 
@@ -166,12 +166,30 @@
         </div>
         <div class="timer" id="tableTimer"></div>
       </div>
-      <div class="podium" id="podium"></div>
-      <div class="tablecard"><div class="tablewrap"><table id="standings"></table></div></div>
-      <div class="cupnote"><i></i>Первые 16 проходят в Кубок ЕБЛ. Плюс wild-card: чемпионы и обладатели Кубков прошлых лет и одно место у Комиссии.</div>
-      <div class="legend-cols">
-        <span><b>Бань</b> за сезон</span><span><b>У</b> уникальные</span><span><b>УУ</b> ультрауникальные</span>
-        <span><b>Дл</b> долгие, 150+ мин</span><span><b>К</b> за компанию</span><span><b>Общ</b> общественные</span><span><b>Рег</b> регионы и страны</span>
+      <div class="seg tmode" id="tMode" role="tablist" aria-label="Зачёт">
+        <button type="button" data-m="season" aria-pressed="true">Общий зачёт</button>
+        <button type="button" data-m="week" aria-pressed="false">Недельный зачёт</button>
+      </div>
+      <div id="tSeason">
+        <div class="podium" id="podium"></div>
+        <div class="tablecard"><div class="tablewrap"><table id="standings"></table></div></div>
+        <div class="cupnote"><i></i>Первые 16 проходят в Кубок ЕБЛ. Плюс wild-card: чемпионы и обладатели Кубков прошлых лет и одно место у Комиссии.</div>
+        <div class="legend-cols">
+          <span><b>Бань</b> за сезон</span><span><b>У</b> уникальные</span><span><b>УУ</b> ультрауникальные</span>
+          <span><b>Дл</b> долгие, 150+ мин</span><span><b>К</b> за компанию</span><span><b>Общ</b> общественные</span><span><b>Рег</b> регионы и страны</span>
+        </div>
+      </div>
+      <div id="tWeek" hidden>
+        <div class="week-head">
+          <button type="button" class="wk-arrow" id="wPrev" aria-label="Предыдущая неделя"><svg class="ic"><use href="#i-chev"/></svg></button>
+          <div class="week-title" id="wTitle"></div>
+          <button type="button" class="wk-arrow next" id="wNext" aria-label="Следующая неделя"><svg class="ic"><use href="#i-chev"/></svg></button>
+        </div>
+        <div class="tablecard"><table id="weekTable" class="week-table"></table></div>
+        <p class="note" id="wNote"></p>
+        <h2 class="h2">Все недели</h2>
+        <p class="note">В клетке — сколько бань за неделю. Подсвечены три первых места недели. Нажми на неделю, чтобы открыть её.</p>
+        <div class="tablecard"><div class="tablewrap"><table id="weekGrid" class="week-grid"></table></div></div>
       </div>
     </div>
   </section>
@@ -346,9 +364,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
-<script src="config.js?v=20260926203316"></script>
+<script src="config.js?v=9"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
-<script src="db.js?v=20260926203316"></script>
-<script src="app.js?v=20260926203316"></script>
+<script src="db.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
