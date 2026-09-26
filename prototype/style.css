@@ -651,6 +651,28 @@ tr.below { color: var(--ink-2); }
 }
 @media (max-width: 560px) { .me-btn span { display: none; } .me-btn { padding: 4px; } .me-btn .ic { margin: 0 6px; } }
 .cta-short { display: none; }
+/* плюс, а при наведении — ковш поддаёт на камни: наклон, капли, пар */
+#addVisitBtn { position: relative; overflow: visible; }
+.ic-swap { position: relative; width: 20px; height: 20px; flex: none; }
+.ic-swap > svg { position: absolute; inset: 0; transition: opacity .2s ease, transform .3s var(--ease); }
+.kovsh { opacity: 0; transform: scale(.5) rotate(-30deg); }
+.kovsh .drop { fill: currentColor; stroke: none; opacity: 0; }
+.kovsh .ladle { transform-box: view-box; transform-origin: 14px 13.5px; }
+#addVisitBtn:hover .plus, #addVisitBtn.pour .plus { opacity: 0; transform: rotate(90deg) scale(.5); }
+#addVisitBtn:hover .kovsh, #addVisitBtn.pour .kovsh { opacity: 1; transform: none; }
+.cta-steam { position: absolute; left: 7px; top: -7px; width: 32px; height: 26px; pointer-events: none; fill: none; stroke: color-mix(in srgb, var(--ink-3) 75%, transparent); stroke-width: 2.2; stroke-linecap: round; }
+.cta-steam path { opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  #addVisitBtn:hover .ladle, #addVisitBtn.pour .ladle { animation: pour 1.3s var(--ease) .15s; }
+  #addVisitBtn:hover .drop, #addVisitBtn.pour .drop { animation: drip 1.3s ease-in .15s; }
+  #addVisitBtn:hover .drop.d2, #addVisitBtn.pour .drop.d2 { animation-delay: .27s; }
+  #addVisitBtn:hover .cta-steam path, #addVisitBtn.pour .cta-steam path { animation: steamup 1.5s ease-out .75s; }
+  #addVisitBtn:hover .cta-steam path:nth-child(2), #addVisitBtn.pour .cta-steam path:nth-child(2) { animation-delay: .9s; }
+  #addVisitBtn:hover .cta-steam path:nth-child(3), #addVisitBtn.pour .cta-steam path:nth-child(3) { animation-delay: 1.05s; }
+  @keyframes pour { 0% { transform: rotate(0); } 28%, 62% { transform: rotate(40deg); } 100% { transform: rotate(0); } }
+  @keyframes drip { 0%, 30% { opacity: 0; transform: translateY(-2px); } 40% { opacity: 1; } 70% { opacity: 1; transform: translateY(5px); } 76%, 100% { opacity: 0; transform: translateY(6px); } }
+  @keyframes steamup { 0% { opacity: 0; transform: translateY(8px) scaleY(.6); } 30% { opacity: .9; } 100% { opacity: 0; transform: translateY(-10px) scaleY(1.1); } }
+}
 @media (max-width: 560px) {
   .cta#addVisitBtn .cta-long { display: none; }
   .cta#addVisitBtn .cta-short { display: inline; }

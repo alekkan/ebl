@@ -567,7 +567,12 @@
     $("#visitModal").hidden = false;
     if (!picked) setTimeout(() => $("#vBathQ").focus(), 50);
   }
-  $("#addVisitBtn").onclick = () => openVisit();
+  $("#addVisitBtn").onclick = () => {
+    // на телефоне наведения нет — проигрываем «поддать» по нажатию, форма открывается сразу
+    const b = $("#addVisitBtn"); b.classList.remove("pour"); void b.offsetWidth; b.classList.add("pour");
+    setTimeout(() => b.classList.remove("pour"), 2600);
+    openVisit();
+  };
 
   function setDur(m) {
     $("#vDur").value = m;
