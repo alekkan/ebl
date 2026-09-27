@@ -10,7 +10,7 @@
 
 | Что поменял | Команда |
 |---|---|
-| Сайт (`prototype/`) | `scripts/deploy.sh` — проверки, затем сборка `gh-pages` из `prototype/` во временной копии (в `main` не пишет) |
+| Сайт (`prototype/`) | `scripts/deploy.sh` — проверки, затем сборка во временной копии → хранилище Яндекса `ebl.su` и резерв `gh-pages` (в `main` не пишет; нужен `yc`) |
 | Схему базы, edge-функции | `scripts/deploy-backend.sh [функция …]` — проверки, `supabase db push`, функции (без аргументов — все), пересчёт |
 | Движок очков (`_shared/scoring.js`) | `scripts/deploy-backend.sh recompute` |
 | `_shared/*` (geo, place, avatar, greetings) | `scripts/deploy-backend.sh` без аргументов — функции, которые их используют, выложатся все |
@@ -18,9 +18,11 @@
 
 Все функции деплоятся с `--no-verify-jwt`: Telegram и pg_cron не присылают ключ Supabase, проверка — внутри функций.
 
-**Грабли GitHub Pages:**
+**Грабли статики:**
 
-- Pages кэширует файлы на 10 минут. `deploy.sh` проставляет `?v=<время>` к `style.css`, `app.js`, `db.js`, `config.js`
+- В Яндексе `index.html` заливается последним и с `Cache-Control: no-cache`, остальное — `max-age=600`. Старые файлы из хранилища
+  `deploy.sh` не удаляет — если переименовал или убрал файл, удали его: `yc storage s3 rm s3://ebl.su/<путь>`.
+- GitHub Pages кэширует файлы на 10 минут. `deploy.sh` проставляет `?v=<время>` к `style.css`, `app.js`, `db.js`, `config.js`
   в `index.html`, чтобы новая страница не смешалась со старым скриптом. Не убирать.
 - Ветку `gh-pages` GitHub сам дописывает (коммитит `CNAME` при смене домена), поэтому `deploy.sh` перезаписывает её `--force`.
   Это только сборка — ничего ценного там нет.
@@ -78,14 +80,34 @@
 
 ## Домен ebl.su
 
-- Регистратор Reg.ru, DNS-серверы `ns1/ns2.reg.ru`. Зона: четыре A-записи `@` → `185.199.108.153`, `.109.153`, `.110.153`, `.111.153`;
-  CNAME `www` → `alekkan.github.io.`
-- Домен сайта — `prototype/CNAME` и настройки Pages (`gh api repos/alekkan/ebl/pages`). Сертификат выпускает GitHub;
-  если долго нет — перепривязать домен: `cname: null`, затем `cname: ebl.su`. Потом включить HTTPS:
-  `gh api -X PUT repos/alekkan/ebl/pages -F https_enforced=true`.
+Сайт живёт в Yandex Cloud: облако `cloud-cumulus-511`, каталог `ebl` (владелец — Леха). Переезд с GitHub Pages — 27.09.2026:
+GitHub больше суток не выпускал сертификат, а Cloudflare в России тормозят провайдеры.
+
+- **Регистратор** — Reg.ru (там только продление домена). DNS-серверы — `ns1.yandexcloud.net`, `ns2.yandexcloud.net`:
+  зона `ebl-su` в Cloud DNS. Посмотреть: `yc dns zone list-records --name ebl-su`.
+- **Записи зоны:**
+  - `@` ANAME → `ebl.su.website.yandexcloud.net` — сайт в хранилище;
+  - `www` CNAME → `www.ebl.su.website.yandexcloud.net` — хранилище `www.ebl.su` перенаправляет на https://ebl.su;
+  - `_acme-challenge…` CNAME — проверка Let's Encrypt. **Не удалять:** по ним сертификат продлевается сам;
+  - `_github-pages-challenge-alekkan` TXT — подтверждение домена на GitHub.
+- **Хранилища** (Object Storage): `ebl.su` — сайт (публичное чтение, хостинг сайта, главная и страница ошибки — `index.html`);
+  `www.ebl.su` — только перенаправление. Выкладывает `scripts/deploy.sh`.
+- **HTTPS** — сертификат Let's Encrypt `ebl-su` в Certificate Manager на `ebl.su` и `www.ebl.su`, продлевается сам;
+  http → https Яндекс перенаправляет сам. Проверить: `yc certificate-manager certificate list`.
+- **Деньги** — около 45 ₽ в месяц, почти всё — DNS-зона (0,0592 ₽/час); хранение, запросы и трафик сайта в бесплатных лимитах.
+  Первые 60 дней — стартовый грант. ⚠️ **До конца гранта** — консоль → «Биллинг» → «Перейти на платную версию»,
+  иначе после гранта Яндекс остановит ресурсы и сайт ляжет.
+- **Доступ для выкладки** — `yc` (см. [workflow.md](workflow.md#рабочее-место--настроить-один-раз)) и роль `storage.editor`
+  на каталог `ebl`. Выдаёт Леха: `yc resource-manager folder add-access-binding ebl --role storage.editor --subject userAccount:<id>`.
+- **Откат на GitHub Pages** (если у Яндекса проблемы). Домен ebl.su на GitHub оставлен, и `deploy.sh` при каждой выкладке
+  обновляет и резерв. Вернуть сайт на GitHub (без https) — заменить ANAME на A-записи, TTL 5 минут:
+  ```bash
+  yc dns zone delete-records --name ebl-su --record "@ 300 ANAME ebl.su.website.yandexcloud.net."
+  yc dns zone add-records --name ebl-su --record "@ 300 A 185.199.108.153" --record "@ 300 A 185.199.109.153" \
+    --record "@ 300 A 185.199.110.153" --record "@ 300 A 185.199.111.153"
+  ```
+  Вернуть на Яндекс — наоборот.
 - При смене адреса сайта: `/setdomain` у бота, `SITE_URL` в секретах, `ALLOWED_ORIGINS` (если задан).
-- Когда появится HTTPS — поменять `og:image` в `prototype/index.html` на `https://ebl.su/og.png` (пока http: без сертификата
-  Telegram картинку превью не скачает).
 
 ## Убрать тестовые данные
 

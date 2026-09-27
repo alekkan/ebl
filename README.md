@@ -3,7 +3,7 @@
 Сайт и Telegram-бот лиги: карта бань, турнирная таблица чемпионата по регламенту, журнал походов с модерацией Комиссией,
 отзывы, тепловая карта походов за 2023–2026.
 
-- **Сайт:** https://ebl.su (запасной адрес — https://alekkan.github.io/ebl/)
+- **Сайт:** https://ebl.su — хранилище Yandex Object Storage (резерв — GitHub Pages, см. [docs/operations.md](docs/operations.md#домен-eblsu))
 - **Бот:** [@eblsu_bot](https://t.me/eblsu_bot) — отмечать походы прямо в общем чате
 - **Код:** https://github.com/alekkan/ebl
 - **База и серверные функции:** Supabase, проект `yeerkfdgmhcmvdqzaoio` (Франкфурт)
@@ -13,7 +13,7 @@
 ```
 Telegram-группа ──@eblsu_bot──▶ tg-bot ─┐
                                         ├─▶ Supabase Postgres ──▶ recompute ──▶ standings (таблица)
-Сайт ebl.su (GitHub Pages) ─── db.js ───┘        ▲
+Сайт ebl.su (Яндекс) ─────── db.js ───┘        ▲
      └── вход через Telegram ─▶ tg-login ───────┘
 ```
 
@@ -38,7 +38,7 @@ Telegram-группа ──@eblsu_bot──▶ tg-bot ─┐
 ## Структура репозитория
 
 ```
-prototype/            сайт (статический, GitHub Pages): index.html, style.css, app.js, db.js, config.js, data/*.json
+prototype/            сайт (статический, хранилище Яндекса + резерв на GitHub Pages): index.html, style.css, app.js, db.js, config.js, data/*.json
 supabase/migrations/  схема базы, политики доступа, расписания pg_cron
 supabase/functions/   edge-функции: tg-login, tg-bot, recompute, sync-avatars, bath-location, _shared/
 supabase/seed.sql     входящий остаток из таблицы (генерируется scripts/seed.py)
@@ -72,7 +72,7 @@ scripts/check.sh                 # всё сразу: бэкенд, бот и с
 Выкладывают только скрипты и только из актуального `main` — они сами гоняют все тесты:
 
 ```bash
-scripts/deploy.sh                          # сайт → GitHub Pages
+scripts/deploy.sh                          # сайт → хранилище Яндекса (+ резерв на GitHub Pages)
 scripts/deploy-backend.sh [функция …]      # миграции + функции (без аргументов — все) + пересчёт таблицы
 ```
 

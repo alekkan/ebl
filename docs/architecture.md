@@ -4,7 +4,7 @@
 
 | Компонент | Где | Что делает |
 |---|---|---|
-| Сайт | GitHub Pages, репо `alekkan/ebl`, ветка `gh-pages` (собирается из `prototype/`) | карта, тепловая карта, таблица, лента, правила, форма похода, вход |
+| Сайт | Yandex Object Storage, бакет `ebl.su` (https — Certificate Manager, DNS — Cloud DNS); резерв — GitHub Pages, ветка `gh-pages`. Оба собираются из `prototype/` | карта, тепловая карта, таблица, лента, правила, форма похода, вход |
 | База | Supabase Postgres, проект `yeerkfdgmhcmvdqzaoio`, eu-central-1 | журнал походов, бани, участники, входящий остаток, итоговая таблица |
 | `tg-login` | edge-функция | вход через Telegram: проверка подписи → пользователь Supabase Auth → одноразовый `token_hash` |
 | `tg-bot` | edge-функция, вебхук Telegram | походы из общего чата, модерация Комиссией, «Долгая была?», геоточки |
