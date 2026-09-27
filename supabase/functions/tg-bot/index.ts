@@ -56,11 +56,12 @@ const durLabel = (m: number | null) => (m == null ? "от часа" : m > 150 ? 
 // ---------- справочники ----------
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 async function league() {
-  const [{ data: players }, { data: accounts }] = await Promise.all([
+  const [{ data: players }, { data: accounts }, { data: aliases }] = await Promise.all([
     sb.from("players").select("id, nick, is_commission"),
     sb.from("player_accounts").select("player_id, tg_id, tg_username").not("player_id", "is", null),
+    sb.from("player_aliases").select("alias, player_id"),
   ]);
-  return { players: players ?? [], accounts: accounts ?? [] };
+  return { players: players ?? [], accounts: accounts ?? [], aliases: aliases ?? [] };
 }
 async function whoIs(tgId: number) {
   const { data } = await sb.from("player_accounts").select("id, player_id, claimed_nick, players(id, nick, is_commission)").eq("tg_id", tgId).maybeSingle();
@@ -130,9 +131,16 @@ function nickForms(nick: string): RegExp | null {
 function nickMatches(token: string, nick: string) {
   return token === nick || !!nickForms(nick)?.test(token);
 }
+// клички склоняем грубее ников: «Мамонтов» → «Мамонтовым», «Уважаемый» → «Уважаемым», «Демон» → «Демоном»;
+// выученную из поста «Мамонтовым» узнаём и в других падежах
+function aliasMatches(token: string, alias: string) {
+  if (nickMatches(token, alias)) return true;
+  const base = alias.replace(/(ый|ий|ой|ым|им|ом|ем|ою|ей|ого|его|ому|ему|а|я|у|ю|е|ы|и|о)$/u, "");
+  return base.length >= 4 && token.startsWith(base) && token.length - base.length <= 3;
+}
 
 function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) {
-  const ids = new Set<string>(), used = new Set<string>();
+  const ids = new Set<string>(), used = new Set<string>(), unknown: string[] = [];
   // @username из текста — на случай, если Telegram не прислал разметку
   for (const m of text.matchAll(/@(\w{4,32})/g)) {
     const u = m[1].toLowerCase();
@@ -149,8 +157,12 @@ function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) 
       const acc = lg.accounts.find((a: Any) => a.tg_username?.toLowerCase() === u);
       if (acc && acc.player_id !== authorId) ids.add(acc.player_id);
     } else if (e.type === "text_mention" && e.user) {
+      // упоминание по имени («с Мамонтов» — синей ссылкой): слова из него — не баня; не знаем такого — спросим кнопками
+      const shown = text.substr(e.offset, e.length);
+      norm(shown).split(/[^\p{L}\p{N}_]+/u).filter(Boolean).forEach((w) => used.add(w));
       const acc = lg.accounts.find((a: Any) => a.tg_id === e.user.id);
       if (acc && acc.player_id !== authorId) ids.add(acc.player_id);
+      else if (!acc) unknown.push(shown);
     }
   }
   const t = norm(text);
@@ -162,14 +174,35 @@ function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) 
     const best = single.filter((p: Any) => nickMatches(tok, norm(p.nick))).sort((a: Any, b: Any) => b.nick.length - a.nick.length)[0];
     if (best) { used.add(tok); if (best.id !== authorId) ids.add(best.id); }
   }
-  for (const p of lg.players.filter((p: Any) => p.nick.includes(" "))) {
+  for (const p of [...lg.players.filter((p: Any) => p.nick.includes(" ")), ...(lg.aliases ?? []).filter((a: Any) => a.alias.includes(" ")).map((a: Any) => ({ id: a.player_id, nick: a.alias }))]) {
     const n = escRe(norm(p.nick));
     if (new RegExp(`(^|[\\s,])${n}(?=$|[\\s,.!])`, "u").test(t)) {
       n.split(" ").forEach((w) => used.add(w));
       if (p.id !== authorId) ids.add(p.id);
     }
   }
-  return { ids: [...ids], used };
+  // клички — только как имя: с большой буквы или сразу после «с/со/и» («уважаемый» в обычной фразе — не Шурик)
+  const words = [...text.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]);
+  words.forEach((w, i) => {
+    const tok = norm(w);
+    if (used.has(tok) || !(/^\p{Lu}/u.test(w) || ["с", "со", "и"].includes(norm(words[i - 1] ?? "")))) return;
+    const al = (lg.aliases ?? []).find((a: Any) => !a.alias.includes(" ") && aliasMatches(tok, norm(a.alias)));
+    if (al) { used.add(tok); if (al.player_id !== authorId) ids.add(al.player_id); }
+  });
+  // «с Мамонтовым» — имя с большой буквы после «с/со» (и дальше через запятую или «и»), которого нет ни среди ников,
+  // ни среди кличек: в название бани не берём, спросим кнопкой и предложим запомнить
+  for (const m of text.matchAll(/(?:^|[\s,])(?:с|со)\s+(\p{Lu}[\p{L}-]+(?:\s*(?:,|\sи\s)\s*\p{Lu}[\p{L}-]+)*)/gu)) {
+    for (const w of m[1].split(/\s*(?:,|\sи\s)\s*/u)) {
+      const tok = norm(w);
+      if (tok.length > 2 && !used.has(tok) && !STOP.has(tok)) { used.add(tok); unknown.push(w); }
+    }
+  }
+  // незнакомый Telegram упоминание по имени может оказаться кличкой («Мамонтов» синей ссылкой)
+  for (const u of [...unknown]) {
+    const al = (lg.aliases ?? []).find((a: Any) => norm(u) === norm(a.alias) || norm(u).split(/\s+/).some((w) => aliasMatches(w, norm(a.alias))));
+    if (al) { unknown.splice(unknown.indexOf(u), 1); if (al.player_id !== authorId) ids.add(al.player_id); }
+  }
+  return { ids: [...ids], used, unknown };
 }
 
 // что осталось от поста после времени, компании, отметок и служебных слов — это и есть баня (регистр сохраняем)
@@ -216,6 +249,49 @@ function typeFromText(text: string): string | null {
 }
 
 // ---------- черновик и карточка ----------
+// ---------- компания ----------
+// Раньше без компании в посте карточка молча писала «👥 один» — её не замечали, и попутчики терялись (Alex B с Деном, 27.09).
+// Теперь компания — явный выбор: кнопки с вероятными попутчиками или «🙋 Один»; без выбора «В Комиссию» нет.
+const ALONE_IN_POST = /(?<![\p{L}\p{N}])(один|одна|одни|сам|сама|соло|в одиночку)(?![\p{L}\p{N}])/iu;
+const RECENT = 36 * 3600e3;   // «тот же поход»: за последние полтора дня — бани часто кидают за вчера
+
+// кого предложить кнопками: кто отметил эту баню за последние полтора дня (скорее всего, были вместе),
+// с кем автор парился последние два месяца, дальше — самые активные в сезоне
+async function companySuggestions(st: Any, lg: Any): Promise<string[]> {
+  const score = new Map<string, number>();
+  const bump = (id: string, n: number) => score.set(id, (score.get(id) ?? 0) + n);
+  if (st.bathId) {
+    const { data } = await sb.from("visits").select("visit_players(player_id)").eq("bath_id", st.bathId).neq("status", "rejected")
+      .gte("entered_at", new Date(Date.now() - RECENT).toISOString());
+    for (const v of data ?? []) for (const p of (v as Any).visit_players ?? []) bump(p.player_id, 100);
+  }
+  const { data: mine } = await sb.from("visit_players").select("visit_id, visits!inner(entered_at, status)").eq("player_id", st.authorId)
+    .gte("visits.entered_at", new Date(Date.now() - 60 * 864e5).toISOString()).neq("visits.status", "rejected");
+  const ids = (mine ?? []).map((x: Any) => x.visit_id);
+  if (ids.length) {
+    const { data: co } = await sb.from("visit_players").select("player_id").in("visit_id", ids);
+    for (const c of co ?? []) bump(c.player_id, 10);
+  }
+  if (score.size < 7) {
+    const { data: top } = await sb.from("standings").select("nick").order("baths", { ascending: false }).limit(12);
+    for (const t of top ?? []) { const p = lg.players.find((x: Any) => x.nick === t.nick); if (p) bump(p.id, 1); }
+  }
+  score.delete(st.authorId);
+  return [...score].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id]) => id);
+}
+
+// этот поход уже есть: кто-то отметил эту баню за последние полтора дня и указал автора — или автор отметил её сам
+async function alreadyMarked(st: Any) {
+  if (!st.bathId) return null;
+  const { data } = await sb.from("visits").select("id, created_by, author:players!visits_created_by_fkey(nick), visit_players!inner(player_id)")
+    .eq("bath_id", st.bathId).neq("status", "rejected").gte("entered_at", new Date(Date.now() - RECENT).toISOString())
+    .eq("visit_players.player_id", st.authorId).order("id", { ascending: false }).limit(1);
+  const v = data?.[0] as Any;
+  return v ? { id: v.id, by: v.author?.nick ?? "", mine: v.created_by === st.authorId } : null;
+}
+const bathChanged = (st: Any) => { st.dup = undefined; st.dupOk = false; st.suggest = undefined; };
+const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
+
 async function renderCard(st: Any, lg: Any) {
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
   const who = `<b>${esc(st.authorNick)}</b>`;
@@ -237,10 +313,34 @@ async function renderCard(st: Any, lg: Any) {
     rows.push([btn("✖️ Отмена", "x")]);
     return { text, kb: rows };
   }
+  // этот поход уже кто-то отметил вместе с автором — второй раз не нужен (или автор сам уже отметил эту баню)
+  if (st.dup && !st.dupOk) {
+    const text = st.dup.mine
+      ? `${who}, у тебя уже есть поход в «${esc(st.bathName)}» за эти сутки. Это ещё один? Повтор в те же сутки Комиссия может не засчитать (п. 5).`
+      : `${who}, поход в «${esc(st.bathName)}» у тебя уже есть: в посте <b>${esc(st.dup.by)}</b> ты в компании — очки придут и так. Второй раз отмечать не нужно.`;
+    return { text, kb: [[btn("👌 Не отмечаю", "dx"), btn("➕ Это другой поход", "do")]] };
+  }
+  const known = st.companyOk !== false;   // старые черновики (до выбора компании) — как раньше
+  if (!known || st.picking) {
+    const name = (id: string) => lg.players.find((p: Any) => p.id === id)?.nick;
+    const ids = [...new Set([...(st.company ?? []), ...(st.suggest ?? [])])].filter(name).slice(0, 9);
+    const rows: Any[][] = chunk(ids.map((id) => btn(`${(st.company ?? []).includes(id) ? "✓ " : ""}${name(id)}`, `cp:${id}`)), 3);
+    // одно незнакомое имя и один выбранный кнопкой человек — предлагаем запомнить кличку
+    if (st.unknown?.length === 1 && st.picked?.length === 1 && name(st.picked[0])) {
+      rows.push([btn(`💾 «${st.unknown[0]}» — это ${name(st.picked[0])}, запомнить`.slice(0, 60), "al")]);
+    }
+    rows.push((st.company ?? []).length ? [btn("👌 Готово", "cd")] : [btn("🙋 Один", "c1")]);
+    rows.push([btn("✖️ Отмена", "x")]);
+    const text = `${who}, кто был в бане?\n\n🧖 <b>${esc(st.bathName)}</b>\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "—"}`
+      + (st.unknown?.length ? `\n❓ Не знаю, кто это: ${esc(st.unknown.join(", "))} — выбери кнопкой` : "")
+      + `\n\nОтметь всех, кто был с тобой, — поход запишется каждому, им отдельно отмечать не нужно. Кого нет в кнопках — ответь никами на это сообщение.`
+      + (st.hint ? `\n\n${st.hint}` : "");
+    return { text, kb: rows };
+  }
   const lines = [
     `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 новая, кандидат в УУ" : ""}`,
     `⏱ ${durLabel(st.dur)}${st.dur == null ? " — через 2,5 часа спрошу, была ли долгая" : ""}`,
-    `👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`,
+    `👥 ${nicks.length ? `${esc(nicks.join(", "))} — поход запишется всем, отдельно отмечать не нужно` : "один"}`,
   ];
   if (st.geo) lines.push("📍 точка на карте есть");
   // тип не размечен (или баня новая) — спрашиваем: от него зависит +1 за общественную (п. 4); ответ необязательный
@@ -259,6 +359,8 @@ async function renderCard(st: Any, lg: Any) {
 }
 
 async function showCard(st: Any, lg: Any, tgId: number) {
+  if ((st.bathId || st.newBath) && st.dup === undefined) st.dup = await alreadyMarked(st);
+  if ((st.bathId || st.newBath) && (st.companyOk === false || st.picking) && !st.suggest) st.suggest = await companySuggestions(st, lg);
   const { text, kb } = await renderCard(st, lg);
   st.hint = null;   // подсказка — только к этому ответу
   if (st.card) await edit(st.chat, st.card, text, kb);
@@ -288,6 +390,8 @@ async function startDraft(msg: Any, me: Any, lg: Any) {
     chat: msg.chat.id, chatType: msg.chat.type, chatUsername: msg.chat.username ?? null, source: msg.message_id, posted: msg.date,
     author: msg.from.id, authorId: me.id, authorNick: me.nick,
     dur: d && d.dur >= 60 ? d.dur : null, start: d?.start ?? null, company: comp.ids,
+    // компания известна, если в посте есть попутчики или «один»; иначе спросим кнопками (не пишем молча «один»)
+    companyOk: comp.ids.length > 0 || ALONE_IN_POST.test(text), unknown: comp.unknown,
     ultra: ULTRA.test(text), type: typeFromText(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
   };
   st.geo = await pointFromMessage(msg);
@@ -323,37 +427,51 @@ async function placeFor(p: { lat: number; lng: number }, have: Any = {}) {
 // ответ на карточку — дополняем черновик
 async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
   const text: string = (msg.text ?? msg.caption ?? "").trim();
-  const ready = !!(st.bathId || st.newBath) && !st.awaiting;
+  const hasBath = !!(st.bathId || st.newBath);
+  const needsCompany = st.companyOk === false || !!st.picking;
+  const dupOpen = !!(st.dup && !st.dupOk);
   // «да» на «всё верно?» — отправляем, как кнопкой; черновик забираем удалением, как в sendDraft
   if (CONFIRM.test(text)) {
-    if (ready) {
+    if (hasBath && !st.awaiting && !needsCompany && !dupOpen) {
       const { data: taken } = await sb.from("bot_sessions").delete().eq("tg_id", msg.from.id).select("state");
       return taken?.length ? submit(taken[0].state, lg, msg.from.id) : undefined;
     }
-    st.hint = st.awaiting === "dur" ? "👉 Сколько парились? Выбери кнопкой ниже." : "👉 Сначала баня — выбери из списка или напиши название.";
+    st.hint = !hasBath ? "👉 Сначала баня — выбери из списка или напиши название."
+      : dupOpen ? "👉 Сначала ответь кнопкой: это другой поход или тот же."
+      : st.awaiting === "dur" ? "👉 Сколько парились? Выбери кнопкой ниже."
+      : "👉 Сначала отметь, кто был в бане, — или «🙋 Один».";
     return showCard(st, lg, msg.from.id);
   }
-  const before = JSON.stringify([st.bathId, st.newBath, st.query, st.dur, st.company, st.geo, st.awaiting]);
+  const snap = () => JSON.stringify([st.bathId, st.newBath, st.query, st.dur, st.company, st.geo, st.awaiting, st.companyOk]);
+  const before = snap();
   const geo = await pointFromMessage(msg);
   if (geo) st.geo = geo;
   if (text) {
-    if (st.awaiting === "company" || ALONE.test(text)) {
-      st.company = ALONE.test(text) ? [] : parseCompany(text, msg.entities ?? [], lg, me.id).ids;
-      st.awaiting = null;
-      if (ALONE.test(text) && (st.bathId || st.newBath)) st.hint = "👌 Понял — один. Если всё верно, жми «✅ В Комиссию» или ответь «да».";
-    } else if (!st.bathId && !st.newBath && !hasLocationHint(text)) {
+    // ответ про компанию: бот спрашивал «кто был?» (кнопками или «👥 Компания») или прямо «один»
+    if (ALONE.test(text) || st.awaiting === "company" || (hasBath && needsCompany)) {
+      const c = ALONE.test(text) ? null : parseCompany(text, msg.entities ?? [], lg, me.id);
+      // пока бот ждёт компанию, время тоже могут дописать словами
+      const d = c ? parseDuration(text) : null;
+      if (d && d.dur >= 60) { st.dur = d.dur; st.start = d.start ?? st.start; if (st.awaiting === "dur") st.awaiting = null; }
+      if (!c) { st.company = []; if (hasBath) st.hint = "👌 Понял — один. Если всё верно, жми «✅ В Комиссию» или ответь «да»."; }
+      else if (c.ids.length) st.company = [...new Set([...(st.company ?? []), ...c.ids])];
+      if (c?.unknown.length) st.unknown = c.unknown;
+      if (!c || c.ids.length) { st.companyOk = true; st.picking = false; st.awaiting = null; }
+      else if (!d) st.hint = "🤔 Не нашёл таких участников — выбери кнопкой или напиши ник как в таблице.";
+    } else if (!hasBath && !hasLocationHint(text)) {
       st.query = bathQuery(text, null, new Set()); st.ultra = st.ultra || ULTRA.test(text);
+      bathChanged(st);
       await resolveBath(st);
     } else {
       const d = parseDuration(text);
       // время написали словами вместо кнопок — вопрос «Сколько парились?» закрыт
       if (d && d.dur >= 60) { st.dur = d.dur; st.start = d.start ?? st.start; if (st.awaiting === "dur") st.awaiting = null; }
       const c = parseCompany(text, msg.entities ?? [], lg, me.id);
-      if (c.ids.length) st.company = [...new Set([...(st.company ?? []), ...c.ids])];
+      if (c.ids.length) { st.company = [...new Set([...(st.company ?? []), ...c.ids])]; st.companyOk = true; st.picking = false; }
     }
   }
   // ответ ничего не поменял — без подсказки карточка осталась бы прежней, и казалось бы, что бот молчит
-  if (!st.hint && JSON.stringify([st.bathId, st.newBath, st.query, st.dur, st.company, st.geo, st.awaiting]) === before) {
+  if (!st.hint && snap() === before) {
     st.hint = "🤔 Не понял ответ. Если всё верно — жми «✅ В Комиссию» или ответь «да»; поправить — кнопками ниже.";
   }
   await showCard(st, lg, msg.from.id);
@@ -733,6 +851,32 @@ async function tick() {
   return { asked, claimed };
 }
 
+// ---------- клички ----------
+// в личке с ботом: «клички» — список (всем участникам); «кличка Мамонтов = Ден», «убери кличку Мамонтов» — Комиссия
+async function aliasCommand(chat: number, text: string, me: Any) {
+  const lg = await league();
+  const nickOf = (id: string) => lg.players.find((p: Any) => p.id === id)?.nick ?? "?";
+  if (/^клички$/iu.test(text)) {
+    const list = lg.aliases.map((a: Any) => `${esc(a.alias)} — ${esc(nickOf(a.player_id))}`).sort((a: string, b: string) => a.localeCompare(b, "ru"));
+    return send(chat, list.length ? `Клички:\n${list.join("\n")}` : "Кличек пока нет.");
+  }
+  if (!me.is_commission) return send(chat, "Клички добавляет Комиссия. А в карточке похода выбери человека кнопкой — предложу запомнить, как ты его назвал.");
+  const del = /^(?:убери|удали) кличку\s+(.+)$/iu.exec(text);
+  if (del) {
+    const al = lg.aliases.find((a: Any) => norm(a.alias) === norm(del[1].trim()));
+    if (!al) return send(chat, `Клички «${esc(del[1].trim())}» нет.`);
+    await sb.from("player_aliases").delete().eq("alias", al.alias);
+    return send(chat, `Убрал кличку «${esc(al.alias)}».`);
+  }
+  const add = /^кличка\s+(.+?)\s*=\s*(.+)$/iu.exec(text) ?? /^кличка\s+(.+?)\s+(?:—|–|-|это)\s+(.+)$/iu.exec(text);
+  if (!add) return send(chat, "Так: «кличка Мамонтов = Ден». Убрать: «убери кличку Мамонтов». Все клички: «клички».");
+  const alias = add[1].trim(), p = lg.players.find((x: Any) => norm(x.nick) === norm(add[2].trim()));
+  if (!p) return send(chat, `Не знаю участника «${esc(add[2].trim())}» — напиши ник как в таблице.`);
+  if (lg.players.some((x: Any) => norm(x.nick) === norm(alias))) return send(chat, `«${esc(alias)}» — это ник участника, кличкой быть не может.`);
+  const { error } = await sb.from("player_aliases").insert({ alias, player_id: p.id, added_by: me.id });
+  return send(chat, error ? `Кличка «${esc(alias)}» уже есть — сначала «убери кличку ${esc(alias)}».` : `💾 Запомнил: «${esc(alias)}» — это ${esc(p.nick)}.`);
+}
+
 // ---------- обработчики ----------
 const mentionsBot = (msg: Any) => {
   const text: string = msg.text ?? msg.caption ?? "";
@@ -798,6 +942,7 @@ async function onMessage(msg: Any) {
     return send(chat, `Привет, ${esc(me.nick)}! ${HOWTO}\n\nЗдесь, в личке, тоже можно — просто напиши, где парился.`);
   }
   if (text === "/cancel" || text === `/cancel@${BOT}`) { await clearState(tgId); return send(chat, "Черновик отменён."); }
+  if (isPrivate && /^(кличк|убери кличку|удали кличку)/iu.test(text)) return aliasCommand(chat, text, me);
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
 
   const lg = await league();
@@ -852,21 +997,40 @@ async function onCallback(cq: Any) {
   if (!st || st.card !== cq.message?.message_id || st.chat !== cq.message?.chat?.id) {
     return answer(cq.id, "Это черновик другого участника — отметь бота в своём посте", true);
   }
+  if (data === "send" && (st.companyOk === false || st.picking)) return answer(cq.id, "Сначала отметь, кто был в бане, или нажми «🙋 Один»", true);
+  if (data === "send" && st.dup && !st.dupOk) return answer(cq.id, "Сначала ответь: это другой поход или тот же", true);
   if (data === "send") return sendDraft(cq, tgId);
   await answer(cq.id);
   const lg = await league();
   if (data === "x") { await clearState(tgId); return edit(st.chat, st.card, "Черновик отменён."); }
-  if (data.startsWith("b:")) {
+  if (data === "dx") {
+    await clearState(tgId);
+    return edit(st.chat, st.card, st.dup?.mine ? "👌 Ок, второй раз не отмечаю." : `👌 Ок — поход у тебя уже есть в посте <b>${esc(st.dup?.by)}</b>.`);
+  }
+  if (data === "do") st.dupOk = true;
+  else if (data.startsWith("cp:") && lg.players.some((p: Any) => p.id === data.slice(3))) {
+    const id = data.slice(3), comp: string[] = st.company ?? [], picked: string[] = st.picked ?? [];
+    st.company = comp.includes(id) ? comp.filter((x) => x !== id) : [...comp, id];
+    st.picked = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id];
+    st.companyOk = st.company.length > 0;
+  } else if (data === "al" && st.unknown?.length === 1 && st.picked?.length === 1) {
+    const alias = st.unknown[0], nick = lg.players.find((p: Any) => p.id === st.picked[0])?.nick;
+    const { error } = await sb.from("player_aliases").insert({ alias, player_id: st.picked[0], added_by: st.authorId });
+    st.hint = error ? `Кличка «${esc(alias)}» уже занята — поменять её может Комиссия.` : `💾 Запомнил: «${esc(alias)}» — это ${esc(nick)}. В следующий раз узнаю сам.`;
+    if (!error) st.unknown = [];
+  } else if (data === "c1") { st.company = []; st.companyOk = true; st.picking = false; st.awaiting = null; }
+  else if (data === "cd" && (st.company ?? []).length) { st.companyOk = true; st.picking = false; st.awaiting = null; }
+  else if (data.startsWith("b:")) {
     const b = (st.candidates ?? []).find((c: Any) => c.id === Number(data.slice(2)));
-    if (b) { st.bathId = b.id; st.bathName = b.name; st.bathType = b.type ?? null; st.type = null; st.newBath = null; st.newBathId = null; st.candidates = []; }
+    if (b) { st.bathId = b.id; st.bathName = b.name; st.bathType = b.type ?? null; st.type = null; st.newBath = null; st.newBathId = null; st.candidates = []; bathChanged(st); }
   } else if (data === "nb") {
-    st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.newBathId = null; st.bathType = null; st.type = null; st.candidates = [];
+    st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.newBathId = null; st.bathType = null; st.type = null; st.candidates = []; bathChanged(st);
   } else if (data === "eb") {
-    st.bathId = null; st.newBath = null; st.newBathId = null; st.bathName = null; st.bathType = null; st.type = null; await resolveBath(st);
+    st.bathId = null; st.newBath = null; st.newBathId = null; st.bathName = null; st.bathType = null; st.type = null; bathChanged(st); await resolveBath(st);
   } else if (data.startsWith("t:") && TYPE_RU[data.slice(2)]) {
     st.type = data.slice(2);
   } else if (data === "ed") st.awaiting = "dur";
-  else if (data === "ec") st.awaiting = "company";
+  else if (data === "ec") { st.picking = true; st.awaiting = "company"; }
   else if (data.startsWith("d:")) { const m = Number(data.slice(2)); st.dur = m || null; st.start = null; st.awaiting = null; }
   return showCard(st, lg, tgId);
 }

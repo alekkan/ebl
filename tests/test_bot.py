@@ -180,6 +180,47 @@ post("да", 73, chat=ME, chat_type="private")
 check("«да» на «всё верно?» — поход ушёл в Комиссию, как кнопкой", mine() - before == 1 and sql(f"select count(*) from bot_sessions where tg_id = {ME}") == "0", mine() - before)
 sql("delete from visits where id = (select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot')")
 
+print("Компания — явный выбор")
+den = sql("select id from players where nick = 'Ден'")
+state = lambda who=ME: json.loads(sql(f"select state from bot_sessions where tg_id = {who}") or "null") or {}
+st = case("@eblsu_bot Василевские 2ч", 80)
+check("компании в посте нет — бот спрашивает кнопками, а не пишет молча «один»", st.get("companyOk") is False and len(st.get("suggest") or []) > 0, st)
+before = mine()
+card("send", cid="n1")
+check("пока компания не выбрана, «В Комиссию» не отправляет", mine() == before)
+card(f"cp:{den}")
+check("кнопка с ником добавляет попутчика", nicks(state().get("company", [])) == {"Ден"} and state().get("companyOk") is True, state())
+card(f"cp:{den}")
+check("повторное нажатие убирает", state().get("company") == [] and state().get("companyOk") is False, state())
+card("c1")
+check("«🙋 Один» — компания выбрана", state().get("companyOk") is True and state().get("company") == [] and not state().get("picking"), state())
+check("«один» прямо в посте — бот не переспрашивает", case("@eblsu_bot Василевские 2ч один", 81).get("companyOk") is True)
+sql("delete from bot_sessions")
+text = "@eblsu_bot Василевские с Мамонтов"
+upd = {"update_id": 82, "message": {"message_id": 82, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
+       "from": {"id": ME, "is_bot": False, "first_name": "Alexey"}, "text": text,
+       "entities": [{"type": "mention", "offset": 0, "length": 10},
+                    {"type": "text_mention", "offset": text.index("Мамонтов"), "length": 8, "user": {"id": 777777, "is_bot": False, "first_name": "Denis"}}]}}
+req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+st = state()
+check("упоминание по имени незнакомого — не часть бани, бот спрашивает, кто это",
+      st.get("bathName") == "Василевские" and st.get("unknown") == ["Мамонтов"] and st.get("companyOk") is False, st)
+
+print("Этот поход уже отмечен")
+vas = sql("select id from baths where name = 'Василевские' limit 1")
+dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {vas}, now() - interval '1 hour', 120, id, 'bot' from players where nick = 'Ден' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick in ('Ден', 'Леха')")
+st = case("@eblsu_bot Василевские 2ч", 83)
+check("Ден уже отметил Василевские с Лехой — бот говорит, что второй раз не нужно", (st.get("dup") or {}).get("by") == "Ден", st)
+check("и первым в подсказках попутчиков — Ден", (st.get("suggest") or [None])[0] == den, st.get("suggest"))
+card("dx")
+check("«Не отмечаю» — черновик убран", sql(f"select count(*) from bot_sessions where tg_id = {ME}") == "0")
+case("@eblsu_bot Василевские 2ч", 84)
+card("do")
+check("«Это другой поход» — продолжаем оформлять", state().get("dupOk") is True, state())
+sql(f"delete from visits where id = {dup}")
+sql("delete from bot_sessions")
+
 print("Заявка «это я» — через бота")
 NEW1, NEW2, NEW3 = 903, 904, 905
 sql(f"delete from player_accounts where tg_id in ({NEW1}, {NEW2}, {NEW3})")
