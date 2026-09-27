@@ -168,6 +168,57 @@ sql(f"update visits set moderated_at = now() where id = {vid}")
 check("свежее — объявляется", verdict() == {"announced": True})
 sql(f"delete from visits where id = {vid}")
 
+print("Ответы на карточку словами")
+sql("delete from bot_sessions")
+before = mine()
+post("Василевские 2ч с Деном", 70, chat=ME, chat_type="private")
+st = post("один", 71, chat=ME, chat_type="private")
+check("«один» ответом на карточку — без компании, даже если бот не спрашивал", st and st["company"] == [], st)
+st = post("что-то непонятное", 72, chat=ME, chat_type="private")
+check("непонятный ответ черновик не ломает", st and st.get("bathName") == "Василевские" and st["company"] == [], st)
+post("да", 73, chat=ME, chat_type="private")
+check("«да» на «всё верно?» — поход ушёл в Комиссию, как кнопкой", mine() - before == 1 and sql(f"select count(*) from bot_sessions where tg_id = {ME}") == "0", mine() - before)
+sql("delete from visits where id = (select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot')")
+
+print("Заявка «это я» — через бота")
+NEW1, NEW2, NEW3 = 903, 904, 905
+sql(f"delete from player_accounts where tg_id in ({NEW1}, {NEW2}, {NEW3})")
+sql("delete from bot_sessions")
+for tg, name in ((NEW1, "Хвост Тест"), (NEW2, "Даня Тест"), (NEW3, "Фил Тест")):
+    sql(f"insert into player_accounts (tg_id, tg_username, tg_name) values ({tg}, 'new{tg}', '{name}')")
+acc = lambda tg: sql(f"select id from player_accounts where tg_id = {tg}")
+def wait(q, want):
+    for _ in range(30):
+        if sql(q) == want: return True
+        time.sleep(0.3)
+    return False
+check("ника нет — пост не запоминается, бот советует выбрать ник на сайте", post("@eblsu_bot Василевские 2ч", 60, who=NEW1) is None)
+sql(f"update player_accounts set claimed_nick = 'Хвост' where tg_id = {NEW1}")
+check("выбрал ник на сайте — заявка ушла Комиссии", wait(f"select nick from claim_notices where account_id = '{acc(NEW1)}'", "Хвост"))
+check("о той же заявке второй раз Комиссии не пишет", req("POST", f"/functions/v1/tg-bot?claim={acc(NEW1)}", {})[1] == {"notified": False})
+st = post("@eblsu_bot Василевские 2ч с Деном", 61, who=NEW1)
+check("пост до подтверждения ника запомнен, а не выброшен", (st or {}).get("stash", {}).get("message_id") == 61, st)
+press(f"cl:{acc(NEW1)}", 901, mid=62)   # Ден — не Комиссия
+check("чужой кнопкой ник не привязать", sql(f"select player_id is null from player_accounts where tg_id = {NEW1}") == "t")
+press(f"cl:{acc(NEW1)}", ME, mid=63)    # Леха — Комиссия
+check("Комиссия подтвердила кнопкой — аккаунт привязан", sql(f"select p.nick from player_accounts a join players p on p.id = a.player_id where a.tg_id = {NEW1}") == "Хвост")
+st = json.loads(sql(f"select state from bot_sessions where tg_id = {NEW1}") or "null") or {}
+check("отложенный пост стал карточкой: автор, баня, компания, исходный пост",
+      st.get("authorNick") == "Хвост" and st.get("bathName") == "Василевские" and nicks(st.get("company", [])) == {"Ден"} and st.get("source") == 61, st)
+check("уведомление Комиссии погашено", sql(f"select count(*) from claim_notices where account_id = '{acc(NEW1)}'") == "0")
+sql(f"update player_accounts set claimed_nick = 'Даня' where tg_id = {NEW2}")
+wait(f"select nick from claim_notices where account_id = '{acc(NEW2)}'", "Даня")
+press(f"cn:{acc(NEW2)}", ME, mid=64)
+check("«Отказать» — заявка снята, аккаунт не привязан",
+      sql(f"select coalesce(claimed_nick, '') || '|' || (player_id is null) from player_accounts where tg_id = {NEW2}") == "|true")
+sql(f"update player_accounts set claimed_nick = 'Фил' where tg_id = {NEW3}")
+wait(f"select nick from claim_notices where account_id = '{acc(NEW3)}'", "Фил")
+post("@eblsu_bot Василевские 3ч", 65, who=NEW3)
+sql(f"update player_accounts set player_id = (select id from players where nick = 'Фил'), claimed_nick = null where tg_id = {NEW3}")
+check("подтвердили на сайте — отложенный пост тоже становится карточкой", wait(f"select state->>'authorNick' from bot_sessions where tg_id = {NEW3}", "Фил"))
+sql(f"delete from player_accounts where tg_id in ({NEW1}, {NEW2}, {NEW3})")
+sql("delete from bot_sessions")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)
