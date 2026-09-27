@@ -4,10 +4,11 @@
 // Бот отвечает карточкой: что понял, чего не хватает; уточняет баню (в т.ч. новая ли она — УУ), время, компанию.
 // Пост в группе — документ похода (п. 5 регламента), его время определяет неделю (п. 6).
 // После «В Комиссию»: на посте 👀, Комиссии в личку — поход с кнопками; после решения — 👍 или 💩 и итог в карточке.
-// Через 2,5 часа после захода, если длительность не указана, бот спрашивает «Долгая была?» (п. 15, на доверии — без фото).
+// Баню отмечают сразу после входа; долгую (п. 15, на доверии — без фото) участник отмечает сам: через 2,5–8 часов
+// после захода отмечает бота и пишет «долгая». Сам бот ничего не спрашивает — чат не захламляется.
 // В личке с ботом работает то же самое, только без отметки.
 //
-// Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>. Проверка «Долгая была?»: ?tick=1 (pg_cron).
+// Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { hasLocationHint, locate, looksLikeAddress, parseLocation } from "../_shared/geo.ts";
 import { matchPlace, reversePlace } from "../_shared/place.ts";
@@ -31,7 +32,7 @@ const tg = (method: string, body: Record<string, unknown>) =>
   }).then((r) => r.json()).catch(() => ({ ok: false }));
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
 const btn = (text: string, data: string) => ({ text, callback_data: data });
-const LONG_KB = (vid: number) => [[btn("🔥 Да, долгая", `yl:${vid}`), btn("Нет, обычная", `nl:${vid}`)]];
+const LONG_KB = (vid: number) => [[btn("🔥 Да, долгая", `yl:${vid}`), btn("Нет, экспресс", `nl:${vid}`)]];
 const send = (chat: number, text: string, kb?: Any[][], replyTo?: number) => tg("sendMessage", {
   chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true,
   ...(kb ? { reply_markup: { inline_keyboard: kb } } : {}),
@@ -52,7 +53,7 @@ const TYPE_RU: Record<string, string> = { public: "Общественная", sp
 const SPA_JOKE = "🏋️ Хуитнес… Комиссия такое не одобряет, но рассмотрит 🧐";
 const TYPE_BTN: Record<string, string> = { public: "🏛 Общественная", spa: "🏋️ Хуитнес", private: "🪵 Частная" };
 // время не указали — считаем экспресс (до 2,5 ч), через 2,5 часа спросим, не была ли долгая
-const durLabel = (m: number | null) => (m == null ? "⚡ экспресс, до 2,5 ч" : m > 150 ? "🔥 долгая, больше 2,5 ч" : "обычная, до 2,5 ч");
+const durLabel = (m: number | null) => (m != null && m > 150 ? "🔥 долгая, больше 2,5 ч" : "⚡ экспресс, до 2,5 ч");
 
 // ---------- справочники ----------
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
@@ -107,6 +108,9 @@ function parseDuration(text: string): { dur: number; start?: number; span: strin
     return { dur: Math.round(parseFloat(m[1].replace(",", ".")) * 60) + (m[2] ? +m[2] : 0), span: m[0] };
   }
   if ((m = text.match(/(\d{2,3})\s*мин\p{L}*/iu))) return { dur: +m[1], span: m[0] };
+  // словами: «долгая» — больше 2,5 ч, «экспресс» — до 2,5 ч
+  if ((m = text.match(/долг(?:ая|ий|ую|ой|о)(?![\p{L}])/iu))) return { dur: 180, span: m[0] };
+  if ((m = text.match(/экспресс\p{L}*/iu))) return { dur: 120, span: m[0] };
   return null;
 }
 
@@ -340,7 +344,7 @@ async function renderCard(st: Any, lg: Any) {
   }
   const lines = [
     `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 новая, кандидат в УУ" : ""}`,
-    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — если выйдет дольше, через 2,5 часа спрошу" : ""}`,
+    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — выйдет дольше 2,5 ч: отметь меня и напиши «долгая»" : ""}`,
     `👥 ${nicks.length ? `${esc(nicks.join(", "))} — поход запишется всем, отдельно отмечать не нужно` : "один"}`,
   ];
   if (st.geo) lines.push("📍 точка на карте есть");
@@ -351,11 +355,13 @@ async function renderCard(st: Any, lg: Any) {
   if ((st.bathType || st.type) === "spa") lines.push(SPA_JOKE);
   if (st.hint) lines.push(`\n${st.hint}`);
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
-  if (st.awaiting === "dur") lines.push("\nСколько парились? По регламенту важно только, была ли долгая — больше 2,5 часа.");
+  if (st.awaiting === "dur") lines.push("\nДолгая или экспресс? По регламенту важно только, была ли дольше 2,5 часа.");
   const kb: Any[][] = st.awaiting === "dur"
-    ? [[btn("🧖 Обычная — до 2,5 ч", "d:120")], [btn("🔥 Долгая — больше 2,5 ч", "d:180")], [btn("Ещё паримся", "d:0")]]
+    ? [[btn("⚡ Экспресс — до 2,5 ч", "d:120")], [btn("🔥 Долгая — больше 2,5 ч", "d:180")], [btn("Ещё паримся", "d:0")]]
     : [...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
-      [btn("✅ В Комиссию", "send")], [btn("🏠 Баня", "eb"), btn("⏱ Время", "ed"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
+      // экспресс или долгая — выбор виден прямо на кнопках (галочка), как у типа бани
+      [btn(`${st.dur == null || st.dur <= LONG ? "✓ " : ""}⚡ Экспресс`, "d:120"), btn(`${st.dur != null && st.dur > LONG ? "✓ " : ""}🔥 Долгая`, "d:180")],
+      [btn("✅ В Комиссию", "send")], [btn("🏠 Баня", "eb"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
   return { text: `${who}, всё верно?\n\n${lines.join("\n")}`, kb };
 }
 
@@ -440,7 +446,7 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
     }
     st.hint = !hasBath ? "👉 Сначала баня — выбери из списка или напиши название."
       : dupOpen ? "👉 Сначала ответь кнопкой: это другой поход или тот же."
-      : st.awaiting === "dur" ? "👉 Сколько парились? Выбери кнопкой ниже."
+      : st.awaiting === "dur" ? "👉 Долгая или экспресс? Выбери кнопкой ниже."
       : "👉 Сначала отметь, кто был в бане, — или «🙋 Один».";
     return showCard(st, lg, msg.from.id);
   }
@@ -504,7 +510,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
     const msk = new Date(posted.getTime() + 3 * 3600e3);
     entered = new Date(Date.UTC(msk.getUTCFullYear(), msk.getUTCMonth(), msk.getUTCDate(), 0, st.start) - 3 * 3600e3);
     if (entered > posted) entered = new Date(entered.getTime() - 864e5);
-  } else entered = st.dur != null ? new Date(posted.getTime() - st.dur * 60e3) : posted;
+  } else entered = posted;   // баню отмечают сразу после входа — заход и есть время поста (раньше вычитали длительность: сдвиг на 2–3 ч)
   const link = st.chatType === "private" ? null : postLink({ id: st.chat, username: st.chatUsername }, st.source);
   const { data: visit, error } = await sb.from("visits").insert({
     bath_id: bathId, entered_at: entered.toISOString(), posted_at: posted.toISOString(), duration_min: st.dur ?? 60,
@@ -872,15 +878,18 @@ async function implicitAnswer(msg: Any): Promise<boolean> {
   return true;
 }
 
-// «Долгая была?» — на доверии: один ответ «да» от участника делает поход долгим, ошибки правит Комиссия.
-// Спустя сутки после захода кнопка уже не работает: старый вопрос в чате не должен менять давно решённые походы.
-const LONG_STRANGER = "Это вопрос для тех, кто был в походе";
-const LONG_LATE = "Прошло больше суток — долгую теперь отмечает только Комиссия";
-async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late"> {
+// Долгая — на доверии: одно «долгая» от любого из компании делает поход долгим, ошибки правит Комиссия.
+// Отметить можно через 2,5–8 часов после захода: раньше долгой ещё не бывает, позже — только Комиссия на сайте.
+const LONG_STRANGER = "Это для тех, кто был в походе";
+const LONG_LATE = "Прошло больше 8 часов с захода — долгую теперь отмечает Комиссия на сайте";
+const LONG_MIN = LONG * 60e3, LONG_MAX = 8 * 3600e3;
+async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late" | "early"> {
   const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", visitId).eq("player_id", me?.id ?? "").maybeSingle();
   if (!vp) return "stranger";
   const { data: v } = await sb.from("visits").select("duration_min, status, entered_at").eq("id", visitId).single();
-  if (Date.now() - new Date(v.entered_at).getTime() > 864e5) return "late";
+  const since = Date.now() - new Date(v.entered_at).getTime();
+  if (since > LONG_MAX) return "late";
+  if (since < LONG_MIN && v.duration_min <= LONG) return "early";
   if (v.duration_min <= LONG) await sb.from("visits").update({ duration_min: LONG + 1 }).eq("id", visitId);
   if (v.status === "ok") await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
   return "ok";
@@ -890,7 +899,7 @@ async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "
 function withLongAnswer(text: string, line: string): string | null {
   const lines = text.split("\n");
   if (lines.includes(line)) return null;
-  const answered = lines.some((l) => /: (долгая 🔥|обычная)$/u.test(l));
+  const answered = lines.some((l) => /: (долгая 🔥|обычная|экспресс)$/u.test(l));
   return `${text}${answered ? "\n" : "\n\n"}${line}`;
 }
 
@@ -898,16 +907,16 @@ function withLongAnswer(text: string, line: string): string | null {
 async function longAnswer(msg: Any, post: Any, me: Any) {
   const text = (msg.text ?? "").trim();
   const living = await refreshable(post.visit_id);
-  if (/^(да|ага|угу|конечно|долгая|yes|\+)(?![\p{L}\p{N}])/iu.test(text)) {
+  if (isLongClaim(text) || /^(да|ага|угу|конечно|yes|\+)(?![\p{L}\p{N}])/iu.test(text)) {
     const res = await markLong(post.visit_id, me);
-    if (res !== "ok") return living ? react(msg.chat.id, msg.message_id, "🤷") : send(msg.chat.id, res === "late" ? LONG_LATE : `${LONG_STRANGER} 🙂`, undefined, msg.message_id);
+    if (res !== "ok") return send(msg.chat.id, longRefusal(res, null), undefined, msg.message_id);
     await react(msg.chat.id, msg.message_id, "🔥");
     if (living) return noteLong(post.visit_id, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
     return send(msg.chat.id, `🔥 ${esc(me.nick)}: долгая — +1 всей компании.`, undefined, msg.message_id);
   }
-  if (/^(нет|не|обычная|no|-)(?![\p{L}\p{N}])/iu.test(text)) {
+  if (/^(нет|не|обычная|экспресс|no|-)(?![\p{L}\p{N}])/iu.test(text)) {
     await react(msg.chat.id, msg.message_id, "👌");
-    return living ? noteLong(post.visit_id, `🧖 Обычная — ответ: ${esc(me.nick)}`, false) : undefined;
+    return living ? noteLong(post.visit_id, `⚡ Экспресс — ответ: ${esc(me.nick)}`, false) : undefined;
   }
   if (living) return react(msg.chat.id, msg.message_id, "🤔");
   return send(msg.chat.id, "Нажми кнопку под вопросом: долгая или обычная.", undefined, msg.message_id);
@@ -924,39 +933,32 @@ async function noteLong(visitId: number, line: string, long: boolean) {
   return refreshCard(visitId);
 }
 
-async function tick() {
-  const now = Date.now();
-  const { data } = await sb.from("visits")
-    .select("id, entered_at, status, bot_posts!inner(chat_id, source_msg, card_msg, card_text), visit_players(player_id)")
-    .is("long_asked_at", null).eq("source", "bot").neq("status", "rejected").lte("duration_min", LONG)   // на сайте длительность выбирают сразу
-    .lte("entered_at", new Date(now - LONG * 60e3).toISOString()).gte("entered_at", new Date(now - 864e5).toISOString());
-  const lg = await league();
-  let asked = 0;
-  const claimed: number[] = [];
-  for (const v of data ?? []) {
-    // сначала забираем поход себе, потом спрашиваем: параллельные ?tick=1 не должны спросить дважды
-    const { data: mine } = await sb.from("visits").update({ long_asked_at: new Date().toISOString() })
-      .eq("id", v.id).is("long_asked_at", null).select("id");
-    if (!mine?.length) continue;
-    claimed.push(v.id);
-    const post = (v as Any).bot_posts;
-    // живая карточка: вопрос — правкой карточки, без нового сообщения в чате
-    if (post.card_msg && post.card_text) {
-      await sb.from("bot_posts").update({ ask_msg: post.card_msg }).eq("visit_id", v.id);
-      await refreshCard(v.id);
-      asked++;
-      continue;
-    }
-    const people = v.visit_players.map((x: Any) => {
-      const acc = lg.accounts.find((a: Any) => a.player_id === x.player_id);
-      return acc?.tg_username ? "@" + acc.tg_username : esc(lg.players.find((p: Any) => p.id === x.player_id)?.nick);
-    });
-    const r = await send(post.chat_id,
-      `⏳ ${people.join(", ")}, прошло 2,5 часа. Долгая была — больше 2,5 ч?`,
-      LONG_KB(v.id), post.source_msg);
-    if (r.ok) { await sb.from("bot_posts").update({ ask_msg: r.result.message_id }).eq("visit_id", v.id); asked++; }
-  }
-  return { asked, claimed };
+// «долгая» сам по себе (отметили бота) — это про свой последний поход: ищем тот, что был 2,5–8 часов назад (или только начался —
+// тогда скажем, что рано; или давно — тогда только Комиссия). Ответ — 🔥 на сообщение и строка в карточке похода.
+const LONG_FILLER = new Set(("была был было были это у меня нас мы я отметь отметьте отметить отмечаю засчитай пжл пожалуйста плиз пж " +
+  "получилась вышла кстати сегодня баня баньку парились парился посидели сидели вроде точно ура ну да").split(" "));
+function isLongClaim(text: string) {
+  const t = norm(text.replace(new RegExp(`@${BOT}|/banya(@\\w+)?`, "gi"), " "));
+  if (!/долг(ая|ий|ую|ой|о|ие)(?![\p{L}])/u.test(t)) return false;
+  // кроме слов про долгую и связок — ничего: иначе это новый пост про баню («Сандуны долгая с Деном»)
+  return t.split(/[^\p{L}\p{N}]+/u).filter((w) => w && !/^долг/.test(w) && !LONG_FILLER.has(w)).length === 0;
+}
+function longRefusal(res: string, since: number | null) {
+  if (res === "late") return LONG_LATE;
+  if (res === "early") return `Долгая — это больше 2,5 часа${since != null ? `, а с захода прошло ${Math.floor(since / 36e5)} ч ${Math.floor((since % 36e5) / 6e4)} мин` : ""}. Отметь позже.`;
+  return `${LONG_STRANGER} 🙂`;
+}
+async function claimLong(msg: Any, me: Any) {
+  const { data: mine } = await sb.from("visit_players").select("visit_id, visits!inner(entered_at, status)").eq("player_id", me.id)
+    .neq("visits.status", "rejected").gte("visits.entered_at", new Date(Date.now() - 24 * 3600e3).toISOString());
+  const recent = (mine ?? []).map((x: Any) => ({ id: x.visit_id, at: new Date(x.visits.entered_at).getTime() })).sort((a: Any, b: Any) => b.at - a.at);
+  const target = recent.find((v: Any) => Date.now() - v.at <= LONG_MAX) ?? recent[0];
+  if (!target) return send(msg.chat.id, "Не нашёл твоего похода за последние сутки — сначала отметь баню.", undefined, msg.chat.type === "private" ? undefined : msg.message_id);
+  const res = await markLong(target.id, me);
+  if (res !== "ok") return send(msg.chat.id, longRefusal(res, Date.now() - target.at), undefined, msg.chat.type === "private" ? undefined : msg.message_id);
+  await react(msg.chat.id, msg.message_id, "🔥");
+  if (await refreshable(target.id)) await noteLong(target.id, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
+  if (msg.chat.type === "private") return send(msg.chat.id, "🔥 Отметил долгую — +1 всей компании.");
 }
 
 // ---------- клички ----------
@@ -994,7 +996,7 @@ const mentionsBot = (msg: Any) => {
 };
 
 const HOWTO = `Отмечайте походы прямо здесь — отметьте меня и напишите как есть:\n<i>@${BOT} Сандуны 3ч с Деном</i>\n\n`
-  + "Не хватит чего-то — переспрошу. Не указали время — через 2,5 часа спрошу, была ли долгая. "
+  + "Не хватит чего-то — переспрошу. Отмечайте сразу, как зашли. Вышло больше 2,5 часа — отметьте меня или напишите мне в личку «долгая». "
   + `Поход уйдёт в Комиссию, после решения на посте появится 👍 или 💩.\nТаблица и карта: ${SITE}`;
 
 async function onMessage(msg: Any) {
@@ -1010,15 +1012,17 @@ async function onMessage(msg: Any) {
   // ответ на «Долгая была?» или на просьбу прислать точку
   if (replyTo && msg.reply_to_message.from?.username?.toLowerCase() === BOT) {
     // у живой карточки оба вопроса — сама карточка: ссылка, адрес или геопозиция — это про точку, остальное — про долгую
-    const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id, bath_id, ask_msg, geo_msg, long_note").eq("chat_id", chat)
-      .or(`ask_msg.eq.${replyTo},geo_msg.eq.${replyTo}`).limit(1).maybeSingle();
+    const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id, bath_id, ask_msg, geo_msg, card_msg, long_note").eq("chat_id", chat)
+      .or(`ask_msg.eq.${replyTo},geo_msg.eq.${replyTo},card_msg.eq.${replyTo}`).limit(1).maybeSingle();
     if (post) {
       const acc = await whoIs(tgId);
       if (!acc?.players) return;
       const geoish = !!(msg.location || msg.venue) || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text);
-      const longOpen = post.ask_msg === replyTo && !post.long_note;
-      if (post.geo_msg === replyTo && post.bath_id && (geoish || !longOpen)) return geoAnswer(msg, post, acc.players);
-      if (post.ask_msg === replyTo) return longAnswer(msg, post, acc.players);
+      // «долгая» ответом на карточку похода — долгая этого похода; ссылка, адрес, геопозиция — точка бани
+      if (post.geo_msg === replyTo && post.bath_id && geoish) return geoAnswer(msg, post, acc.players);
+      if (isLongClaim(text) || post.ask_msg === replyTo) return longAnswer(msg, post, acc.players);
+      if (post.geo_msg === replyTo && post.bath_id) return geoAnswer(msg, post, acc.players);
+      if (post.card_msg === replyTo) return;   // просто ответили на карточку — не нам
     }
   }
 
@@ -1055,6 +1059,9 @@ async function onMessage(msg: Any) {
   }
   if (text === "/cancel" || text === `/cancel@${BOT}`) { await clearState(tgId); return send(chat, "Черновик отменён."); }
   if (isPrivate && /^(кличк|убери кличку|удали кличку)/iu.test(text)) return aliasCommand(chat, text, me);
+  // «долгая» / «долгая была» — в личке боту или с отметкой в чате: это про свой последний поход, а не новая баня
+  // (в личке с открытым черновиком — это ответ на черновик: continueDraft поймёт «долгая» как время)
+  if (isLongClaim(text) && (isPrivate || mentionsBot(msg)) && !(replyToCard && st)) return claimLong(msg, me);
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
 
   const lg = await league();
@@ -1095,7 +1102,7 @@ async function onCallback(cq: Any) {
   if (data.startsWith("yl:")) {
     const vid = Number(data.slice(3));
     const res = await markLong(vid, me);
-    if (res !== "ok") return answer(cq.id, res === "late" ? LONG_LATE : LONG_STRANGER, res === "late");
+    if (res !== "ok") return answer(cq.id, res === "late" ? LONG_LATE : res === "early" ? "Долгая — больше 2,5 часа, с захода ещё не прошло" : LONG_STRANGER, res !== "stranger");
     await answer(cq.id, "🔥 Долгая — +1 всей компании");
     if (await refreshable(vid)) return noteLong(vid, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
     return noteLongAnswer(cq, vid, `${me.nick}: долгая 🔥`);
@@ -1104,9 +1111,9 @@ async function onCallback(cq: Any) {
     const vid = Number(data.slice(3));
     const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", vid).eq("player_id", me?.id ?? "").maybeSingle();
     if (!vp) return answer(cq.id, LONG_STRANGER);
-    await answer(cq.id, "Ок, обычная");
-    if (await refreshable(vid)) return noteLong(vid, `🧖 Обычная — ответ: ${esc(me.nick)}`, false);
-    return noteLongAnswer(cq, vid, `${me.nick}: обычная`);
+    await answer(cq.id, "Ок, экспресс");
+    if (await refreshable(vid)) return noteLong(vid, `⚡ Экспресс — ответ: ${esc(me.nick)}`, false);
+    return noteLongAnswer(cq, vid, `${me.nick}: экспресс`);
   }
   const st = await getState(tgId);
   if (!st && data === "send") return answer(cq.id, "Уже отправлено");
@@ -1153,7 +1160,6 @@ async function onCallback(cq: Any) {
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
-  if (url.searchParams.get("tick") === "1") return new Response(JSON.stringify(await tick()), { headers: { "Content-Type": "application/json" } });
   // решение Комиссии принято не кнопкой бота — зовёт триггер в базе; объявляет только настоящий статус и только один раз
   if (url.searchParams.get("new")) {
     return new Response(JSON.stringify({ notified: await siteVisit(Number(url.searchParams.get("new"))) }), { headers: { "Content-Type": "application/json" } });

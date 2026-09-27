@@ -83,7 +83,7 @@ window.EBLData = (() => {
       all("baths", "id, name, type, country, region, lat, lng, precision, status, created_by", (q) => q.neq("status", "rejected")),
       all("bath_counts", "bath_id, year, nick, n", null, ["bath_id", "year", "nick"]),
       all("standings", "*", null, ["nick"]),
-      all("reviews", "bath_id, rating, text, created_at, player_id, players(nick)", null, ["bath_id", "player_id"]),
+      all("reviews", "id, bath_id, rating, text, created_at, player_id, players(nick)", null, ["id"]),
       all("players", "id, nick, is_commission, photo_url"),
       whoami(),
     ]);
@@ -98,7 +98,7 @@ window.EBLData = (() => {
     }
     const rv = {};
     for (const r of reviews.sort((a, b) => b.created_at.localeCompare(a.created_at))) {
-      (rv[r.bath_id] ||= []).push({ author: r.players?.nick ?? "участник", rate: r.rating, text: r.text, at: r.created_at, mine: r.player_id === me?.playerId });
+      (rv[r.bath_id] ||= []).push({ id: r.id, author: r.players?.nick ?? "участник", rate: r.rating, text: r.text, at: r.created_at, mine: r.player_id === me?.playerId });
     }
     const playersById = Object.fromEntries(players.map((p) => [p.id, p.nick]));
     const visits = me?.playerId ? await loadVisits(playersById) : [];
@@ -130,12 +130,19 @@ window.EBLData = (() => {
     async logout() { await sb.auth.signOut(); },
     async claim(nick) { check(await sb.rpc("claim_nick", { p_nick: nick })); },
 
+    // отзывов у участника может быть несколько — каждый новый добавляется, старые остаются (27.09)
     async submitReview(bathId, me, rate, text) {
       if (!live) {
-        cache.reviews[bathId] = [{ author: me, rate, text, at: Date.now() }, ...(cache.reviews[bathId] || []).filter((r) => r.author !== me)];
-        store.set("reviews", cache.reviews); return;
+        const rec = { id: Date.now(), author: me, rate, text, at: new Date().toISOString(), mine: true };
+        cache.reviews[bathId] = [rec, ...(cache.reviews[bathId] || [])];
+        store.set("reviews", cache.reviews); return rec.id;
       }
-      check(await sb.from("reviews").upsert({ bath_id: bathId, player_id: cache.me.playerId, rating: rate, text }, { onConflict: "bath_id,player_id" }));
+      return check(await sb.from("reviews").insert({ bath_id: bathId, player_id: cache.me.playerId, rating: rate, text }).select("id").single()).id;
+    },
+    async deleteReview(bathId, reviewId) {
+      if (!live) { cache.reviews[bathId] = (cache.reviews[bathId] || []).filter((r) => r.id !== reviewId); store.set("reviews", cache.reviews); return; }
+      const rows = check(await sb.from("reviews").delete().eq("id", reviewId).select("id"));
+      if (!rows?.length) throw new Error("не удалось — это чужой отзыв");
     },
 
     // поход: v = { bathId | newBath, bathType (тип не размеченной бани со слов автора), date (МСК), dur, companions, lines, total, player, week }

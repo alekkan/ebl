@@ -499,13 +499,6 @@ tr.below { color: var(--ink-2); }
 .legend-cols b { color: var(--ink-2); }
 
 /* лента */
-.switch { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; cursor: pointer; margin-bottom: 16px; position: relative; }
-.switch input { position: absolute; opacity: 0; pointer-events: none; }
-.switch .track { width: 42px; height: 24px; border-radius: 999px; background: var(--line); position: relative; transition: background .2s; }
-.switch .thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--panel); box-shadow: var(--shadow-s); transition: transform .2s var(--ease); }
-.switch input:checked + .track { background: var(--oak); }
-.switch input:checked + .track .thumb { transform: translateX(18px); }
-.switch input:focus-visible + .track { outline: 2px solid var(--oak); outline-offset: 2px; }
 .feed { display: grid; gap: 12px; }
 .post { background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-s); padding: 16px 18px; display: grid; gap: 12px; }
 .post-head { display: flex; align-items: center; gap: 12px; }
@@ -652,6 +645,8 @@ tr.below { color: var(--ink-2); }
 @media (hover: hover) { .blist button:hover { color: var(--oak); } }
 .blist b { font: 700 13px var(--display); color: var(--ember); flex: none; }
 .blist button > span:first-child { min-width: 0; }
+.d-hero h2 .rename { font-size: 16px; vertical-align: middle; margin-left: 4px; text-decoration: none; }
+.review .rh small { margin-left: auto; }
 .blist .bl-r { display: flex; align-items: baseline; gap: 8px; flex: none; }
 .blist time { min-width: 4.8em; text-align: right; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .blist em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--ember); background: var(--ember-soft); padding: 1px 7px; border-radius: 999px; }
@@ -703,6 +698,8 @@ tr.below { color: var(--ink-2); }
   .race { top: 10px; left: 12px; right: 12px; bottom: auto; width: auto; padding: 8px 8px 8px 14px; border-radius: 16px; }
   .race .race-title { font-size: 14px; }
   .race:not(.open) .race-list, .race:not(.open) .race-foot, .race:not(.open) .race-more { display: none; }
+  /* развёрнутая гонка — не ниже карты: иначе уходит под шторку со списком бань; длинный список листается внутри карточки */
+  .race.open { max-height: max(214px, calc(44svh - 36px)); overflow-y: auto; overscroll-behavior: contain; }
   .race-head { align-items: center; }
   .race-toggle { display: grid; place-items: center; border: 0; background: var(--panel-2); width: 30px; height: 30px; border-radius: 50%; flex: none; }
   .race.open .race-toggle .ic { transform: rotate(180deg); }

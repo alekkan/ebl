@@ -93,6 +93,7 @@
   }
   const mskDate = () => new Date(Date.now() + 3 * 3600e3); // UTC-поля = московское время
   const mskNow = () => mskDate().toISOString().slice(0, 16);
+  const mskIso = (t) => new Date(new Date(t).getTime() + 3 * 3600e3).toISOString().slice(0, 16);   // момент → МСК 'YYYY-MM-DDTHH:MM'
   // день похода коротко: «сегодня», «вчера», «27 сент.» (s — МСК 'YYYY-MM-DDTHH:MM')
   function dayLabel(s) {
     const day = s.slice(0, 10), today = mskNow().slice(0, 10);
@@ -287,10 +288,11 @@
     }
     const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
     const rv = reviews[id] || [];
-    // свой отзыв на баню один: подставляем его, повторная отправка обновляет, а не пишет второй
-    const myReview = D.live && me?.nick ? rv.find((r) => r.mine || r.author === me.nick) : null;
-    const myRate = myReview?.rate || 4;
-    const avg = rv.length ? rv.reduce((a, r) => a + r.rate, 0) / rv.length : 0;
+    // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); в средней — последняя оценка каждого
+    const lastRate = new Map();
+    for (const r of rv) if (!lastRate.has(r.author)) lastRate.set(r.author, r.rate);
+    const avg = lastRate.size ? [...lastRate.values()].reduce((a, x) => a + x, 0) / lastRate.size : 0;
+    const myRate = 4, iWrote = rv.some((r) => r.mine);
     const pending = visits.filter((v) => v.bathId === id && v.status === "pending").length;
     // последний засчитанный поход с портала — журнал видят только участники, гостю строки нет
     const lastV = visits.filter((v) => v.bathId === id && v.status === "ok").sort((x, y) => y.date.localeCompare(x.date))[0];
@@ -308,7 +310,7 @@
           ${!b.n26 && !b.nHist && !b.isNew ? '<span class="pill ember">кандидат в ультрауникальные</span>' : ""}
           ${b.n26 >= 15 ? `<span class="pill ember">${icon("flame").replace('class="ic"', 'class="ic" style="width:14px;height:14px"')}место силы</span>` : ""}
         </div>
-        <h2>${esc(b.name)}</h2>
+        <h2>${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="linkbtn rename" id="dRename" title="Поправить название — Комиссия">✏️</button>` : ""}</h2>
         <div class="where">${icon("pin")}${esc(where(b))}</div>
       </div>
       <div class="d-body">
@@ -343,8 +345,8 @@
           <h3>Отзывы${rv.length ? " · " + rv.length : ""}</h3>
           <div class="reviews">
             ${rv.length ? rv.map((r) => `<div class="review">${ava(r.author)}<div>
-              <div class="rh"><b>${esc(r.author)}${r.sample ? '<span class="sample">пример</span>' : ""}</b>${leaves(r.rate)}</div>
-              <p>${esc(r.text)}</p></div></div>`).join("") : `<p class="hint" style="margin:0">Отзывов пока нет — расскажи про пар первым.</p>`}
+              <div class="rh"><b>${esc(r.author)}${r.sample ? '<span class="sample">пример</span>' : ""}</b>${leaves(r.rate)}${r.at ? `<small class="hint">${dayLabel(mskIso(r.at))}</small>` : ""}</div>
+              <p>${esc(r.text)}</p>${r.id && (r.mine || canModerate) ? `<button type="button" class="linkbtn" data-rvdel="${r.id}">удалить</button>` : ""}</div></div>`).join("") : `<p class="hint" style="margin:0">Отзывов пока нет — расскажи про пар первым.</p>`}
           </div>
         </section>
         ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Отзывы пишут участники лиги.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>` : `
@@ -353,8 +355,9 @@
             <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === myRate}" aria-label="${n} из 5">${leafSvg(n <= myRate).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
             ${D.live ? `<span class="hint">от имени <b>${esc(me.nick)}</b></span>` : `<select id="rvAuthor" class="sel" aria-label="Автор">${players.map((p) => `<option ${p === store.get("me", "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`}
           </div>
-          <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва">${esc(myReview?.text || "")}</textarea>
-          <button class="btn solid" type="submit" style="justify-self:start">${myReview ? "Обновить отзыв" : "Опубликовать отзыв"}</button>
+          <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва"></textarea>
+          <button class="btn solid" type="submit" style="justify-self:start">${iWrote ? "Добавить ещё отзыв" : "Опубликовать отзыв"}</button>
+          ${iWrote ? '<span class="hint">Прошлый отзыв останется — это будет ещё один.</span>' : ""}
         </form>`}
       </div>`;
     d.hidden = false;
@@ -382,6 +385,18 @@
       } catch (err) { toast(err.message); }
     });
     $("#rvLogin", d)?.addEventListener("click", () => (me ? openClaim() : openLogin()));
+    $$("[data-rvdel]", d).forEach((x) => (x.onclick = async () => {
+      if (!confirm("Удалить отзыв?")) return;
+      try { await D.deleteReview(id, +x.dataset.rvdel); reviews[id] = (reviews[id] || []).filter((r) => r.id !== +x.dataset.rvdel); toast("Отзыв удалён"); openBath(id); }
+      catch (err) { toast("Не удалилось: " + err.message); }
+    }));
+    // Комиссия правит название бани прямо в карточке («Северные Киров» → «Киров, Северные»)
+    $("#dRename", d)?.addEventListener("click", async () => {
+      const name = prompt("Название бани — как в справочнике Комиссии", b.name)?.trim();
+      if (!name || name === b.name) return;
+      try { await D.moderateBath(id, { name }); b.name = name; hydrate(b); render(); openBath(id); toast("Название поправлено"); }
+      catch (err) { toast("Не получилось: " + err.message); }
+    });
     const rvForm = $("#rvForm", d);
     if (rvForm) rvForm.onsubmit = async (e) => {
       e.preventDefault();
@@ -389,9 +404,9 @@
       const rate = +(rateBtns.find((x) => x.getAttribute("aria-checked") === "true")?.dataset.r || 4);
       const author = D.live ? me.nick : $("#rvAuthor", d).value;
       try {
-        await D.submitReview(id, author, rate, text);
-        if (D.live) reviews[id] = [{ author, rate, text, at: Date.now() }, ...(reviews[id] || []).filter((r) => r.author !== author)];
-        toast(myReview ? "Отзыв обновлён" : "Отзыв опубликован — спасибо за пар"); openBath(id);
+        const rid = await D.submitReview(id, author, rate, text);
+        if (D.live) reviews[id] = [{ id: rid, author, rate, text, at: new Date().toISOString(), mine: true }, ...(reviews[id] || [])];
+        toast("Отзыв опубликован — спасибо за пар"); openBath(id);
       } catch (err) { toast("Отзыв не сохранился: " + err.message); }
     };
   }
@@ -1018,7 +1033,6 @@
     w.id !== v.id && w.status !== "rejected" && w.bathId === v.bathId && w.date.slice(0, 10) === v.date.slice(0, 10)
     && (w.date < v.date || (w.date === v.date && w.id < v.id)) && (w.player === n || w.companions.includes(n))));
   const fmtDate = (s) => new Date(s + ":00Z").toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-  $(".switch").hidden = !canModerate;
   // Комиссии по умолчанию — то, что ждёт решения
   let feedFilter = canModerate && D.live ? "pending" : "all";
   $$("#feedFilter button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.f === feedFilter)));
@@ -1034,7 +1048,7 @@
       $("#emptyLogin").onclick = () => (me ? openClaim() : openLogin());
       return;
     }
-    const sec = canModerate && $("#secMode").checked;
+    const sec = canModerate;   // Комиссия — это роль: переключатель «Режим Комиссии» убран (27.09)
     if (sec && D.live) renderSecPanel(); else $("#secPanel").innerHTML = "";
     const counts = { pending: 0, ok: 0, rejected: 0, all: visits.length };
     visits.forEach((v) => counts[v.status]++);
@@ -1056,7 +1070,7 @@
         </div>
         <div><a class="post-bath" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a><div class="hint">${esc(b ? where(b) : "")}</div></div>
         <div class="post-meta">
-          <span>${v.dur > 150 ? "🔥 долгая" : "обычная"}</span>
+          <span>${v.dur > 150 ? "🔥 долгая" : "⚡ экспресс"}</span>
           ${(() => { const rep = repeatOf(v), who = [v.player, ...v.companions];
             return rep.length ? `<span class="warn" title="Движок очки не срезает: баню могли кинуть за прошлый день. Решает Комиссия">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</span>` : ""; })()}
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
@@ -1074,7 +1088,6 @@
     }).join("") : `<div class="empty">${markSvg()}<b>Тут пока тихо</b><p>Добавь первую баню — поход появится здесь, а Комиссия засчитает его в таблицу.</p><button class="cta" id="emptyCta">${icon("plus")}<span>Добавить баню</span></button></div>`;
     $("#emptyCta")?.addEventListener("click", () => openVisit());
   }
-  $("#secMode").addEventListener("change", renderFeed);
   $("#feed").addEventListener("click", (e) => {
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit;
@@ -1125,10 +1138,10 @@
   // ---------- правка заявки Комиссией ----------
   function openEdit(v) {
     const f = $("#editForm");
-    let bath = byId.get(v.bathId), people = [v.player, ...v.companions], status = v.status;
+    let bath = byId.get(v.bathId), people = [v.player, ...v.companions], status = v.status, long = v.dur > 150;
     let typed = {};   // введённое в поля — чтобы не терялось при перерисовке
     const keep = () => {
-      typed = { entered: $("#eEntered")?.value, posted: $("#ePosted")?.value, dur: $("#eDur")?.value, reason: $("#eReason")?.value };
+      typed = { entered: $("#eEntered")?.value, posted: $("#ePosted")?.value, reason: $("#eReason")?.value };
     };
     function draw() {
       f.innerHTML = `
@@ -1144,8 +1157,9 @@
           <div class="field"><label for="eEntered">Заход, МСК</label><input id="eEntered" class="inp" type="datetime-local" value="${v.date}"></div>
           <div class="field"><label for="ePosted">Пост, МСК — по нему неделя</label><input id="ePosted" class="inp" type="datetime-local" value="${v.posted || v.date}"><span class="hint" id="eWeek"></span></div>
         </div>
-        <div class="field"><label for="eDur">Сколько парились, минут</label><input id="eDur" class="inp" type="number" min="60" step="5" value="${v.dur}">
-          <span class="hint">Больше 150 — долгий, +1 всей компании.</span></div>
+        <div class="field"><span class="lab">Долгая или экспресс</span>
+          <div class="seg" id="eDur">${[[false, "⚡ Экспресс — до 2,5 ч"], [true, "🔥 Долгая — больше 2,5 ч"]].map(([l, t]) => `<button type="button" data-long="${l ? 1 : 0}" aria-pressed="${l === long}">${t}</button>`).join("")}</div>
+          <span class="hint">Долгая — +1 всей компании.</span></div>
         <div class="field"><span class="lab">Компания</span>
           <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}</div>`).join("")}</div>
           <select class="sel" id="eAdd"><option value="">+ добавить участника</option>${players.filter((p) => !people.includes(p)).sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("")}</select>
@@ -1157,7 +1171,6 @@
         <div class="edit-actions"><button type="button" class="btn" data-close-edit>Отмена</button><button class="cta" type="submit">${icon("check")}<span>Сохранить</span></button></div>`;
       if (typed.entered) $("#eEntered").value = typed.entered;
       if (typed.posted) $("#ePosted").value = typed.posted;
-      if (typed.dur) $("#eDur").value = typed.dur;
       if (typed.reason != null && $("#eReason")) $("#eReason").value = typed.reason;
       const weekHint = () => ($("#eWeek").textContent = $("#ePosted").value ? `неделя W${weekOf($("#ePosted").value)}` : "");
       weekHint(); $("#ePosted").oninput = weekHint;
@@ -1173,11 +1186,13 @@
       $$("[data-rm]", f).forEach((b) => (b.onclick = () => { keep(); people = people.filter((n) => n !== b.dataset.rm); draw(); }));
       $("#eAdd").onchange = () => { const n = $("#eAdd").value; keep(); if (n) people.push(n); draw(); };
       $$("#eStatus button").forEach((b) => (b.onclick = () => { keep(); status = b.dataset.st; draw(); }));
+      $$("#eDur button").forEach((b) => (b.onclick = () => { keep(); long = b.dataset.long === "1"; draw(); }));
       $$("[data-close-edit]", f).forEach((b) => (b.onclick = () => ($("#editModal").hidden = true)));
     }
     f.onsubmit = async (e) => {
       e.preventDefault(); keep();
-      const dur = Math.max(60, +$("#eDur").value || 60);
+      // по регламенту важно одно — дольше 2,5 часа или нет; минуты не спрашиваем
+      const dur = long ? (v.dur > 150 ? v.dur : 180) : (v.dur <= 150 ? v.dur : 120);
       const patch = { bath_id: bath.id, entered_at: $("#eEntered").value + ":00+03:00", posted_at: $("#ePosted").value + ":00+03:00", duration_min: dur, status,
         reject_reason: status === "rejected" ? ($("#eReason").value.trim() || null) : null,
         ...(status !== v.status ? { moderated_by: data.playerIds?.[me?.nick], moderated_at: new Date().toISOString() } : {}) };
@@ -1203,7 +1218,8 @@
     box.innerHTML = `<div class="post sec"><div class="kom-title"><svg aria-hidden="true"><use href="#i-seal"/></svg>Стол Комиссии</div>
       ${accounts.length ? `<h3>Заявки «это я» · ${accounts.length}</h3>${accounts.map((a) => `<div class="sec-row"><span><b>${esc(a.tg_name || "")}</b> ${a.tg_username ? "@" + esc(a.tg_username) : ""} — говорит, что это <b>${esc(a.claimed_nick)}</b></span>
         <button class="btn sm solid" data-link="${a.id}" data-nick="${esc(a.claimed_nick)}">Подтвердить</button></div>`).join("")}` : ""}
-      ${newOnes.length ? `<h3>Новые бани · ${newOnes.length}</h3>${newOnes.map((b) => `<div class="sec-row"><span><b>${esc(b.name)}</b> · ${esc(where(b))}</span>
+      ${newOnes.length ? `<h3>Новые бани · ${newOnes.length}</h3>${newOnes.map((b) => `<div class="sec-row">
+        <input class="inp sm" data-bname="${b.id}" value="${esc(b.name)}" placeholder="Название — как в справочнике" aria-label="Название бани">
         <input class="inp sm" data-bcountry="${b.id}" value="${esc(b.country || "")}" placeholder="Страна" aria-label="Страна">
         <input class="inp sm" data-bregion="${b.id}" value="${esc(b.region || "")}" placeholder="Регион — как в таблице" aria-label="Регион">
         <select class="sel" data-btype="${b.id}"><option value="public" ${b.type === "public" ? "selected" : ""}>Общественная</option><option value="spa" ${b.type === "spa" ? "selected" : ""}>Хуитнес</option><option value="private" ${b.type === "private" ? "selected" : ""}>Частная</option></select>
@@ -1226,9 +1242,11 @@
       if (t.dataset.bok) {
         // страна и регион нужны для бонусов п. 14 — Комиссия проверяет их вместе с типом
         const id = +t.dataset.bok, b = byId.get(id), p = matchPlace($(`[data-bcountry="${id}"]`).value.trim(), $(`[data-bregion="${id}"]`).value.trim());
-        const patch = { status: "ok", type: $(`[data-btype="${id}"]`).value, country: p.country || null, region: p.region || null };
+        const name = $(`[data-bname="${id}"]`).value.trim() || b.name;   // Комиссия может поправить, как назвал автор
+        const patch = { status: "ok", name, type: $(`[data-btype="${id}"]`).value, country: p.country || null, region: p.region || null };
         await D.moderateBath(id, patch);
-        Object.assign(b, { isNew: false, t: patch.type, type: patch.type, country: patch.country, region: patch.region });
+        Object.assign(b, { isNew: false, name, t: patch.type, type: patch.type, country: patch.country, region: patch.region });
+        hydrate(b);
         toast("Баня в справочнике"); recomputeSoon();
       }
       if (t.dataset.bno) {

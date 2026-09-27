@@ -7,7 +7,7 @@
 | Сайт | Yandex Object Storage, бакет `ebl.su` (https — Certificate Manager, DNS — Cloud DNS); резерв — GitHub Pages, ветка `gh-pages`. Оба собираются из `prototype/` | карта, тепловая карта, таблица, лента, правила, форма похода, вход |
 | База | Supabase Postgres, проект `yeerkfdgmhcmvdqzaoio`, eu-central-1 | журнал походов, бани, участники, входящий остаток, итоговая таблица |
 | `tg-login` | edge-функция | вход через Telegram: проверка подписи → пользователь Supabase Auth → одноразовый `token_hash` |
-| `tg-bot` | edge-функция, вебхук Telegram | походы из общего чата, модерация Комиссией, «Долгая была?», геоточки |
+| `tg-bot` | edge-функция, вебхук Telegram | походы из общего чата, модерация Комиссией, отметка «долгая», геоточки, клички, заявки «это я» |
 | `recompute` | edge-функция | пересчёт таблицы по регламенту (`_shared/scoring.js`) → `standings`, `visit_points` |
 | `sync-avatars` | edge-функция | раз в неделю сверяет фото профилей через Telegram Bot API |
 | `bath-location` | edge-функция | уточнение точки бани с сайта: ссылка на карту, адрес или координаты (участник — только примерные точки, Комиссия — любые) |
@@ -85,7 +85,6 @@ Edge-функции работают с service role и сами проверя�
 | Задание | Когда | Что |
 |---|---|---|
 | `ebl-daily-recompute` | 00:05 МСК ежедневно | `recompute`: закрытая в воскресенье неделя получает очки за места |
-| `ebl-bot-long-ask` | каждые 10 минут | `tg-bot?tick=1`: «Долгая была?» через 2,5 часа после захода |
 | `ebl-weekly-avatars` | понедельник 04:00 МСК | `sync-avatars` |
 
 Триггеры `visits_announce_verdict` (смена статуса похода → `tg-bot?verdict=<id>`) и `visits_notify_site` (новый поход с сайта →

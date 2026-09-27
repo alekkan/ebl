@@ -107,27 +107,43 @@ check("двойное нажатие «✅ В Комиссию» — один п
 row = sql("select v.id || '|' || v.source || '|' || (v.tg_link is not null) || '|' || count(vp.player_id) from visits v join visit_players vp on vp.visit_id = v.id "
           "join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot' group by v.id order by v.id desc limit 1").split("|")
 check("поход из бота сохранил ссылку на пост, компания записана", row[1:] == ["bot", "true", "2"], row)
+check("заход — время поста, длительность не вычитается (баню отмечают сразу после входа)",
+      sql(f"select entered_at = posted_at from visits where id = {row[0]}") == "t")
 sql(f"delete from visits where id = {row[0]}")
 
-print("«Долгая была?» — на доверии")
-vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 5, now() - interval '3 hours', 60, id from players where nick='Леха' returning id").splitlines()[0]
-sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick='Леха'")
+print("Долгая — сам участник, через 2,5–8 часов после захода")
+def visit_ago(hours, people=("Леха",)):
+    v = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now() - interval '{hours} hours', 60, id, 'bot' from players where nick='Леха' returning id").splitlines()[0]
+    sql(f"insert into visit_players (visit_id, player_id) select {v}, id from players where nick in ({','.join(repr(n) for n in people)})")
+    return v
+dur = lambda v: int(sql(f"select duration_min from visits where id = {v}"))
+sql("delete from visits where source = 'bot' and created_at > now() - interval '1 day' and created_by in (select id from players where nick in ('Леха', 'Ден'))")
+vid = visit_ago(3)
 press(f"yl:{vid}", 901)
-check("чужой кнопкой не отметить", sql(f"select duration_min from visits where id = {vid}") == "60")
+check("чужой кнопкой не отметить", dur(vid) == 60)
 press(f"yl:{vid}", ME)
-check("участник жмёт «Да, долгая» — поход долгий без фото", int(sql(f"select duration_min from visits where id = {vid}")) > 150)
-sql(f"update visits set duration_min = 60, entered_at = now() - interval '2 days' where id = {vid}")
+check("кнопка «Да, долгая» (старые карточки) — поход долгий без фото", dur(vid) > 150)
+sql(f"delete from visits where id = {vid}")
+vid = visit_ago(10)
 press(f"yl:{vid}", ME)
-check("спустя сутки после захода кнопка уже не работает", sql(f"select duration_min from visits where id = {vid}") == "60")
+check("позже 8 часов после захода — только Комиссия", dur(vid) == 60)
 sql(f"delete from visits where id = {vid}")
-vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now() - interval '3 hours', 60, id, 'bot' from players where nick='Леха' returning id").splitlines()[0]
-sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick='Леха'")
-sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id) values ({vid}, {CHAT}, 555, 556, 5)")
-with ThreadPoolExecutor(3) as ex:
-    ticks = list(ex.map(lambda _: req("POST", "/functions/v1/tg-bot?tick=1", {})[1], range(3)))
-check("параллельные ?tick=1 спрашивают про поход один раз", sum(t["claimed"].count(int(vid)) for t in ticks) == 1
-      and sql(f"select long_asked_at is not null from visits where id = {vid}") == "t", ticks)
+vid = visit_ago(3, ("Леха", "Ден"))
+sql("delete from bot_sessions")
+post("@eblsu_bot долгая была", 30, who=901)
+check("«@бот долгая была» от Дена через 3 часа — поход долгий, черновика нет", dur(vid) > 150 and sql("select count(*) from bot_sessions where tg_id = 901") == "0")
 sql(f"delete from visits where id = {vid}")
+vid = visit_ago(4)
+post("долгая", 31, chat=ME, chat_type="private")
+check("«долгая» в личку боту — тоже долгая", dur(vid) > 150)
+sql(f"delete from visits where id = {vid}")
+vid = visit_ago(1)
+post("@eblsu_bot долгая", 32)
+check("через час после захода — рано: долгая — это больше 2,5 часа", dur(vid) == 60)
+sql(f"delete from visits where id = {vid}")
+st = case("@eblsu_bot Сандуны долгая с Деном", 33)
+check("«Сандуны долгая с Деном» — это новый пост с долгой, а не отметка", (st or {}).get("dur") == 180 and nicks(st.get("company", [])) == {"Ден"}, st)
+sql("delete from bot_sessions")
 
 print("Решение Комиссии — одинаково откуда угодно")
 # на локальном стенде триггер должен звать локальные функции, а не боевого бота
@@ -260,15 +276,13 @@ CARD = 4242
 vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now() - interval '3 hours', 60, id, 'bot' from players where nick = 'Леха' returning id").splitlines()[0]
 sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick in ('Леха', 'Ден')")
 sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text, geo_msg) values ({vid}, {CHAT}, 4241, {CARD}, 5, 'Ушло в Комиссию ✅', {CARD})")
-req("POST", "/functions/v1/tg-bot?tick=1", {})
-check("«Долгая была?» — правкой карточки: вопрос ведёт на саму карточку", sql(f"select ask_msg from bot_posts where visit_id = {vid}") == str(CARD))
 def reply_card(text, mid, who=ME):
     upd = {"update_id": 5000 + mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
            "from": {"id": who, "is_bot": False, "first_name": "X"}, "text": text,
            "reply_to_message": {"message_id": CARD, "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": CHAT, "type": "supergroup"}, "text": "карточка"}}}
     req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
-reply_card("да", 4300, who=901)
-check("ответ «да» на карточку — долгая, строкой в карточке (ответ Дена)",
+reply_card("долгая была", 4300, who=901)
+check("«долгая была» ответом на карточку — долгая, строкой в карточке (ответ Дена)",
       int(sql(f"select duration_min from visits where id = {vid}")) > 150 and "Ден" in sql(f"select coalesce(long_note, '') from bot_posts where visit_id = {vid}"))
 reply_card("https://yandex.ru/maps/?pt=37.6176,55.7558&z=16", 4301)
 check("ссылка ответом на ту же карточку — это про точку: вопрос закрыт", sql(f"select geo_msg is null from bot_posts where visit_id = {vid}") == "t")
