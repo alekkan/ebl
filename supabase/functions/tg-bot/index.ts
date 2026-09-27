@@ -51,7 +51,8 @@ const TYPE_RU: Record<string, string> = { public: "Общественная", sp
 // пасхалка лиги: к хуитнесам у Комиссии отношение особое
 const SPA_JOKE = "🏋️ Хуитнес… Комиссия такое не одобряет, но рассмотрит 🧐";
 const TYPE_BTN: Record<string, string> = { public: "🏛 Общественная", spa: "🏋️ Хуитнес", private: "🪵 Частная" };
-const durLabel = (m: number | null) => (m == null ? "от часа" : m > 150 ? "🔥 долгая, больше 2,5 ч" : "обычная, до 2,5 ч");
+// время не указали — считаем экспресс (до 2,5 ч), через 2,5 часа спросим, не была ли долгая
+const durLabel = (m: number | null) => (m == null ? "⚡ экспресс, до 2,5 ч" : m > 150 ? "🔥 долгая, больше 2,5 ч" : "обычная, до 2,5 ч");
 
 // ---------- справочники ----------
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
@@ -311,7 +312,7 @@ async function renderCard(st: Any, lg: Any) {
       text = `${who}, в какой бане парились? Ответь на это сообщение названием.`;
     }
     rows.push([btn("✖️ Отмена", "x")]);
-    return { text, kb: rows };
+    return { text: st.hint ? `${st.hint}\n\n${text}` : text, kb: rows };
   }
   // этот поход уже кто-то отметил вместе с автором — второй раз не нужен (или автор сам уже отметил эту баню)
   if (st.dup && !st.dupOk) {
@@ -339,7 +340,7 @@ async function renderCard(st: Any, lg: Any) {
   }
   const lines = [
     `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 новая, кандидат в УУ" : ""}`,
-    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — через 2,5 часа спрошу, была ли долгая" : ""}`,
+    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — если выйдет дольше, через 2,5 часа спрошу" : ""}`,
     `👥 ${nicks.length ? `${esc(nicks.join(", "))} — поход запишется всем, отдельно отмечать не нужно` : "один"}`,
   ];
   if (st.geo) lines.push("📍 точка на карте есть");
@@ -381,7 +382,7 @@ async function resolveBath(st: Any) {
 }
 
 // новый пост с отметкой бота — новый черновик
-async function startDraft(msg: Any, me: Any, lg: Any) {
+async function startDraft(msg: Any, me: Any, lg: Any, note?: string) {
   const text: string = msg.text ?? msg.caption ?? "";
   const entities = msg.entities ?? msg.caption_entities ?? [];
   const d = parseDuration(text);
@@ -395,6 +396,7 @@ async function startDraft(msg: Any, me: Any, lg: Any) {
     ultra: ULTRA.test(text), type: typeFromText(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
   };
   st.geo = await pointFromMessage(msg);
+  if (note) st.hint = note;
   await resolveBath(st);
   await showCard(st, lg, msg.from.id);
 }
@@ -528,19 +530,14 @@ async function submit(st: Any, lg: Any, tgId: number) {
     + repeatLine(await sameDayRepeat(visit.id));
   // статус «ушло в Комиссию» — всегда; персональное приветствие (если есть) — строкой ниже, а не вместо
   const greeting = greetLine(st.authorNick);
-  await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>${greeting ? `\n<i>${esc(greeting)}</i>` : ""}\n\n${summary}`);
+  const cardText = `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>${greeting ? `\n<i>${esc(greeting)}</i>` : ""}\n\n${summary}`;
+  // точки на карте нет или она примерная — просьба прямо в карточке (необязательная), а не отдельным сообщением
+  const { data: bath } = await sb.from("baths").select("lat, precision").eq("id", bathId).single();
+  const needGeo = !!st.card && (bath?.lat == null || bath?.precision !== "exact");
+  await sb.from("bot_posts").update({ card_text: cardText, ...(needGeo ? { geo_msg: st.card, geo_at: new Date().toISOString() } : {}) }).eq("visit_id", visit.id);
+  if (!(await refreshCard(visit.id)) && st.card) await edit(st.chat, st.card, cardText);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
-
-  // точка на карте: у новой бани её может не быть, у старой — стоять по центру города или региона
-  // необязательно: попросить точку, если бани нет на карте или она стоит примерно
-  const { data: bath } = await sb.from("baths").select("lat, precision").eq("id", bathId).single();
-  if (bath?.lat == null || bath?.precision !== "exact") {
-    const r = await send(st.chat, `📍 «${esc(st.bathName)}» ${bath?.lat == null ? "ещё нет на карте" : "стоит на карте примерно"}. `
-      + "Скинь следующим сообщением ссылку на баню в Яндекс/Google Картах, адрес или геопозицию (📎 → Геопозиция) — поставлю точную точку.",
-      [[btn("🙅 Отстань", `gx:${visit.id}`)]], st.chatType === "private" ? undefined : st.card);
-    if (r.ok) await sb.from("bot_posts").update({ geo_msg: r.result.message_id, geo_at: new Date().toISOString() }).eq("visit_id", visit.id);
-  }
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}`;
@@ -590,6 +587,33 @@ async function sameDayRepeat(visitId: number): Promise<string[]> {
 // движок повтор сам не срезает (баню могли кинуть за прошлый день) — это подсказка Комиссии проверить дату
 const repeatLine = (names: string[]) => names.length ? `\n⚠️ Похоже на повтор: у ${esc(names.join(", "))} в эти сутки уже есть поход в эту баню. Комиссия проверит дату (п. 5)` : "";
 
+// ---------- живая карточка ----------
+// Всё, что бот сообщает по походу после «В Комиссию», — правкой карточки и реакциями, а не новыми сообщениями:
+// чат лиги не захламляется (просьба лиги 27.09). Карточка — из частей в bot_posts: основа, просьба о точке,
+// «Долгая была?», ответ на него, решение Комиссии. Ответ на вопрос — ответом на саму карточку или кнопкой.
+const GEO_ASK = "📍 Точной точки на карте нет — ответь на эту карточку ссылкой из Яндекс/Google Карт, адресом или геопозицией. Необязательно.";
+const GEO_RETRY = "📍 Не нашёл, где это. Ответь на карточку ссылкой, где на карте видна точка, адресом с номером дома или геопозицией.";
+async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> {
+  const { data: p } = await sb.from("bot_posts").select("chat_id, card_msg, card_text, geo_msg, ask_msg, long_note, verdict_text").eq("visit_id", visitId).maybeSingle();
+  if (!p?.card_msg || !p.card_text) return false;
+  const parts = [p.card_text], kb: Any[][] = [];
+  if (p.geo_msg && p.geo_msg === p.card_msg) { parts.push(geoRetry ? GEO_RETRY : GEO_ASK); kb.push([btn("🙅 Без точки", `gx:${visitId}`)]); }
+  if (p.ask_msg && p.ask_msg === p.card_msg && !p.long_note) { parts.push("⏳ Прошло 2,5 часа — долгая была, больше 2,5 ч?"); kb.push(LONG_KB(visitId)[0]); }
+  if (p.long_note) parts.push(p.long_note);
+  if (p.verdict_text) parts.push(p.verdict_text);
+  await edit(p.chat_id, p.card_msg, parts.join("\n\n"), kb);
+  return true;
+}
+// строка решения Комиссии с очками — для карточки и для личек Комиссии
+async function verdictLine(visitId: number): Promise<string | null> {
+  const { data: v } = await sb.from("visits").select("status, reject_reason, judge:players!visits_moderated_by_fkey(nick)").eq("id", visitId).maybeSingle();
+  if (!v || !["ok", "rejected"].includes(v.status)) return null;
+  const judge = (v as Any).judge?.nick ? ` — ${esc((v as Any).judge.nick)}` : "";
+  if (v.status !== "ok") return `💩 Не засчитано${judge}${v.reject_reason ? `. Причина: ${esc(v.reject_reason)}` : ""}. Если это ошибка — напишите Комиссии.`;
+  const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
+  return `👍 Засчитано${judge}${pts?.length ? ": " + pts.map((x: Any) => `${esc(x.nick)} +${x.total}`).join(" · ") : ""}`;
+}
+
 // поход отметили на сайте (зовёт триггер: ?new=<id>): бот сам пишет о нём в чат лиги — это и есть пост похода,
 // вердикт потом придёт ответом на него; Комиссии в личку — то же уведомление с кнопками, что для походов из чата
 async function siteVisit(visitId: number): Promise<boolean> {
@@ -613,9 +637,11 @@ async function siteVisit(visitId: number): Promise<boolean> {
     + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "")
     + repeatLine(await sameDayRepeat(visitId));
   if (chat) {
-    const r = await send(chat, `🌐 <b>${esc(author)}</b> отметил баню на сайте\n\n${summary}\n\nЖдёт Комиссию 👀`);
+    const cardText = `🌐 <b>${esc(author)}</b> отметил баню на сайте\n\n${summary}`;
+    const r = await send(chat, `${cardText}\n\nЖдёт Комиссию 👀`);
     if (r.ok) {
-      await sb.from("bot_posts").update({ source_msg: r.result.message_id }).eq("visit_id", visitId);
+      // это и пост похода, и его карточка: решение Комиссии допишется правкой, а не новым сообщением
+      await sb.from("bot_posts").update({ source_msg: r.result.message_id, card_msg: r.result.message_id, card_text: cardText }).eq("visit_id", visitId);
       await react(chat, r.result.message_id, "👀");
     }
   }
@@ -639,7 +665,7 @@ async function announce(visitId: number): Promise<boolean> {
   const freshVerdict = !!v.moderated_at && Date.now() - new Date(v.moderated_at).getTime() < 15 * 60e3;
   // объявляет тот, кто первым отметил статус объявленным: кнопка и триггер могут прийти одновременно
   const { data: won } = await sb.from("bot_posts").update({ announced: v.status })
-    .eq("visit_id", visitId).or(`announced.is.null,announced.neq.${v.status}`).select("chat_id, source_msg, card_msg");
+    .eq("visit_id", visitId).or(`announced.is.null,announced.neq.${v.status}`).select("chat_id, source_msg, card_msg, card_text");
   let post = won?.[0];
   if (!post && v.source === "site" && freshVerdict) {
     // поход с сайта: поста в группе нет — объявим отдельным сообщением в чате лиги (вставка строки — та же защита от повтора).
@@ -647,13 +673,14 @@ async function announce(visitId: number): Promise<boolean> {
     const chat = Number(await setting("league_chat"));
     if (!chat) return false;
     const { data: fresh } = await sb.from("bot_posts").insert({ visit_id: visitId, chat_id: chat, source_msg: 0, bath_id: v.bath_id, announced: v.status })
-      .select("chat_id, source_msg, card_msg").maybeSingle();
+      .select("chat_id, source_msg, card_msg, card_text").maybeSingle();
     post = fresh ?? undefined;
   }
   if (!post) return false;
   const ok = v.status === "ok", vv = v as Any;
   if (ok) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
 
+  const line = await verdictLine(visitId);
   const verdict = `${ok ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
     + (!ok && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "");
   const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id, text").eq("visit_id", visitId);
@@ -662,7 +689,15 @@ async function announce(visitId: number): Promise<boolean> {
     else await tg("editMessageReplyMarkup", { chat_id: n.chat_id, message_id: n.message_id, reply_markup: { inline_keyboard: [] } });
   }
 
-  // в группе: реакция на пост и итог отдельным сообщением в ответ на пост (прошлые сообщения бота не трогаем)
+  // живая карточка: 👍/💩 на пост и карточку, решение с очками — правкой карточки, новых сообщений в чате нет
+  if (post.card_msg && post.card_text) {
+    await sb.from("bot_posts").update({ verdict_text: line }).eq("visit_id", visitId);
+    if (post.source_msg && post.source_msg !== post.card_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
+    await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
+    await refreshCard(visitId);
+    return true;
+  }
+  // старые походы (до живой карточки): реакция на пост и итог отдельным сообщением в ответ на пост
   if (post.chat_id < 0) {
     const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
     const who = vv.author?.nick, bath = esc(vv.baths?.name);
@@ -746,9 +781,7 @@ async function linked(accountId: string, judge?: string): Promise<boolean> {
   }
   const stash = a.tg_id ? await takeStash(a.tg_id) : null;
   if (stash) {
-    await send(stash.chat.id, `✅ <b>${esc(me.nick)}</b>, Комиссия подтвердила ник — теперь я тебя знаю. Вот твой поход: проверь и жми «✅ В Комиссию».`,
-      undefined, stash.chat.type === "private" ? undefined : stash.message_id);
-    await startDraft(stash, me, await league());
+    await startDraft(stash, me, await league(), "✅ Комиссия подтвердила ник — теперь я тебя знаю. Проверь поход и жми «✅ В Комиссию».");
   } else if (taken?.length && a.tg_id) {
     await send(a.tg_id, `✅ Комиссия подтвердила: ты — <b>${esc(me.nick)}</b>. Отмечай походы в чате лиги (отметь меня) или прямо здесь.`);
   }
@@ -763,13 +796,17 @@ async function geoAnswer(msg: Any, post: Any, me: Any) {
   const near = b?.lat != null && b.precision !== "exact" ? { lat: b.lat, lng: b.lng } : null;
   const maxKm = { city: 80, region: 400, country: 1500 }[b?.precision as string] ?? 400;
   const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", near, maxKm);
+  // живая карточка — ответ реакцией и правкой карточки; у старых походов (вопрос отдельным сообщением) — как раньше
+  const living = await refreshable(post.visit_id);
   if (!p) {
+    if (living) { await react(msg.chat.id, msg.message_id, "🤔"); return refreshCard(post.visit_id, true); }
     return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с номером дома или геопозицию (📎 → Геопозиция).",
       [[btn("🙅 Отстань", `gx:${post.visit_id}`)]], msg.message_id);
   }
   const done = await setBathPoint(post.bath_id, p, me.is_commission);
   await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", post.visit_id);
-  if (done) await react(msg.chat.id, msg.message_id, "👍");
+  await react(msg.chat.id, msg.message_id, done ? "👍" : "👌");
+  if (living) return refreshCard(post.visit_id);
   return send(msg.chat.id, done ? `📍 «${esc(b?.name)}» теперь на карте точно — спасибо!` : "У этой бани уже стоит точная точка — поменять её может Комиссия.", undefined, msg.message_id);
 }
 
@@ -813,20 +850,37 @@ function withLongAnswer(text: string, line: string): string | null {
 // ответ текстом на «Долгая была?» — кнопки удобнее, но «да»/«нет» тоже понимаем
 async function longAnswer(msg: Any, post: Any, me: Any) {
   const text = (msg.text ?? "").trim();
+  const living = await refreshable(post.visit_id);
   if (/^(да|ага|угу|конечно|долгая|yes|\+)(?![\p{L}\p{N}])/iu.test(text)) {
     const res = await markLong(post.visit_id, me);
-    if (res !== "ok") return send(msg.chat.id, res === "late" ? LONG_LATE : `${LONG_STRANGER} 🙂`, undefined, msg.message_id);
+    if (res !== "ok") return living ? react(msg.chat.id, msg.message_id, "🤷") : send(msg.chat.id, res === "late" ? LONG_LATE : `${LONG_STRANGER} 🙂`, undefined, msg.message_id);
     await react(msg.chat.id, msg.message_id, "🔥");
+    if (living) return noteLong(post.visit_id, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
     return send(msg.chat.id, `🔥 ${esc(me.nick)}: долгая — +1 всей компании.`, undefined, msg.message_id);
   }
-  if (/^(нет|не|обычная|no|-)(?![\p{L}\p{N}])/iu.test(text)) return react(msg.chat.id, msg.message_id, "👌");
+  if (/^(нет|не|обычная|no|-)(?![\p{L}\p{N}])/iu.test(text)) {
+    await react(msg.chat.id, msg.message_id, "👌");
+    return living ? noteLong(post.visit_id, `🧖 Обычная — ответ: ${esc(me.nick)}`, false) : undefined;
+  }
+  if (living) return react(msg.chat.id, msg.message_id, "🤔");
   return send(msg.chat.id, "Нажми кнопку под вопросом: долгая или обычная.", undefined, msg.message_id);
+}
+// у похода живая карточка (после 27.09) — отвечаем правкой, у старых — как раньше
+const refreshable = async (visitId: number) =>
+  !!(await sb.from("bot_posts").select("card_msg, card_text").eq("visit_id", visitId).maybeSingle()).data?.card_text;
+// ответ на «Долгая была?» — строкой в карточке: «да» от любого из компании главнее «нет»; очки в решении — пересчитанные
+async function noteLong(visitId: number, line: string, long: boolean) {
+  const { data: p } = await sb.from("bot_posts").select("long_note, verdict_text").eq("visit_id", visitId).maybeSingle();
+  if (!long && p?.long_note) return;   // «нет» после ответа ничего не меняет
+  const verdict = p?.verdict_text ? await verdictLine(visitId) : null;
+  await sb.from("bot_posts").update({ long_note: line, ...(verdict ? { verdict_text: verdict } : {}) }).eq("visit_id", visitId);
+  return refreshCard(visitId);
 }
 
 async function tick() {
   const now = Date.now();
   const { data } = await sb.from("visits")
-    .select("id, entered_at, status, bot_posts!inner(chat_id, source_msg), visit_players(player_id)")
+    .select("id, entered_at, status, bot_posts!inner(chat_id, source_msg, card_msg, card_text), visit_players(player_id)")
     .is("long_asked_at", null).eq("source", "bot").neq("status", "rejected").lte("duration_min", LONG)   // на сайте длительность выбирают сразу
     .lte("entered_at", new Date(now - LONG * 60e3).toISOString()).gte("entered_at", new Date(now - 864e5).toISOString());
   const lg = await league();
@@ -839,6 +893,13 @@ async function tick() {
     if (!mine?.length) continue;
     claimed.push(v.id);
     const post = (v as Any).bot_posts;
+    // живая карточка: вопрос — правкой карточки, без нового сообщения в чате
+    if (post.card_msg && post.card_text) {
+      await sb.from("bot_posts").update({ ask_msg: post.card_msg }).eq("visit_id", v.id);
+      await refreshCard(v.id);
+      asked++;
+      continue;
+    }
     const people = v.visit_players.map((x: Any) => {
       const acc = lg.accounts.find((a: Any) => a.player_id === x.player_id);
       return acc?.tg_username ? "@" + acc.tg_username : esc(lg.players.find((p: Any) => p.id === x.player_id)?.nick);
@@ -901,12 +962,16 @@ async function onMessage(msg: Any) {
 
   // ответ на «Долгая была?» или на просьбу прислать точку
   if (replyTo && msg.reply_to_message.from?.username?.toLowerCase() === BOT) {
-    const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id").eq("chat_id", chat).eq("ask_msg", replyTo).maybeSingle();
-    if (post) { const acc = await whoIs(tgId); return acc?.players ? longAnswer(msg, post, acc.players) : undefined; }
-    const { data: geoPost } = await sb.from("bot_posts").select("visit_id, bath_id").eq("chat_id", chat).eq("geo_msg", replyTo).maybeSingle();
-    if (geoPost?.bath_id) {
+    // у живой карточки оба вопроса — сама карточка: ссылка, адрес или геопозиция — это про точку, остальное — про долгую
+    const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id, bath_id, ask_msg, geo_msg, long_note").eq("chat_id", chat)
+      .or(`ask_msg.eq.${replyTo},geo_msg.eq.${replyTo}`).limit(1).maybeSingle();
+    if (post) {
       const acc = await whoIs(tgId);
-      return acc?.players ? geoAnswer(msg, geoPost, acc.players) : undefined;
+      if (!acc?.players) return;
+      const geoish = !!(msg.location || msg.venue) || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text);
+      const longOpen = post.ask_msg === replyTo && !post.long_note;
+      if (post.geo_msg === replyTo && post.bath_id && (geoish || !longOpen)) return geoAnswer(msg, post, acc.players);
+      if (post.ask_msg === replyTo) return longAnswer(msg, post, acc.players);
     }
   }
 
@@ -974,8 +1039,10 @@ async function onCallback(cq: Any) {
   if (data.startsWith("gx:")) {
     if (!me) return answer(cq.id, "Кнопка для участников лиги");
     // просто закрываем этот вопрос: больше не ждём ответа на него
-    await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", Number(data.slice(3)));
-    await answer(cq.id, "Ок");
+    const vid = Number(data.slice(3));
+    await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", vid);
+    await answer(cq.id, "Ок, без точки — её можно поставить потом на сайте");
+    if (await refreshable(vid)) return refreshCard(vid);
     return edit(cq.message.chat.id, cq.message.message_id, `🙅 Ок, без точки. Её можно поставить потом на сайте: ${SITE}`);
   }
   if (data.startsWith("yl:")) {
@@ -983,6 +1050,7 @@ async function onCallback(cq: Any) {
     const res = await markLong(vid, me);
     if (res !== "ok") return answer(cq.id, res === "late" ? LONG_LATE : LONG_STRANGER, res === "late");
     await answer(cq.id, "🔥 Долгая — +1 всей компании");
+    if (await refreshable(vid)) return noteLong(vid, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
     return noteLongAnswer(cq, vid, `${me.nick}: долгая 🔥`);
   }
   if (data.startsWith("nl:")) {
@@ -990,6 +1058,7 @@ async function onCallback(cq: Any) {
     const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", vid).eq("player_id", me?.id ?? "").maybeSingle();
     if (!vp) return answer(cq.id, LONG_STRANGER);
     await answer(cq.id, "Ок, обычная");
+    if (await refreshable(vid)) return noteLong(vid, `🧖 Обычная — ответ: ${esc(me.nick)}`, false);
     return noteLongAnswer(cq, vid, `${me.nick}: обычная`);
   }
   const st = await getState(tgId);
