@@ -44,6 +44,31 @@
     return year === "all" ? YEARS.reduce((a, y) => a + one(y), 0) : one(year);
   }
 
+  // Сколько очков даст участнику первый поход в эту баню в 2026 (п. 9–14): поход, уникальная, общественная, ультра,
+  // новый регион и страна. Компания и долгая зависят от похода, а не от бани, — их не считаем. null — уже был в 2026.
+  function potentialFor(player) {
+    const mine = baths.filter((b) => b.v26?.[player]);
+    const regions = new Set(mine.filter((b) => b.region && b.country).map(placeKey));
+    const countries = new Set(mine.map((b) => b.country).filter(Boolean));
+    return (b) => {
+      if (b.v26?.[player]) return null;
+      const parts = ["поход", "уникальная"];
+      if (b.t === "public") parts.push("общественная");
+      if (!b.nAll) parts.push("ультра");
+      if (b.region && b.country && !regions.has(placeKey(b))) parts.push("новый регион");
+      if (b.country && !countries.has(b.country)) parts.push("новая страна");
+      return parts;
+    };
+  }
+  // последний год до 2026, когда участник был в бане («знакомая · 2024»)
+  const knownSince = (b, player) => [2025, 2024, 2023].find((y) => b.histBy?.[y]?.[player]);
+  // расстояние по дуге, км
+  function distKm([la1, lo1], [la2, lo2]) {
+    const r = Math.PI / 180, x = Math.sin(((la2 - la1) * r) / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin(((lo2 - lo1) * r) / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(x));
+  }
+  const fmtKm = (k) => (k < 1 ? `${Math.round(k * 1000 / 50) * 50} м` : k < 10 ? `${k.toFixed(1).replace(".", ",")} км` : `${Math.round(k).toLocaleString("ru-RU")} км`);
+
   function hydrate(b) {
     b.t = b.type || "unknown";
     b.n26 = Object.values(b.v26 || {}).reduce((a, x) => a + x, 0);
@@ -157,7 +182,7 @@
     const glyph = b.t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${b.t}"/></svg>` : "";
     const icon = L.divIcon({
       className: "", iconSize: [size, size],
-      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""} ${b.id === openId ? "sel" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}</div>`,
+      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""} ${b.id === openId ? "sel" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}${b._pot?.length >= 3 ? `<span class="pot">+${b._pot.length}</span>` : ""}</div>`,
     });
     const m = L.marker(b.ll, { icon, title: b.name, riseOnHover: true }).on("click", () => openBath(b.id));
     markers.set(b.id, m);
@@ -192,32 +217,74 @@
   $("#q").addEventListener("input", () => render());
   $("#fCountry").addEventListener("change", () => render(true));
   $("#fPlayer").addEventListener("change", () => render(true));
+  // «Я» — выбрать себя одним нажатием (повторное — снова вся лига)
+  const myNick = D.live ? me?.nick : null;
+  $("#fMe").hidden = !myNick;
+  $("#fMe").addEventListener("click", () => { $("#fPlayer").value = $("#fPlayer").value === myNick ? "" : myNick; render(true); });
+  // «📍 Рядом» — сортировка по расстоянию. Геопозицию спрашиваем только по нажатию, никуда её не отправляем
+  let here = null, hereMarker = null;
+  $("#fNear").addEventListener("click", () => {
+    if (here) { here = null; hereMarker?.remove(); hereMarker = null; render(); return; }
+    if (!navigator.geolocation) { toast("Браузер не отдаёт геопозицию"); return; }
+    $("#fNear").disabled = true;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      $("#fNear").disabled = false;
+      here = [pos.coords.latitude, pos.coords.longitude];
+      hereMarker = L.marker(here, { icon: L.divIcon({ className: "", iconSize: [18, 18], html: '<div class="here" title="Ты здесь"></div>' }), interactive: false, zIndexOffset: 1000 }).addTo(map);
+      render(true);
+    }, () => { $("#fNear").disabled = false; toast("Нет доступа к геопозиции — разреши его сайту в настройках браузера"); },
+    { timeout: 10000, maximumAge: 300000 });
+  });
 
   function render(fit) {
     const q = $("#q").value.trim().toLowerCase();
     const type = $("#fType [aria-pressed=true]").dataset.t, season = $("#fSeason [aria-pressed=true]").dataset.v;
     const country = $("#fCountry").value, player = $("#fPlayer").value;
     const metric = season === "2026" ? (b) => (player ? b.v26?.[player] || 0 : b.n26) : (b) => (player ? countFor(b, "all", player) : b.nAll);
-    const current = baths.filter((b) =>
-      (!type || b.t === type) && (!country || b.country === country) && (!q || b.search.includes(q)) &&
-      (season === "all" || (season === "2026" ? b.n26 > 0 || b.isNew : b.n26 === 0)) && (!player || metric(b) > 0));
-    current.forEach((b) => (b._m = metric(b)));
-    current.sort((a, b) => b._m - a._m || a.name.localeCompare(b.name, "ru"));
+    // выбран участник — «были / не были в 2026» считаются про него, а не про всю лигу:
+    // «Не были в 2026» — все бани, где он в этом сезоне ещё не был, со счётом, сколько очков даст первый поход
+    const inSeason = (b) => season === "all" ? !player || metric(b) > 0
+      : season === "2026" ? (player ? metric(b) > 0 : b.n26 > 0 || b.isNew)
+      : player ? !(b.v26?.[player] > 0) : b.n26 === 0;
+    const pot = player && season === "never" ? potentialFor(player) : null;
+    const current = baths.filter((b) => (!type || b.t === type) && (!country || b.country === country) && (!q || b.search.includes(q)) && inSeason(b));
+    current.forEach((b) => {
+      b._m = metric(b); b._pot = pot ? pot(b) : null;
+      b._km = here && b.lat != null && b.prec !== "country" ? distKm(here, [b.lat, b.lng]) : null;   // точка «по центру страны» — не расстояние
+    });
+    if (here) current.sort((a, b) => (a._km ?? 1e9) - (b._km ?? 1e9));
+    else if (pot) current.sort((a, b) => b._pot.length - a._pot.length || b.n26 - a.n26 || a.name.localeCompare(b.name, "ru"));
+    else current.sort((a, b) => b._m - a._m || a.name.localeCompare(b.name, "ru"));
+    $("#fMe").setAttribute("aria-pressed", String(!!myNick && player === myNick));
+    $("#fNear").setAttribute("aria-pressed", String(!!here));
     const maxM = Math.max(1, ...current.map((b) => b._m));
     cluster.clearLayers(); markers.clear();
     const onMap = current.filter((b) => b.ll);
     cluster.addLayers(onMap.map(markerFor));
     const noPin = current.length - onMap.length;
-    $("#count").textContent = `${current.length} ${plural(current.length, "баня", "бани", "бань")} · ${season === "2026" ? "походы в 2026" : "походы за 2023–2026"}` + (noPin ? ` · ${noPin} без точки` : "");
+    const rich = pot ? current.filter((b) => b._pot.length >= 3).length : 0;
+    $("#count").textContent = pot
+      ? `${player}: новых в 2026 — ${current.length} ${plural(current.length, "баня", "бани", "бань")}${rich ? ` · +3 и больше — ${rich}` : ""}`
+      : `${current.length} ${plural(current.length, "баня", "бани", "бань")} · ${season === "2026" ? "походы в 2026" : "походы за 2023–2026"}` + (noPin ? ` · ${noPin} без точки` : "");
+    // подсказка, что значат цифры, — только там, где без неё непонятно
+    const note = $("#potNote");
+    let seen = false; try { seen = localStorage.getItem("ebl.potNote") === "1"; } catch { /* приватный режим — просто покажем */ }
+    note.hidden = season !== "never" || (!!pot && seen);
+    note.innerHTML = (pot
+      ? "Цифра справа — очки за первый поход: +1 поход, +1 уникальная, ещё по +1 за общественную, ультру, новый регион и страну. Компания и долгая — сверху."
+      : `Здесь бани, где в 2026 не был никто из лиги. Выбери участника${myNick ? " или нажми «Я»" : ""} — покажу новые для него бани и сколько очков даст каждая.`)
+      + (pot ? '<button type="button" class="x-note" aria-label="Понятно, скрыть">✕</button>' : "");
     const LIMIT = 250;
     // выбран участник — рядом с регионом дата его последнего похода с портала (журнал видят только участники)
     const jrP = player && !(D.live && !member) ? journalOf(player) : null;
     $("#list").innerHTML = current.length ? current.slice(0, LIMIT).map((b) => {
-      const n = b._m, last = jrP?.get(b.id)?.last;
+      const n = b._m, last = jrP?.get(b.id)?.last, known = pot ? knownSince(b, player) : null;
+      const meta = [where(b), last && dayLabel(last), b._km != null && `${b.prec !== "exact" ? "~" : ""}${fmtKm(b._km)}`, known && `знакомая · ${known}`].filter(Boolean).join(" · ");
       return `<button class="item ${b.id === openId ? "active" : ""}" data-id="${b.id}">
         ${tdot(b.t)}
-        <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(where(b))}${last ? ` · ${dayLabel(last)}` : ""}</span></span>
-        <span class="it-heat">${n ? `<b>${n}</b><i style="--w:${Math.max(8, (n / maxM) * 100)}%"></i>` : ""}</span>
+        <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(meta)}</span></span>
+        ${b._pot ? `<span class="it-pot" title="${esc(b._pot.join(" · "))}"><b>+${b._pot.length}</b><small>${plural(b._pot.length, "очко", "очка", "очков")}</small></span>`
+          : `<span class="it-heat">${n ? `<b>${n}</b><i style="--w:${Math.max(8, (n / maxM) * 100)}%"></i>` : ""}</span>`}
       </button>`;
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
       : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
@@ -225,9 +292,15 @@
     // при старте — Европа и Россия до Урала, где почти все бани; дальние страны видно, если отдалить
     // рамка подобрана так, чтобы и на телефоне шириной 360 px влезла в зум 3, а не отскочила к целому миру
     if (fit === "home") map.fitBounds([[43, 3], [62, 60]], { ...pad, animate: false });
+    else if (fit && here) map.fitBounds(L.latLngBounds([here, ...onMap.filter((b) => b._km != null).slice(0, 8).map((b) => b.ll)]).pad(0.2), { maxZoom: 13, ...pad });
     else if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, ...pad });
   }
   $("#list").addEventListener("click", (e) => { const it = e.target.closest(".item[data-id]"); if (it) openBath(+it.dataset.id, true); });
+  $("#potNote").addEventListener("click", (e) => {
+    if (!e.target.closest(".x-note")) return;
+    try { localStorage.setItem("ebl.potNote", "1"); } catch { /* не запомнится — не беда */ }
+    $("#potNote").hidden = true;
+  });
 
   // ---------- гонка недели ----------
   function renderRace() {
@@ -319,6 +392,11 @@
           <div><b>${who.length}</b><span>${plural(who.length, "участник", "участника", "участников")}</span></div>
           <div><b>${avg ? fmt(avg) : "—"}</b><span>${avg ? leaves(avg) : "нет оценок"}</span></div>
         </div>
+        ${(() => {
+          const who = $("#fPlayer").value || myNick; if (!who) return "";
+          const parts = potentialFor(who)(b); if (!parts) return "";
+          return `<div class="note-soft pot-line"><span>🎯 ${who === myNick ? "Тебе" : esc(who)} за первый поход в 2026:</span><b>+${parts.length}</b><span class="hint">${parts.join(" · ")}</span></div>`;
+        })()}
         ${!b.ll || b.prec !== "exact" ? `<div class="note-soft geo-fix">
           <span>${b.ll ? `Точка на карте примерная — ${PREC_LABEL[b.prec] || "по названию"}.` : "Этой бани ещё нет на карте."}</span>
           ${D.live && member ? `<button class="btn sm" id="geoFixBtn" type="button">📍 Знаю, где это</button>
