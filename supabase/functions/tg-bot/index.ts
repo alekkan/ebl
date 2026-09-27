@@ -63,12 +63,16 @@ async function league() {
   return { players: players ?? [], accounts: accounts ?? [] };
 }
 async function whoIs(tgId: number) {
-  const { data } = await sb.from("player_accounts").select("player_id, claimed_nick, players(id, nick, is_commission)").eq("tg_id", tgId).maybeSingle();
+  const { data } = await sb.from("player_accounts").select("id, player_id, claimed_nick, players(id, nick, is_commission)").eq("tg_id", tgId).maybeSingle();
   return data;
 }
 const getState = async (tgId: number) => ((await sb.from("bot_sessions").select("state").eq("tg_id", tgId).maybeSingle()).data?.state ?? null) as Any;
 const setState = (tgId: number, state: Any) => sb.from("bot_sessions").upsert({ tg_id: tgId, state: { ...state, ts: Date.now() }, updated_at: new Date().toISOString() });
 const DRAFT_TTL = 6 * 3600e3; // черновик старше 6 часов не подхватываем — новый пост начинает новый
+const STASH_TTL = 3 * 864e5;  // пост, отложенный до подтверждения ника, ждёт Комиссию до трёх дней
+// ответы на карточку словами: «один» — без компании, «да» на «всё верно?» — то же, что «✅ В Комиссию»
+const ALONE = /^(один|одна|одни|сам|сама|никого|без никого|соло)[!.]*$/iu;
+const CONFIRM = /^(да|ага|угу|верно|всё верно|все верно|всё так|все так|ок|окей|ok|отправляй|отправь|в комиссию|го|\+|👍)[!.]*$/iu;
 const clearState = (tgId: number) => sb.from("bot_sessions").delete().eq("tg_id", tgId);
 
 // ---------- разбор свободного текста ----------
@@ -244,6 +248,7 @@ async function renderCard(st: Any, lg: Any) {
   if (askType && st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
   else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
   if ((st.bathType || st.type) === "spa") lines.push(SPA_JOKE);
+  if (st.hint) lines.push(`\n${st.hint}`);
   if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nСколько парились? По регламенту важно только, была ли долгая — больше 2,5 часа.");
   const kb: Any[][] = st.awaiting === "dur"
@@ -255,6 +260,7 @@ async function renderCard(st: Any, lg: Any) {
 
 async function showCard(st: Any, lg: Any, tgId: number) {
   const { text, kb } = await renderCard(st, lg);
+  st.hint = null;   // подсказка — только к этому ответу
   if (st.card) await edit(st.chat, st.card, text, kb);
   else {
     const r = await send(st.chat, text, kb, st.chatType === "private" ? undefined : st.source);
@@ -317,12 +323,24 @@ async function placeFor(p: { lat: number; lng: number }, have: Any = {}) {
 // ответ на карточку — дополняем черновик
 async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
   const text: string = (msg.text ?? msg.caption ?? "").trim();
+  const ready = !!(st.bathId || st.newBath) && !st.awaiting;
+  // «да» на «всё верно?» — отправляем, как кнопкой; черновик забираем удалением, как в sendDraft
+  if (CONFIRM.test(text)) {
+    if (ready) {
+      const { data: taken } = await sb.from("bot_sessions").delete().eq("tg_id", msg.from.id).select("state");
+      return taken?.length ? submit(taken[0].state, lg, msg.from.id) : undefined;
+    }
+    st.hint = st.awaiting === "dur" ? "👉 Сколько парились? Выбери кнопкой ниже." : "👉 Сначала баня — выбери из списка или напиши название.";
+    return showCard(st, lg, msg.from.id);
+  }
+  const before = JSON.stringify([st.bathId, st.newBath, st.query, st.dur, st.company, st.geo, st.awaiting]);
   const geo = await pointFromMessage(msg);
   if (geo) st.geo = geo;
   if (text) {
-    if (st.awaiting === "company") {
-      st.company = /^(один|одна|одни|сам|сама|никого)$/i.test(text) ? [] : parseCompany(text, msg.entities ?? [], lg, me.id).ids;
+    if (st.awaiting === "company" || ALONE.test(text)) {
+      st.company = ALONE.test(text) ? [] : parseCompany(text, msg.entities ?? [], lg, me.id).ids;
       st.awaiting = null;
+      if (ALONE.test(text) && (st.bathId || st.newBath)) st.hint = "👌 Понял — один. Если всё верно, жми «✅ В Комиссию» или ответь «да».";
     } else if (!st.bathId && !st.newBath && !hasLocationHint(text)) {
       st.query = bathQuery(text, null, new Set()); st.ultra = st.ultra || ULTRA.test(text);
       await resolveBath(st);
@@ -333,6 +351,10 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       const c = parseCompany(text, msg.entities ?? [], lg, me.id);
       if (c.ids.length) st.company = [...new Set([...(st.company ?? []), ...c.ids])];
     }
+  }
+  // ответ ничего не поменял — без подсказки карточка осталась бы прежней, и казалось бы, что бот молчит
+  if (!st.hint && JSON.stringify([st.bathId, st.newBath, st.query, st.dur, st.company, st.geo, st.awaiting]) === before) {
+    st.hint = "🤔 Не понял ответ. Если всё верно — жми «✅ В Комиссию» или ответь «да»; поправить — кнопками ниже.";
   }
   await showCard(st, lg, msg.from.id);
 }
@@ -542,6 +564,79 @@ async function announce(visitId: number): Promise<boolean> {
   return true;
 }
 
+// ---------- заявки «это я» ----------
+// Выбрал ник на сайте (зовёт триггер: ?claim=<id>) — Комиссии в личку с кнопками. Подтвердили кнопкой или на сайте
+// (?linked=<id>) — уведомления гасим, а пост, который участник успел написать боту до подтверждения, становится карточкой.
+const accountName = (a: Any) => `<b>${esc(a.tg_name || "без имени")}</b>${a.tg_username ? ` (@${esc(a.tg_username)})` : ""}`;
+async function commissionChats(): Promise<number[]> {
+  const lg = await league();
+  return lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission).map((a: Any) => a.tg_id);
+}
+
+async function claimNotice(accountId: string): Promise<boolean> {
+  const { data: a } = await sb.from("player_accounts").select("id, tg_name, tg_username, claimed_nick, player_id").eq("id", accountId).maybeSingle();
+  if (!a || a.player_id || !a.claimed_nick) return false;
+  const { data: prev } = await sb.from("claim_notices").select("nick, messages").eq("account_id", accountId).maybeSingle();
+  if (prev?.nick === a.claimed_nick) return false;   // об этой заявке уже написали — повторный вызов не спамит Комиссию
+  for (const m of prev?.messages ?? []) await edit(m.chat, m.msg, `🙋 Заявка ${accountName(a)} изменилась — новая ниже.`);
+  const { data: p } = await sb.from("players").select("id").eq("nick", a.claimed_nick).maybeSingle();
+  const { data: others } = p ? await sb.from("player_accounts").select("tg_username, tg_name").eq("player_id", p.id) : { data: [] };
+  const text = `🙋 Заявка «это я»\n${accountName(a)} выбирает ник <b>${esc(a.claimed_nick)}</b>. Привязать?`
+    + (others?.length ? `\n\n⚠️ К этому нику уже привязан ${others.map((o: Any) => o.tg_username ? "@" + esc(o.tg_username) : esc(o.tg_name)).join(", ")}` : "");
+  const messages: Any[] = [];
+  for (const chat of await commissionChats()) {
+    const r = await send(chat, text, [[btn("✅ Подтвердить", `cl:${a.id}`), btn("❌ Отказать", `cn:${a.id}`)]]);
+    if (r.ok) messages.push({ chat, msg: r.result.message_id });
+  }
+  await sb.from("claim_notices").upsert({ account_id: a.id, nick: a.claimed_nick, messages });
+  return true;
+}
+
+async function decideClaim(cq: Any, me: Any, accountId: string, ok: boolean) {
+  if (!me?.is_commission) return answer(cq.id, "Это кнопка для Комиссии", true);
+  const { data: n } = await sb.from("claim_notices").select("nick").eq("account_id", accountId).maybeSingle();
+  if (!n) return answer(cq.id, "Заявка уже решена");
+  const { data: p } = await sb.from("players").select("id").eq("nick", n.nick).maybeSingle();
+  // только если заявка та же и ещё не решена: второй из Комиссии мог нажать одновременно (или решили на сайте)
+  const { data: done } = await sb.from("player_accounts").update(ok ? { player_id: p?.id, claimed_nick: null } : { claimed_nick: null })
+    .eq("id", accountId).is("player_id", null).eq("claimed_nick", n.nick).select("id");
+  if (!done?.length || (ok && !p)) return answer(cq.id, "Заявка уже решена или изменилась");
+  await answer(cq.id, ok ? `Привязан к ${n.nick}` : "Отказано");
+  if (ok) return linked(accountId, me.nick);   // триггер в базе тоже позовёт — второй вызов ничего не сделает
+  const { data: taken } = await sb.from("claim_notices").delete().eq("account_id", accountId).select("messages");
+  for (const m of taken?.[0]?.messages ?? []) await edit(m.chat, m.msg, `🙋 Заявка «это ${esc(n.nick)}»\n\n❌ Отказано — ${esc(me.nick)}`);
+  const { data: a } = await sb.from("player_accounts").select("tg_id").eq("id", accountId).maybeSingle();
+  const stash = a?.tg_id ? await takeStash(a.tg_id) : null;
+  const where = stash ? stash.chat.id : a?.tg_id;
+  if (where) await send(where, `Комиссия не подтвердила, что ты — ${esc(n.nick)}. Выбери свой ник на сайте ещё раз: ${SITE}`, undefined, stash && stash.chat.type !== "private" ? stash.message_id : undefined);
+}
+
+// отложенный пост забираем удалением: кнопка и триггер могут прийти почти одновременно — достанется одному
+async function takeStash(tgId: number) {
+  const { data } = await sb.from("bot_sessions").delete().eq("tg_id", tgId).not("state->stash", "is", null).select("state");
+  const st = data?.[0]?.state;
+  return st?.stash && Date.now() - (st.ts ?? 0) < STASH_TTL ? st.stash : null;
+}
+
+async function linked(accountId: string, judge?: string): Promise<boolean> {
+  const { data: a } = await sb.from("player_accounts").select("id, tg_id, tg_name, tg_username, players(id, nick, is_commission)").eq("id", accountId).maybeSingle();
+  const me = (a as Any)?.players;
+  if (!a || !me) return false;
+  const { data: taken } = await sb.from("claim_notices").delete().eq("account_id", accountId).select("messages");
+  for (const m of taken?.[0]?.messages ?? []) {
+    await edit(m.chat, m.msg, `🙋 ${accountName(a)} — это <b>${esc(me.nick)}</b>\n\n✅ Подтверждено — ${judge ? esc(judge) : "на сайте"}`);
+  }
+  const stash = a.tg_id ? await takeStash(a.tg_id) : null;
+  if (stash) {
+    await send(stash.chat.id, `✅ <b>${esc(me.nick)}</b>, Комиссия подтвердила ник — теперь я тебя знаю. Вот твой поход: проверь и жми «✅ В Комиссию».`,
+      undefined, stash.chat.type === "private" ? undefined : stash.message_id);
+    await startDraft(stash, me, await league());
+  } else if (taken?.length && a.tg_id) {
+    await send(a.tg_id, `✅ Комиссия подтвердила: ты — <b>${esc(me.nick)}</b>. Отмечай походы в чате лиги (отметь меня) или прямо здесь.`);
+  }
+  return !!(taken?.length || stash);
+}
+
 // ответ на вопрос про точку: геопозиция, ссылка с точкой, адрес или ссылка на карточку организации
 async function geoAnswer(msg: Any, post: Any, me: Any) {
   const { data: b } = await sb.from("baths").select("id, name, lat, lng, precision").eq("id", post.bath_id).single();
@@ -672,7 +767,7 @@ async function onMessage(msg: Any) {
   }
 
   const saved = await getState(tgId);
-  const st = saved && Date.now() - (saved.ts ?? 0) < DRAFT_TTL ? saved : null;
+  const st = saved && !saved.stash && Date.now() - (saved.ts ?? 0) < DRAFT_TTL ? saved : null;   // отложенный пост — не черновик
   const replyToCard = st && st.chat === chat && (isPrivate || (replyTo && replyTo === st.card));
   if (!isPrivate && !mentionsBot(msg) && !replyToCard) {
     await implicitAnswer(msg);   // вдруг это ответ на вопрос бота без «Ответить»
@@ -682,6 +777,17 @@ async function onMessage(msg: Any) {
   const acc = await whoIs(tgId);
   const me = acc?.players as Any;
   if (!me) {
+    // ник ещё ждёт Комиссию — пост про баню запоминаем (он адресован боту), после подтверждения он станет карточкой похода
+    const aboutBath = text.replace(new RegExp(`@${BOT}|/banya(@\\w+)?`, "gi"), "").trim().length > 2 && !/^\/|^(start|привет|хай|hi|hello)$/iu.test(text);
+    if (acc?.claimed_nick && aboutBath) {
+      await setState(tgId, { stash: {
+        chat: { id: chat, type: msg.chat.type, username: msg.chat.username ?? null }, message_id: msg.message_id, date: msg.date, from: { id: tgId },
+        text: msg.text, caption: msg.caption, entities: msg.entities, caption_entities: msg.caption_entities, location: msg.location, venue: msg.venue,
+      } });
+      await claimNotice(acc.id);   // заявка старая и Комиссии о ней не писали — пишем сейчас (о той же заявке второй раз не пишет)
+      return send(chat, `Заявка «это ${esc(acc.claimed_nick)}» ждёт Комиссию. Пост запомнил: как подтвердят ник, вернусь с карточкой похода.`,
+        undefined, isPrivate ? undefined : msg.message_id);
+    }
     return send(chat, acc?.claimed_nick
       ? `Заявка «это ${esc(acc.claimed_nick)}» ждёт Комиссию — как подтвердят, можно отмечать походы.`
       : `Чтобы отмечать походы, войди на сайте через Telegram и выбери свой ник: ${SITE}`, undefined, isPrivate ? undefined : msg.message_id);
@@ -719,6 +825,7 @@ async function onCallback(cq: Any) {
   const acc = await whoIs(tgId);
   const me = acc?.players as Any;
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
+  if (data.startsWith("cl:") || data.startsWith("cn:")) return decideClaim(cq, me, data.slice(3), data.startsWith("cl:"));
   if (data.startsWith("gx:")) {
     if (!me) return answer(cq.id, "Кнопка для участников лиги");
     // просто закрываем этот вопрос: больше не ждём ответа на него
@@ -773,6 +880,14 @@ Deno.serve(async (req) => {
   }
   if (url.searchParams.get("verdict")) {
     return new Response(JSON.stringify({ announced: await announce(Number(url.searchParams.get("verdict"))) }), { headers: { "Content-Type": "application/json" } });
+  }
+  // заявка «это я» и её подтверждение — зовёт триггер на player_accounts; оба вызова идемпотентны
+  const uuid = (k: string) => /^[0-9a-f-]{36}$/i.test(url.searchParams.get(k) ?? "") ? url.searchParams.get(k)! : null;
+  if (uuid("claim")) return new Response(JSON.stringify({ notified: await claimNotice(uuid("claim")!) }), { headers: { "Content-Type": "application/json" } });
+  if (uuid("linked")) {
+    // кнопка бота сама доводит подтверждение до конца (с именем того, кто решил) — триггер ждёт, чтобы не опередить её
+    await new Promise((r) => setTimeout(r, 1500));
+    return new Response(JSON.stringify({ done: await linked(uuid("linked")!) }), { headers: { "Content-Type": "application/json" } });
   }
   // диагностика без секретов: состояние вебхука у Telegram и последние записи журнала — только время и тип,
   // detail (данные кнопок, стек ошибки) наружу не отдаём: по нему видно, кто что решал
