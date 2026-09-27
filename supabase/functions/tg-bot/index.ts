@@ -683,7 +683,8 @@ async function siteVisit(visitId: number): Promise<boolean> {
     + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "")
     + repeatLine(await sameDayRepeat(visitId));
   if (chat) {
-    const cardText = `🌐 <b>${esc(author)}</b> отметил баню на сайте\n\n${summary}`;
+    const greeting = greetLine(author);
+    const cardText = `🌐 <b>${esc(author)}</b> отметил баню на сайте${greeting ? `\n${greeting}` : ""}\n\n${summary}`;
     const r = await send(chat, `${cardText}\n\nЖдёт Комиссию 👀`);
     if (r.ok) {
       // это и пост похода, и его карточка: решение Комиссии допишется правкой, а не новым сообщением
