@@ -7,11 +7,15 @@
 
 | Что поменял | Команда |
 |---|---|
-| Сайт (`prototype/`) | `scripts/deploy.sh` — сначала `scripts/check.sh` (все тесты, нужен локальный стенд), потом коммит, push, пересборка `gh-pages` из `prototype/` |
-| Схему базы | новая миграция в `supabase/migrations/` → `supabase db push` |
-| Edge-функцию | `supabase functions deploy <имя> --project-ref yeerkfdgmhcmvdqzaoio --no-verify-jwt` |
-| Движок очков (`_shared/scoring.js`) | задеплоить `recompute`, потом `curl -X POST https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/recompute` |
-| `_shared/geo.ts`, `_shared/avatar.ts` | задеплоить все функции, которые их используют (`tg-bot`, `bath-location`, `tg-login`, `sync-avatars`) |
+Всё — только из актуального `main` после pull request (скрипты это проверяют) и только с зелёными тестами (`scripts/check.sh`,
+нужен локальный стенд).
+
+| Что поменял | Команда |
+|---|---|
+| Сайт (`prototype/`) | `scripts/deploy.sh` — проверки, затем сборка `gh-pages` из `prototype/` во временной копии (в `main` не пишет) |
+| Схему базы, edge-функции | `scripts/deploy-backend.sh [функция …]` — проверки, `supabase db push`, функции (без аргументов — все), пересчёт |
+| Движок очков (`_shared/scoring.js`) | `scripts/deploy-backend.sh recompute` |
+| `_shared/*` (geo, place, avatar, greetings) | `scripts/deploy-backend.sh` без аргументов — функции, которые их используют, выложатся все |
 
 Все функции деплоятся с `--no-verify-jwt`: Telegram и pg_cron не присылают ключ Supabase, проверка — внутри функций.
 
