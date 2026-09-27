@@ -198,6 +198,15 @@ with sync_playwright() as pw:
               s.js(f"async () => {{ try {{ await window.EBLData.moderate({vid}, 'rejected'); return false; }} catch (e) {{ return /уже решили/.test(e.message); }} }}"))
         s.clean("Комиссия")
         s.close()
+        # второй поход в ту же баню в те же сутки: Комиссия должна видеть до решения, что очков не будет (п. 5)
+        dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
+        sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")
+        s = Site(browser, url, sess=vitek, name="commission-repeat")
+        s.view("feed"); s.page.click("label.switch"); s.page.wait_for_timeout(400)
+        check("Комиссия видит пометку «похоже на повтор бани в те же сутки — проверь дату»",
+              s.js(f"() => (document.querySelector('[data-ok=\"{dup}\"]')?.closest('.post')?.innerText || '').includes('повтор бани')"))
+        s.clean("Комиссия: повтор")
+        s.close()
 
         print("Телефон")
         s = Site(browser, url, mobile=True, name="mobile-guest")

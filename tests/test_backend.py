@@ -125,6 +125,19 @@ check("отклонённой бане тип не ставится — ни т�
       and sql("select coalesce(type, '') from baths where id = 23") == "")
 sql(f"update baths set status = 'ok', type = {t23 if t23 == 'null' else repr(t23)} where id = 23")
 
+print("Повтор бани в те же сутки")
+# движок сам не срезает (баню часто кидают за прошлый день): засчитала Комиссия оба похода — очки за оба
+sql("update settings set value = '39' where key = 'cutover_week'")
+sh = player_id("Шурик")
+r1 = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, status) values (9, date_trunc('day', now() at time zone 'Europe/Moscow') at time zone 'Europe/Moscow' + interval '10 hours', 120, '{sh}', 'ok') returning id").splitlines()[0]
+r2 = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, status) values (9, date_trunc('day', now() at time zone 'Europe/Moscow') at time zone 'Europe/Moscow' + interval '11 hours', 120, '{sh}', 'ok') returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) values ({r1}, '{sh}'), ({r2}, '{sh}')")
+req("POST", "/functions/v1/recompute", {})
+check("два засчитанных похода в одну баню за сутки — очки за оба (решает Комиссия, не движок)",
+      sql(f"select count(*) from visit_points where visit_id in ({r1}, {r2})") == "2")
+sql(f"delete from visits where id in ({r1}, {r2})"); sql("update settings set value = '40' where key = 'cutover_week'")
+req("POST", "/functions/v1/recompute", {})
+
 print("Новая баня и отказ по походу")
 nb = sql("insert into baths (name, status, created_by) select 'Кандидат Боровенка', 'pending', id from players where nick='Шурик' returning id").splitlines()[0]
 cv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by) select {nb}, now() - interval '3 hours', 120, id from players where nick='Шурик' returning id").splitlines()[0]
