@@ -1,13 +1,15 @@
 #!/bin/sh
-# Выкладка серверной части в Supabase: схема, данные из таблицы, edge-функции, первый пересчёт.
-# Перед первым запуском: supabase login; supabase secrets set TELEGRAM_BOT_TOKEN=... --project-ref <ref>
-# Запуск: scripts/deploy-backend.sh <project-ref>
+# Выкладывает серверную часть в боевой Supabase: миграции и edge-функции, затем пересчёт таблицы.
+# Только из актуального main и только с зелёными проверками (как scripts/deploy.sh).
+# Запуск: scripts/deploy-backend.sh [функция ...]   — без аргументов все функции.
+# Первичная настройка проекта и загрузка данных из таблицы — docs/operations.md, здесь их нет.
 set -e
-REF="${1:?Укажи project ref: scripts/deploy-backend.sh abcdefghijklmnop}"
 cd "$(dirname "$0")/.."
-python3 scripts/seed.py
-supabase link --project-ref "$REF"
-supabase db push --include-seed
-supabase functions deploy tg-login --project-ref "$REF" --no-verify-jwt
-supabase functions deploy recompute --project-ref "$REF" --no-verify-jwt
+. scripts/_guard.sh
+REF=yeerkfdgmhcmvdqzaoio
+supabase db push --linked --yes
+for f in ${*:-tg-login tg-bot recompute bath-location sync-avatars}; do
+  supabase functions deploy "$f" --project-ref "$REF" --no-verify-jwt
+done
 curl -s -X POST "https://$REF.supabase.co/functions/v1/recompute"; echo
+echo "Готово: бэкенд выложен."

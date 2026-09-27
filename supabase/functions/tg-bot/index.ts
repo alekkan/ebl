@@ -386,8 +386,9 @@ async function submit(st: Any, lg: Any, tgId: number) {
     + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "")
     + ((st.bathType || st.type) === "spa" ? `\n${SPA_JOKE}` : "")
     + repeatLine(await sameDayRepeat(visit.id));
-  const greeting = greetLine(st.authorNick) ?? `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>`;
-  await edit(st.chat, st.card, `${greeting}\n\n${summary}`);
+  // статус «ушло в Комиссию» — всегда; персональное приветствие (если есть) — строкой ниже, а не вместо
+  const greeting = greetLine(st.authorNick);
+  await edit(st.chat, st.card, `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>${greeting ? `\n<i>${esc(greeting)}</i>` : ""}\n\n${summary}`);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
 
