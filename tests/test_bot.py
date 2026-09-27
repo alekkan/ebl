@@ -277,6 +277,20 @@ check("решение Комиссии — строкой в карточке, �
       sql(f"select verdict_text from bot_posts where visit_id = {vid}"))
 sql(f"delete from visits where id = {vid}")
 
+print("Поход поправили — у Комиссии и в карточке свежая сводка")
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now() - interval '1 hour', 60, id, 'bot' from players where nick = 'Леха' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick = 'Леха'")
+sql(f"insert into bot_notifications (visit_id, chat_id, message_id, text) values ({vid}, {ME}, 1, 'старая сводка: 👥 один')")
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text) values ({vid}, {CHAT}, 6001, 6002, 5, E'Ушло в Комиссию ✅ <b>Леха</b>\\n\\nстарая сводка')")
+sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick = 'Ден'")   # как «добавь Дена в заявку»
+check("добавили Дена — сообщение Комиссии обновилось", wait(f"select position('👥 Ден' in text) > 0 from bot_notifications where visit_id = {vid}", "t"),
+      sql(f"select text from bot_notifications where visit_id = {vid}"))
+card_text = sql(f"select card_text from bot_posts where visit_id = {vid}")
+check("и карточка в чате: шапка та же, сводка свежая", card_text.startswith("Ушло в Комиссию ✅") and "👥 Ден" in card_text and "старая" not in card_text, card_text)
+sql(f"update visits set duration_min = 180 where id = {vid}")
+check("поменяли длительность — у Комиссии «долгая»", wait(f"select position('долгая' in text) > 0 from bot_notifications where visit_id = {vid}", "t"))
+sql(f"delete from visits where id = {vid}")
+
 print("Заявка «это я» — через бота")
 NEW1, NEW2, NEW3 = 903, 904, 905
 sql(f"delete from player_accounts where tg_id in ({NEW1}, {NEW2}, {NEW3})")

@@ -614,6 +614,52 @@ async function verdictLine(visitId: number): Promise<string | null> {
   return `👍 Засчитано${judge}${pts?.length ? ": " + pts.map((x: Any) => `${esc(x.nick)} +${x.total}`).join(" · ") : ""}`;
 }
 
+// ---------- поход поправили ----------
+// Компания, баня, время или длительность поменялись (на сайте, кнопкой «долгая», в базе) — зовёт триггер: ?refresh=<id>.
+// Сводку пересобираем из базы и обновляем в личках Комиссии и в карточке в чате: иначе там оставалось «👥 один».
+async function summaryOf(visitId: number): Promise<string | null> {
+  const { data: v } = await sb.from("visits").select("duration_min, source, long_asked_at, created_by, baths(name, type, status), visit_players(player_id, players(nick))")
+    .eq("id", visitId).maybeSingle();
+  if (!v) return null;
+  const vv = v as Any;
+  const company = (vv.visit_players ?? []).filter((x: Any) => x.player_id !== v.created_by).map((x: Any) => x.players?.nick).filter(Boolean).sort();
+  // экспресс — время не указывали: бот ставит час и ещё не спрашивал про долгую
+  const dur = v.source === "bot" && v.duration_min === 60 && !v.long_asked_at ? null : v.duration_min;
+  return `🧖 <b>${esc(vv.baths?.name)}</b>${vv.baths?.status === "pending" ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(dur)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
+    + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
+    + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "")
+    + repeatLine(await sameDayRepeat(visitId));
+}
+async function refreshVisit(visitId: number): Promise<boolean> {
+  const { data: v } = await sb.from("visits")
+    .select("status, source, tg_link, reject_reason, author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)").eq("id", visitId).maybeSingle();
+  const summary = v ? await summaryOf(visitId) : null;
+  if (!v || !summary) return false;
+  const vv = v as Any, author = esc(vv.author?.nick);
+  const note = (v.source === "site" ? `🔔 Поход с сайта от <b>${author}</b>` : `🔔 Поход от <b>${author}</b>${v.tg_link ? ` · <a href="${v.tg_link}">пост</a>` : ""}`)
+    + `\n\n${summary}`;
+  const decided = v.status === "ok" || v.status === "rejected";
+  const verdict = decided ? `\n\n${v.status === "ok" ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
+    + (v.status !== "ok" && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "") : "";
+  let changed = false;
+  const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id, text").eq("visit_id", visitId);
+  for (const n of notes ?? []) {
+    if (n.text === note) continue;   // уже свежее
+    await edit(n.chat_id, n.message_id, `${note}${verdict}`, decided ? undefined : [[btn("✅ Засчитать", `ok:${visitId}`), btn("❌ Отклонить", `no:${visitId}`)]]);
+    await sb.from("bot_notifications").update({ text: note }).eq("visit_id", visitId).eq("chat_id", n.chat_id);
+    changed = true;
+  }
+  // живая карточка в чате: шапка («Ушло в Комиссию ✅ …») остаётся, сводка под ней — свежая
+  const { data: post } = await sb.from("bot_posts").select("card_text").eq("visit_id", visitId).maybeSingle();
+  const cut = post?.card_text ? post.card_text.indexOf("\n\n") : -1;
+  if (cut >= 0 && post!.card_text.slice(cut + 2) !== summary) {
+    await sb.from("bot_posts").update({ card_text: `${post!.card_text.slice(0, cut)}\n\n${summary}` }).eq("visit_id", visitId);
+    await refreshCard(visitId);
+    changed = true;
+  }
+  return changed;
+}
+
 // поход отметили на сайте (зовёт триггер: ?new=<id>): бот сам пишет о нём в чат лиги — это и есть пост похода,
 // вердикт потом придёт ответом на него; Комиссии в личку — то же уведомление с кнопками, что для походов из чата
 async function siteVisit(visitId: number): Promise<boolean> {
@@ -1113,6 +1159,11 @@ Deno.serve(async (req) => {
   }
   if (url.searchParams.get("verdict")) {
     return new Response(JSON.stringify({ announced: await announce(Number(url.searchParams.get("verdict"))) }), { headers: { "Content-Type": "application/json" } });
+  }
+  // поход поправили — зовёт триггер на visits/visit_players; сайт меняет компанию несколькими запросами — ждём, пока закончит
+  if (url.searchParams.get("refresh")) {
+    await new Promise((r) => setTimeout(r, 1500));
+    return new Response(JSON.stringify({ refreshed: await refreshVisit(Number(url.searchParams.get("refresh"))) }), { headers: { "Content-Type": "application/json" } });
   }
   // заявка «это я» и её подтверждение — зовёт триггер на player_accounts; оба вызова идемпотентны
   const uuid = (k: string) => /^[0-9a-f-]{36}$/i.test(url.searchParams.get(k) ?? "") ? url.searchParams.get(k)! : null;
