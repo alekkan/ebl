@@ -5,10 +5,8 @@
 
 ## Выложить изменения
 
-| Что поменял | Команда |
-|---|---|
 Всё — только из актуального `main` после pull request (скрипты это проверяют) и только с зелёными тестами (`scripts/check.sh`,
-нужен локальный стенд).
+нужен локальный стенд). Порядок работы целиком — ветки, PR, «выкладываю» в чат, откат — в [workflow.md](workflow.md).
 
 | Что поменял | Команда |
 |---|---|
@@ -16,6 +14,7 @@
 | Схему базы, edge-функции | `scripts/deploy-backend.sh [функция …]` — проверки, `supabase db push`, функции (без аргументов — все), пересчёт |
 | Движок очков (`_shared/scoring.js`) | `scripts/deploy-backend.sh recompute` |
 | `_shared/*` (geo, place, avatar, greetings) | `scripts/deploy-backend.sh` без аргументов — функции, которые их используют, выложатся все |
+| И сайт, и бэкенд | сначала `scripts/deploy-backend.sh`, потом `scripts/deploy.sh` |
 
 Все функции деплоятся с `--no-verify-jwt`: Telegram и pg_cron не присылают ключ Supabase, проверка — внутри функций.
 
@@ -119,5 +118,5 @@ docker exec supabase_db_ebl psql -U postgres -c "select cron.unschedule(jobname)
 docker exec supabase_db_ebl psql -U postgres -c "update settings set value = '\"http://supabase_kong_ebl:8000/functions/v1\"' where key = 'functions_url'"   # триггер вердикта — на локального бота
 cp supabase/functions/.env.example supabase/functions/.env
 supabase functions serve --env-file supabase/functions/.env
-python3 tests/test_backend.py && python3 tests/test_bot.py
+scripts/check.sh                                    # бэкенд, бот и сайт в Chrome (нужен pip3 install playwright)
 ```
