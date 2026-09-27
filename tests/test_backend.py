@@ -4,7 +4,7 @@
 Запуск:          python3 tests/test_backend.py
 Тест пишет в локальную базу; после него удобно сделать `supabase db reset`.
 """
-import time
+import urllib.request, urllib.error, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from local import check, link, login, player_id, req, sql, tg_payload
@@ -44,6 +44,8 @@ check("поход от чужого имени запрещён",
 
 print("Поход, модерация и очки")
 sql("update settings set value = '39' where key = 'cutover_week'")  # чтобы тестовый поход этой недели считал портал
+# точка отсчёта — свежий пересчёт: прошлые прогоны тестов засчитывали и удаляли походы, не пересчитывая таблицу
+req("POST", "/functions/v1/recompute", {})
 before = {n: float(sql(f"select total from standings where nick='{n}'") or 0) for n in ("Шурик", "Витёк", "Леха")}
 s, v = req("POST", "/rest/v1/visits", {"bath_id": 5, "entered_at": "2026-09-26T12:00:00+03", "duration_min": 180, "created_by": me},
            token=shurik, headers={"Prefer": "return=representation"})
@@ -159,8 +161,20 @@ check("ссылка Google Maps", put(12, "https://www.google.com/maps/place/X/@
 check("точную точку участник не перезаписывает", put(10, "55.1111, 37.1111")[0] == 409)
 check("без входа нельзя", req("POST", "/functions/v1/bath-location", {"bath_id": 10, "input": "55.7,37.6"})[0] == 401)
 sql("update baths set country = null, region = null, precision = 'region' where id = 13")
-put(13, "58.6036, 49.6601")   # Киров
-check("страна и регион по точке — в написании таблицы (п. 14)", sql("select country || ' / ' || region from baths where id = 13") == "Россия / Кировская обл")
+# страну и регион функция спрашивает у геокодера OSM: он ограничивает частые запросы (429) — тогда проверку честно
+# пропускаем с пометкой, а не валим весь набор из-за чужого сервиса
+try:
+    osm = urllib.request.urlopen(urllib.request.Request("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=58.6&lon=49.66&zoom=5",
+                                                        headers={"User-Agent": "ebl-tests"}), timeout=15).status
+except urllib.error.HTTPError as e:
+    osm = e.code
+except Exception:
+    osm = None
+if osm == 200:
+    put(13, "58.6036, 49.6601")   # Киров
+    check("страна и регион по точке — в написании таблицы (п. 14)", sql("select country || ' / ' || region from baths where id = 13") == "Россия / Кировская обл")
+else:
+    print(f"  – пропущено: страна и регион по точке — геокодер OSM сейчас не отвечает (HTTP {osm})")
 # убираем за собой: иначе следующий прогон упрётся в «одна баня в сутки»
 sql(f"delete from visits where id = {vid}")
 sql("update settings set value = '40' where key = 'cutover_week'")

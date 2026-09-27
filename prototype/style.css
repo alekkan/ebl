@@ -226,6 +226,26 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .selrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .selrow .sel { height: 38px; font-size: 13px; }
 .count { padding: 8px 18px; font-size: 12px; color: var(--ink-3); border-top: 1px solid var(--line); }
+/* «Я» рядом с участником, «📍 Рядом» — в строке над списком */
+.who-pick { display: flex; gap: 6px; min-width: 0; }
+.who-pick .sel { flex: 1; min-width: 0; }
+.me-pick { flex: none; height: 38px; min-width: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 700; font-size: 13px; }
+.me-pick[aria-pressed="true"], .near-btn[aria-pressed="true"] { background: var(--oak); border-color: var(--oak); color: var(--panel); }
+.countrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding-right: 12px; }
+.countrow .count { border-top: 0; flex: 1; min-width: 0; }
+.near-btn { flex: none; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 600; font-size: 12px; white-space: nowrap; }
+.near-btn:disabled { opacity: .6; }
+.pot-note { position: relative; margin: 0 16px 8px; padding: 8px 32px 8px 12px; border-radius: 12px; background: var(--honey-soft); color: var(--ink-2); font-size: 12px; line-height: 1.45; }
+.pot-note .x-note { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border: 0; border-radius: 50%; background: none; color: var(--ink-3); font-size: 13px; }
+/* сколько очков даст первый поход — вместо полоски популярности */
+.it-pot { display: grid; justify-items: end; min-width: 44px; line-height: 1; }
+.it-pot b { font: 700 17px/1 var(--display); color: var(--ember); }
+.it-pot small { font-size: 10px; color: var(--ink-3); margin-top: 3px; }
+.pin { position: relative; }
+.pin .pot { position: absolute; top: -9px; right: -13px; background: var(--ember); color: #fff; font: 700 10px/1 var(--display); padding: 3px 5px; border-radius: 999px; border: 1.5px solid var(--panel); pointer-events: none; white-space: nowrap; }
+.here { width: 18px; height: 18px; border-radius: 50%; background: #2b7de9; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(43, 125, 233, .25); }
+.pot-line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.pot-line b { font: 700 18px/1 var(--display); color: var(--ember); }
 .list { overflow: auto; flex: 1; padding: 0 8px 8px; overscroll-behavior: contain; }
 .item {
   width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center;

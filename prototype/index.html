@@ -130,10 +130,17 @@
         </div>
         <div class="selrow">
           <select id="fCountry" class="sel" aria-label="Страна"><option value="">Все страны</option></select>
-          <select id="fPlayer" class="sel" aria-label="Участник"><option value="">Все участники</option></select>
+          <div class="who-pick">
+            <select id="fPlayer" class="sel" aria-label="Участник"><option value="">Все участники</option></select>
+            <button type="button" class="me-pick" id="fMe" hidden aria-pressed="false" title="Мои бани">Я</button>
+          </div>
         </div>
       </div>
-      <div class="count" id="count"></div>
+      <div class="countrow">
+        <div class="count" id="count"></div>
+        <button type="button" class="near-btn" id="fNear" aria-pressed="false" title="Сортировать по расстоянию от меня">📍 Рядом</button>
+      </div>
+      <div class="pot-note" id="potNote" hidden></div>
       <div class="list" id="list"></div>
     </aside>
     <div class="race" id="race"></div>

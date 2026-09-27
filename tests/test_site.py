@@ -253,6 +253,25 @@ with sync_playwright() as pw:
               "сегодня" not in s.js(first_row) and s.js("() => /видны участникам/.test(document.getElementById('playerBody').innerText)"))
         s.close()
 
+        print("Куда сходить за очками: «Я», «Не были в 2026», «Рядом»")
+        s = Site(browser, url, sess=shurik, name="where-to-go")
+        s.ctx.grant_permissions(["geolocation"]); s.ctx.set_geolocation({"latitude": 55.7558, "longitude": 37.6176})
+        s.page.click("#fMe"); s.page.click('#fSeason [data-v="never"]'); s.page.wait_for_timeout(500)
+        check("«Я» выбирает себя одним нажатием", s.js("() => document.getElementById('fPlayer').value") == "Шурик")
+        ids = s.js("() => [...document.querySelectorAll('#list .item')].slice(0, 25).map((x) => +x.dataset.id)")
+        pots = s.js("() => [...document.querySelectorAll('#list .item .it-pot b')].slice(0, 25).map((x) => +x.textContent)")
+        check("«Не были в 2026» у участника — очки за первый поход, выгодные сверху", len(pots) == len(ids) > 0 and min(pots) >= 2 and pots == sorted(pots, reverse=True), pots)
+        been = sql(f"select count(*) from bath_counts where nick = 'Шурик' and year = 2026 and bath_id in ({','.join(map(str, ids))})")
+        check("в этом списке нет бань, где он уже был в 2026", been == "0", been)
+        s.page.click("#fNear"); s.page.wait_for_timeout(1200)
+        meters = s.js("""() => [...document.querySelectorAll('#list .item .it-meta')].slice(0, 12).map((m) => {
+          const x = m.textContent.match(/~?([\\d\\s,]+)\\s(км|м)(?![а-я])/); if (!x) return null;
+          const v = parseFloat(x[1].replace(/\\s/g, '').replace(',', '.')); return x[2] === 'км' ? v * 1000 : v; })""")
+        check("«📍 Рядом» — у бань расстояние, ближние сверху", s.js("() => document.getElementById('fNear').getAttribute('aria-pressed')") == "true"
+              and meters and None not in meters and meters == sorted(meters), meters)
+        s.clean("куда сходить за очками")
+        s.close()
+
         print("Телефон")
         s = Site(browser, url, mobile=True, name="mobile-guest")
         s.no_clip("гость: шапка на телефоне", ".top")
@@ -263,6 +282,9 @@ with sync_playwright() as pw:
               s.js("() => { const a = document.querySelector('#meBtn .ava'); return !!a && a.getBoundingClientRect().width >= 24; }"))
         all_views(s, "участник на телефоне", mobile=True)
         s.view("map"); s.page.wait_for_timeout(300)
+        s.page.click("#fMe"); s.page.click('#fSeason [data-v="never"]'); s.page.wait_for_timeout(500)
+        s.no_clip("телефон: «Я» + «Не были в 2026» с очками", "#view-map")
+        s.page.click("#fMe"); s.page.click('#fSeason [data-v="2026"]'); s.page.wait_for_timeout(300)
         if s.js("() => !!document.querySelector('#race .race-toggle')"):
             s.page.click("#race .race-toggle"); s.page.wait_for_timeout(300)
             check("телефон: развёрнутая гонка недели не уходит под шторку (листается внутри)",
