@@ -28,7 +28,7 @@
 ## Рабочее место — настроить один раз
 
 Нужны `git`, [GitHub CLI](https://cli.github.com) `gh`, [Supabase CLI](https://supabase.com/docs/guides/cli), Docker Desktop,
-Python 3 и Google Chrome (сайт тестируется в настоящем Chrome).
+Python 3, Google Chrome (сайт тестируется в настоящем Chrome) и — чтобы выкладывать сайт — [Yandex Cloud CLI](https://yandex.cloud/ru/docs/cli/quickstart) `yc`.
 
 ```bash
 gh auth login                                     # под своим аккаунтом GitHub
@@ -36,7 +36,12 @@ gh repo clone alekkan/ebl && cd ebl
 pip3 install playwright                           # браузерные тесты сайта (Chrome берётся установленный, браузеры playwright не нужны)
 supabase login
 supabase link --project-ref yeerkfdgmhcmvdqzaoio  # нужен доступ к проекту в Supabase — его выдаёт Леха
+curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash   # yc — для выкладки сайта
+~/yandex-cloud/bin/yc init                        # вход через Яндекс ID, каталог ebl; доступ (роль storage.editor) выдаёт Леха
 ```
+
+Сайт лежит в хранилище Яндекса, `scripts/deploy.sh` заливает его через `yc` под твоим входом — отдельных ключей нет.
+Подробности про хостинг и откат — в [operations.md](operations.md#домен-eblsu).
 
 Локальный стенд — копия боевого на твоём компьютере в Docker. Все тесты гоняются на нём, боевую базу они не трогают.
 
@@ -160,7 +165,7 @@ gh pr merge --squash --delete-branch
 
 | Что поменял | Команда |
 |---|---|
-| Сайт (`prototype/`) | `scripts/deploy.sh` |
+| Сайт (`prototype/`) | `scripts/deploy.sh` — в хранилище Яндекса и в резерв на GitHub Pages |
 | Миграции (`supabase/migrations/`) | `scripts/deploy-backend.sh` — накатит новые миграции, выложит функции, пересчитает таблицу |
 | Одну функцию (`tg-bot`, `tg-login`, `bath-location`, `sync-avatars`) | `scripts/deploy-backend.sh tg-bot` |
 | Правила очков (`_shared/scoring.js`) | `scripts/deploy-backend.sh recompute` — выложит движок и сразу пересчитает таблицу |
@@ -174,7 +179,7 @@ gh pr merge --squash --delete-branch
 3. Запусти скрипт. Он сам проверит, что ты на `main`, рабочая копия чистая, `main` совпадает с GitHub, а `scripts/check.sh` зелёный.
    Если хоть что-то не так, скрипт остановится и ничего не выложит.
 4. Проверь результат:
-   - сайт обновляется примерно за минуту; если видишь старое, обнови страницу;
+   - сайт обновляется сразу (страница в Яндексе без кэша); если видишь старое, обнови страницу;
    - бот: отправь пост в тестовой группе или `curl -s "https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/tg-bot?diag=1"`;
    - пересчёт печатает `{"ok":true,"players":…,"currentWeek":…}`.
 
@@ -282,5 +287,5 @@ git push
 - изменения попадают туда только через pull request, даже у владельца;
 - `--force` и удаление ветки запрещены.
 
-Посмотреть: `gh api repos/alekkan/ebl/branches/main/protection`. Ветка `gh-pages` — просто сборка сайта. Её
-перезаписывает `deploy.sh`, защита на неё не распространяется.
+Посмотреть: `gh api repos/alekkan/ebl/branches/main/protection`. Ветка `gh-pages` — просто сборка сайта (резерв на GitHub
+Pages). Её перезаписывает `deploy.sh`, защита на неё не распространяется.
