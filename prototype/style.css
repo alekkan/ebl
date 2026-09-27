@@ -231,7 +231,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
   width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center;
   border: 0; background: none; text-align: left; padding: 10px 10px; border-radius: 12px; transition: background .15s;
 }
-.item:hover { background: var(--panel-2); }
+@media (hover: hover) { .item:hover { background: var(--panel-2); } }
 .item.active { background: var(--oak-soft); }
 .it-name { display: block; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .it-meta { display: block; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -252,7 +252,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .race-timer .ic { width: 14px; height: 14px; }
 .race-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 4px; }
 .race-list li { display: grid; grid-template-columns: 16px 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 10px; cursor: pointer; }
-.race-list li:hover { background: var(--panel-2); }
+@media (hover: hover) { .race-list li:hover { background: var(--panel-2); } }
 .race-list .rk { font: 700 12px var(--display); color: var(--ink-3); text-align: center; }
 .race-list li:first-child .rk { color: var(--honey); }
 .race-list .rn { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -304,7 +304,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 0 0 10px; }
 .who { display: flex; flex-wrap: wrap; gap: 6px; }
 .who button { display: inline-flex; align-items: center; gap: 7px; border: 0; background: var(--panel-2); padding: 3px 10px 3px 3px; border-radius: 999px; font-size: 13px; font-weight: 600; }
-.who button:hover { background: var(--oak-soft); }
+@media (hover: hover) { .who button:hover { background: var(--oak-soft); } }
 .who button b { color: var(--ember); font-weight: 700; }
 .who .ava { box-shadow: none; }
 .d-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
@@ -385,7 +385,7 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .heat-legend i { flex: 1; height: 8px; border-radius: 8px; background: var(--heat-grad); }
 .hot { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .hot li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
-.hot li:hover { background: var(--panel-2); }
+@media (hover: hover) { .hot li:hover { background: var(--panel-2); } }
 .hot .hk { font: 700 12px var(--display); color: var(--ink-3); text-align: center; }
 .hot li:nth-child(1) .hk { color: #f36d1c; } .hot li:nth-child(2) .hk { color: #fb9a2c; } .hot li:nth-child(3) .hk { color: #fbb33c; }
 .hot .hn { display: block; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -450,7 +450,7 @@ th.on { color: var(--oak); }
 th.l, td.l { text-align: left; }
 tbody tr { border-bottom: 1px solid var(--line); transition: background .15s; cursor: pointer; }
 tbody tr:last-child { border-bottom: 0; }
-tbody tr:hover { background: var(--panel-2); }
+@media (hover: hover) { tbody tr:hover { background: var(--panel-2); } }
 td.pos { font: 700 13px var(--display); color: var(--ink-3); width: 44px; text-align: center; }
 tr.top3 td.pos { color: var(--honey); }
 td.who-cell { font-weight: 600; }
@@ -514,7 +514,7 @@ tr.below { color: var(--ink-2); }
 .post-who b { font-weight: 700; }
 .post-who small { display: block; color: var(--ink-3); font-size: 12px; }
 .post-bath { font: 700 17px/1.25 var(--display); color: var(--ink); text-decoration: none; }
-.post-bath:hover { color: var(--oak); }
+@media (hover: hover) { .post-bath:hover { color: var(--oak); } }
 .post-meta { display: flex; flex-wrap: wrap; gap: 6px; }
 .post-meta span { font-size: 12px; font-weight: 600; background: var(--panel-2); color: var(--ink-2); padding: 4px 10px; border-radius: 999px; }
 .post-meta span.warn { background: var(--ember-soft); color: var(--ember); }
@@ -644,13 +644,18 @@ tr.below { color: var(--ink-2); }
 .bars { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
 .bars div { flex: 1; background: var(--oak); border-radius: 3px 3px 1px 1px; min-height: 2px; transition: background .15s; }
 .bars div.zero { background: var(--line); }
-.bars div:hover { background: var(--ember); }
+@media (hover: hover) { .bars div:hover { background: var(--ember); } }
 .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .blist { display: grid; max-height: 260px; overflow: auto; padding-right: 8px; }
-.blist button { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font-size: 14px; }
-.blist button:hover { color: var(--oak); }
+.blist button { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font-size: 14px; }
+@media (hover: hover) { .blist button:hover { color: var(--oak); } }
 .blist b { font: 700 13px var(--display); color: var(--ember); flex: none; }
+.blist button > span:first-child { min-width: 0; }
+.blist .bl-r { display: flex; align-items: baseline; gap: 8px; flex: none; }
+.blist time { min-width: 4.8em; text-align: right; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.blist em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--ember); background: var(--ember-soft); padding: 1px 7px; border-radius: 999px; }
+.blist .bl-sep { padding: 14px 0 6px; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
 .geo b { font: 700 22px var(--display); }
 .typerow { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 3px 0; }
 .typerow span:last-child { margin-left: auto; font-weight: 700; }

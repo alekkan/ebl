@@ -208,6 +208,30 @@ with sync_playwright() as pw:
         s.clean("Комиссия: повтор")
         s.close()
 
+        print("Даты в карточках")
+        open_shurik = "() => [...document.querySelectorAll('#standings tbody tr')].find((tr) => tr.innerText.includes('Шурик')).click()"
+        first_row = "() => document.querySelector('#playerBody .blist button')?.innerText || ''"
+        s = Site(browser, url, sess=shurik, name="member-dates")
+        s.view("table"); s.js(open_shurik)
+        row = s.js(first_row)
+        check("карточка участника: сверху свежая баня с портала — с датой и «на проверке»",
+              "Василевские" in row and "сегодня" in row and "на проверке" in row, row)
+        check("ниже — бани из таблицы Комиссии, подписано, что там без дат",
+              s.js("() => /таблице Комиссии/.test(document.querySelector('#playerBody .bl-sep')?.textContent || '')"),
+              s.js("() => document.querySelector('#playerBody .blist')?.textContent.slice(0, 300)"))
+        s.js("() => (document.getElementById('playerModal').hidden = true)")
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
+        check("карточка бани: «Последний раз — сегодня» с компанией",
+              s.js("() => /Последний раз — сегодня: .*Шурик/.test(document.querySelector('#drawer .last-visit')?.innerText || '')"))
+        s.clean("даты в карточках")
+        s.close()
+        s = Site(browser, url, name="guest-dates")
+        s.view("table"); s.js(open_shurik)
+        check("гостю даты не показываем и говорим, что их видят участники",
+              "сегодня" not in s.js(first_row) and s.js("() => /видны участникам/.test(document.getElementById('playerBody').innerText)"))
+        s.close()
+
         print("Телефон")
         s = Site(browser, url, mobile=True, name="mobile-guest")
         s.no_clip("гость: шапка на телефоне", ".top")
@@ -217,6 +241,9 @@ with sync_playwright() as pw:
         check("участник на телефоне: аватарка видна (не белая точка)",
               s.js("() => { const a = document.querySelector('#meBtn .ava'); return !!a && a.getBoundingClientRect().width >= 24; }"))
         all_views(s, "участник на телефоне", mobile=True)
+        s.view("table"); s.js(open_shurik)
+        s.no_clip("карточка участника с датами на телефоне", "#playerModal")
+        s.js("() => (document.getElementById('playerModal').hidden = true)")
         s.page.click("#addVisitBtn")
         s.page.wait_for_timeout(350)
         check("телефон: по нажатию сначала виден ковш, форма ещё не закрыла кнопку",
