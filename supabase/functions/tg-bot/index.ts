@@ -384,7 +384,8 @@ async function submit(st: Any, lg: Any, tgId: number) {
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
   const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
     + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "")
-    + ((st.bathType || st.type) === "spa" ? `\n${SPA_JOKE}` : "");
+    + ((st.bathType || st.type) === "spa" ? `\n${SPA_JOKE}` : "")
+    + repeatLine(await sameDayRepeat(visit.id));
   const greeting = greetLine(st.authorNick) ?? `Ушло в Комиссию ✅ <b>${esc(st.authorNick)}</b>`;
   await edit(st.chat, st.card, `${greeting}\n\n${summary}`);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
@@ -423,6 +424,31 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
 
 const setting = async (key: string) => (await sb.from("settings").select("value").eq("key", key).maybeSingle()).data?.value ?? null;
 
+// п. 5: вторая баня в ту же баню за те же сутки (МСК) не засчитывается. Возвращает ники тех из похода,
+// у кого в эти сутки в этой бане уже есть более ранний живой поход, — для них этот поход очков не даст
+async function sameDayRepeat(visitId: number): Promise<string[]> {
+  const { data: v } = await sb.from("visits").select("id, bath_id, entered_at, visit_players(player_id)").eq("id", visitId).maybeSingle();
+  if (!v) return [];
+  const t = new Date(v.entered_at).getTime(), m = new Date(t + 3 * 3600e3);
+  const from = Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), m.getUTCDate()) - 3 * 3600e3;
+  const people = (v.visit_players ?? []).map((x: Any) => x.player_id);
+  if (!people.length) return [];
+  const { data: others } = await sb.from("visits").select("id, entered_at, visit_players!inner(player_id)")
+    .eq("bath_id", v.bath_id).neq("status", "rejected").neq("id", visitId)
+    .gte("entered_at", new Date(from).toISOString()).lt("entered_at", new Date(from + 864e5).toISOString())
+    .in("visit_players.player_id", people);
+  const ids = new Set<string>();
+  for (const o of others ?? []) {
+    const ot = new Date(o.entered_at).getTime();
+    if (ot < t || (ot === t && o.id < v.id)) for (const p of o.visit_players ?? []) ids.add(p.player_id);
+  }
+  if (!ids.size) return [];
+  const { data: ps } = await sb.from("players").select("nick").in("id", [...ids]);
+  return (ps ?? []).map((p: Any) => p.nick);
+}
+// движок повтор сам не срезает (баню могли кинуть за прошлый день) — это подсказка Комиссии проверить дату
+const repeatLine = (names: string[]) => names.length ? `\n⚠️ Похоже на повтор: у ${esc(names.join(", "))} в эти сутки уже есть поход в эту баню. Комиссия проверит дату (п. 5)` : "";
+
 // поход отметили на сайте (зовёт триггер: ?new=<id>): бот сам пишет о нём в чат лиги — это и есть пост похода,
 // вердикт потом придёт ответом на него; Комиссии в личку — то же уведомление с кнопками, что для походов из чата
 async function siteVisit(visitId: number): Promise<boolean> {
@@ -443,7 +469,8 @@ async function siteVisit(visitId: number): Promise<boolean> {
   const company = (vv.visit_players ?? []).map((x: Any) => x.players?.nick).filter((n: string) => n && n !== author);
   const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
-    + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "");
+    + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "")
+    + repeatLine(await sameDayRepeat(visitId));
   if (chat) {
     const r = await send(chat, `🌐 <b>${esc(author)}</b> отметил баню на сайте\n\n${summary}\n\nЖдёт Комиссию 👀`);
     if (r.ok) {

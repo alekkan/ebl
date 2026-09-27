@@ -517,6 +517,7 @@ tr.below { color: var(--ink-2); }
 .post-bath:hover { color: var(--oak); }
 .post-meta { display: flex; flex-wrap: wrap; gap: 6px; }
 .post-meta span { font-size: 12px; font-weight: 600; background: var(--panel-2); color: var(--ink-2); padding: 4px 10px; border-radius: 999px; }
+.post-meta span.warn { background: var(--ember-soft); color: var(--ember); }
 .post-pts { font: 800 22px/1 var(--display); color: var(--ember); }
 .status { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
 .status.pending { background: var(--honey-soft); color: color-mix(in srgb, var(--honey) 55%, var(--ink)); }

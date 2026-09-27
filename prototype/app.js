@@ -865,8 +865,9 @@
     if (date > mskNow()) return { ...base, empty: "Время захода ещё не наступило — поправь дату" };
     if (date.slice(0, 4) !== "2026") return { ...base, empty: "Сезон — 2026 год: поход из другого года не засчитывается" };
     const sameDay = !isNew && visits.some((v) => v.status !== "rejected" && v.bathId === b.id && v.date.slice(0, 10) === date.slice(0, 10) && (v.player === player || v.companions.includes(player)));
-    if (sameDay) return { ...base, empty: "В эту баню сегодня уже отмечен поход — второй раз за сутки не считается" };
     const s = seasonOf(player), lines = [];
+    // не блокируем: дата могла быть не та (баню кинули за прошлый день) — предупреждаем, решит Комиссия
+    if (sameDay) lines.push(["В эту баню в этот день поход уже есть — проверь дату, иначе Комиссия может не засчитать (п. 5)", 0, "muted"]);
     lines.push(["Поход в баню", 1]);
     const bt = !isNew && b.t === "unknown" && pickedType ? pickedType : b.t;
     if (bt === "public") lines.push(["Общественная", 1]);
@@ -971,6 +972,11 @@
     $("#pendingBadge").title = canModerate ? "Ждут решения Комиссии" : "Твои походы на модерации";
   }
   const STATUS = { pending: "на модерации", ok: "засчитан", rejected: "отклонён" };
+  // п. 5: у кого из похода в эти сутки в этой бане уже есть более ранний живой поход. Очки движок не срезает —
+  // это подсказка Комиссии проверить дату (часто баню кидают за прошлый день)
+  const repeatOf = (v) => v.status === "rejected" ? [] : [v.player, ...v.companions].filter((n) => visits.some((w) =>
+    w.id !== v.id && w.status !== "rejected" && w.bathId === v.bathId && w.date.slice(0, 10) === v.date.slice(0, 10)
+    && (w.date < v.date || (w.date === v.date && w.id < v.id)) && (w.player === n || w.companions.includes(n))));
   const fmtDate = (s) => new Date(s + ":00Z").toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   $(".switch").hidden = !canModerate;
   // Комиссии по умолчанию — то, что ждёт решения
@@ -1011,6 +1017,8 @@
         <div><a class="post-bath" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a><div class="hint">${esc(b ? where(b) : "")}</div></div>
         <div class="post-meta">
           <span>${v.dur > 150 ? "🔥 долгая" : "обычная"}</span>
+          ${(() => { const rep = repeatOf(v), who = [v.player, ...v.companions];
+            return rep.length ? `<span class="warn" title="Движок очки не срезает: баню могли кинуть за прошлый день. Решает Комиссия">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</span>` : ""; })()}
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
         </div>
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<div class="post-links"><a href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a></div>` : ""}

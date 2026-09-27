@@ -82,19 +82,16 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     if (lv.year === season) remember(lv.nick, lv.bath_id);
   }
 
-  // журнал: только походы этого сезона начиная с cutoverWeek; первый поход участника в баню за сутки (п. 5)
-  const entries = [], dedupe = new Set();
+  // журнал: только походы этого сезона начиная с cutoverWeek. Повтор бани в те же сутки (п. 5) движок сам не срезает:
+  // бани часто кидают за прошлый день, и «те же сутки» по дате захода бывают мнимыми — Комиссия видит предупреждение
+  // и решает сама; засчитала — очки идут (решение лиги 27.09.2026)
+  const entries = [];
   const sorted = visits
     .map((v) => ({ ...v, week: weekOf(v.posted_at, season), day: dayKey(msk(v.entered_at)) }))
     .filter((v) => v.week >= cutoverWeek && msk(v.entered_at).getUTCFullYear() === season && v.duration_min >= 60)
     .sort((a, b) => new Date(a.entered_at) - new Date(b.entered_at) || a.id - b.id);
   for (const v of sorted) {
-    for (const p of v.players) {
-      const key = p.nick + "|" + v.bath_id + "|" + v.day;
-      if (dedupe.has(key)) continue;
-      dedupe.add(key);
-      entries.push({ v, nick: p.nick });
-    }
+    for (const p of v.players) entries.push({ v, nick: p.nick });
   }
   // компания — все участники в этой бане в эти сутки (п. 11)
   const company = new Map();
