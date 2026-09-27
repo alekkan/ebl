@@ -6,7 +6,7 @@
 """
 import json, re, time
 from concurrent.futures import ThreadPoolExecutor
-from local import WEBHOOK_SECRET, check, req, sql
+from local import API, KEY, WEBHOOK_SECRET, check, req, sql
 
 CHAT, ME = -1001234567890, 900
 sql("delete from bot_sessions")
@@ -137,9 +137,9 @@ vid = visit_ago(4)
 post("долгая", 31, chat=ME, chat_type="private")
 check("«долгая» в личку боту — тоже долгая", dur(vid) > 150)
 sql(f"delete from visits where id = {vid}")
-vid = visit_ago(1)
-post("@eblsu_bot долгая", 32)
-check("через час после захода — рано: долгая — это больше 2,5 часа", dur(vid) == 60)
+vid = visit_ago(0.5)
+post("@eblsu_bot долгая будет", 32)
+check("«долгая будет» через полчаса после захода — можно сразу, долгая", dur(vid) > 150)
 sql(f"delete from visits where id = {vid}")
 st = case("@eblsu_bot Сандуны долгая с Деном", 33)
 check("«Сандуны долгая с Деном» — это новый пост с долгой, а не отметка", (st or {}).get("dur") == 180 and nicks(st.get("company", [])) == {"Ден"}, st)
@@ -304,6 +304,20 @@ check("и карточка в чате: шапка та же, сводка св�
 sql(f"update visits set duration_min = 180 where id = {vid}")
 check("поменяли длительность — у Комиссии «долгая»", wait(f"select position('долгая' in text) > 0 from bot_notifications where visit_id = {vid}", "t"))
 sql(f"delete from visits where id = {vid}")
+
+print("Итоги недели")
+dry = lambda: req("GET", "/functions/v1/week-results?dry=")[1]
+wk = dry()
+check("итоги недели: места и очки как в движке (делёжка мест — среднее)", wk.get("week") and all("place" in r and "pts" in r for r in wk.get("rows", [])), wk.get("rows", [])[:3])
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now(), 60, id, 'bot' from players where nick = 'Леха' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick = 'Леха'")
+check("поход этой недели на проверке — итоги ждут решения Комиссии", dry()["waiting"]["visits"] >= 1, dry()["waiting"])
+sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
+check("решили — ждать нечего", dry()["waiting"]["visits"] == 0, dry()["waiting"])
+sql(f"delete from visits where id = {vid}")
+import urllib.request
+png = urllib.request.urlopen(urllib.request.Request(f"{API}/functions/v1/week-results?render=", headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"}), timeout=120).read()
+check("картинка итогов — PNG 1080×1350", png[:8] == b"\x89PNG\r\n\x1a\n" and int.from_bytes(png[16:20], "big") == 1080 and int.from_bytes(png[20:24], "big") == 1350, len(png))
 
 print("Заявка «это я» — через бота")
 NEW1, NEW2, NEW3 = 903, 904, 905

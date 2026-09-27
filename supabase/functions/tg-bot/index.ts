@@ -4,7 +4,7 @@
 // Бот отвечает карточкой: что понял, чего не хватает; уточняет баню (в т.ч. новая ли она — УУ), время, компанию.
 // Пост в группе — документ похода (п. 5 регламента), его время определяет неделю (п. 6).
 // После «В Комиссию»: на посте 👀, Комиссии в личку — поход с кнопками; после решения — 👍 или 💩 и итог в карточке.
-// Баню отмечают сразу после входа; долгую (п. 15, на доверии — без фото) участник отмечает сам: через 2,5–8 часов
+// Баню отмечают сразу после входа; долгую (п. 15, на доверии — без фото) участник отмечает сам: в течение 8 часов
 // после захода отмечает бота и пишет «долгая». Сам бот ничего не спрашивает — чат не захламляется.
 // В личке с ботом работает то же самое, только без отметки.
 //
@@ -879,17 +879,16 @@ async function implicitAnswer(msg: Any): Promise<boolean> {
 }
 
 // Долгая — на доверии: одно «долгая» от любого из компании делает поход долгим, ошибки правит Комиссия.
-// Отметить можно через 2,5–8 часов после захода: раньше долгой ещё не бывает, позже — только Комиссия на сайте.
+// Отметить можно в любой момент до 8 часов после захода — хоть сразу («долгая будет»); позже — только Комиссия на сайте.
 const LONG_STRANGER = "Это для тех, кто был в походе";
 const LONG_LATE = "Прошло больше 8 часов с захода — долгую теперь отмечает Комиссия на сайте";
-const LONG_MIN = LONG * 60e3, LONG_MAX = 8 * 3600e3;
-async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late" | "early"> {
+const LONG_MAX = 8 * 3600e3;
+async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late"> {
   const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", visitId).eq("player_id", me?.id ?? "").maybeSingle();
   if (!vp) return "stranger";
   const { data: v } = await sb.from("visits").select("duration_min, status, entered_at").eq("id", visitId).single();
   const since = Date.now() - new Date(v.entered_at).getTime();
   if (since > LONG_MAX) return "late";
-  if (since < LONG_MIN && v.duration_min <= LONG) return "early";
   if (v.duration_min <= LONG) await sb.from("visits").update({ duration_min: LONG + 1 }).eq("id", visitId);
   if (v.status === "ok") await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
   return "ok";
@@ -933,9 +932,10 @@ async function noteLong(visitId: number, line: string, long: boolean) {
   return refreshCard(visitId);
 }
 
-// «долгая» сам по себе (отметили бота) — это про свой последний поход: ищем тот, что был 2,5–8 часов назад (или только начался —
-// тогда скажем, что рано; или давно — тогда только Комиссия). Ответ — 🔥 на сообщение и строка в карточке похода.
-const LONG_FILLER = new Set(("была был было были это у меня нас мы я отметь отметьте отметить отмечаю засчитай пжл пожалуйста плиз пж " +
+// «долгая» сам по себе (отметили бота) — это про свой последний поход за 8 часов (давнее — только Комиссия).
+// Ответ — 🔥 на сообщение и строка в карточке похода.
+const LONG_FILLER = new Set(("была был было были будет буду будем это у меня нас мы я отметь отметьте отметить отмечаю засчитай пжл пожалуйста плиз пж " +
+  "планирую собираюсь сидим сидеть сидим паримся надолго " +
   "получилась вышла кстати сегодня баня баньку парились парился посидели сидели вроде точно ура ну да").split(" "));
 function isLongClaim(text: string) {
   const t = norm(text.replace(new RegExp(`@${BOT}|/banya(@\\w+)?`, "gi"), " "));
@@ -945,7 +945,6 @@ function isLongClaim(text: string) {
 }
 function longRefusal(res: string, since: number | null) {
   if (res === "late") return LONG_LATE;
-  if (res === "early") return `Долгая — это больше 2,5 часа${since != null ? `, а с захода прошло ${Math.floor(since / 36e5)} ч ${Math.floor((since % 36e5) / 6e4)} мин` : ""}. Отметь позже.`;
   return `${LONG_STRANGER} 🙂`;
 }
 async function claimLong(msg: Any, me: Any) {
@@ -996,7 +995,7 @@ const mentionsBot = (msg: Any) => {
 };
 
 const HOWTO = `Отмечайте походы прямо здесь — отметьте меня и напишите как есть:\n<i>@${BOT} Сандуны 3ч с Деном</i>\n\n`
-  + "Не хватит чего-то — переспрошу. Отмечайте сразу, как зашли. Вышло больше 2,5 часа — отметьте меня или напишите мне в личку «долгая». "
+  + "Не хватит чего-то — переспрошу. Отмечайте сразу, как зашли. Долгая (больше 2,5 ч) — отметьте меня или напишите в личку «долгая», можно сразу, в течение 8 часов. "
   + `Поход уйдёт в Комиссию, после решения на посте появится 👍 или 💩.\nТаблица и карта: ${SITE}`;
 
 async function onMessage(msg: Any) {
@@ -1102,7 +1101,7 @@ async function onCallback(cq: Any) {
   if (data.startsWith("yl:")) {
     const vid = Number(data.slice(3));
     const res = await markLong(vid, me);
-    if (res !== "ok") return answer(cq.id, res === "late" ? LONG_LATE : res === "early" ? "Долгая — больше 2,5 часа, с захода ещё не прошло" : LONG_STRANGER, res !== "stranger");
+    if (res !== "ok") return answer(cq.id, res === "late" ? LONG_LATE : LONG_STRANGER, res === "late");
     await answer(cq.id, "🔥 Долгая — +1 всей компании");
     if (await refreshable(vid)) return noteLong(vid, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
     return noteLongAnswer(cq, vid, `${me.nick}: долгая 🔥`);

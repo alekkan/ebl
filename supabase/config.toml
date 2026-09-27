@@ -428,3 +428,6 @@ verify_jwt = false
 
 [functions.bath-location]
 verify_jwt = false
+
+[functions.week-results]
+verify_jwt = false
