@@ -180,15 +180,23 @@ with sync_playwright() as pw:
         vid = max(map(int, new)) if new else None
         row = sql(f"select source || ' ' || status || ' ' || (select count(*) from visit_players where visit_id = {vid}) from visits where id = {vid}") if vid else ""
         check("поход сохранился: с сайта, на модерации, с попутчиком", row == "site pending 2", row)
+        # отзывы: второй не затирает первый, свой можно удалить
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
+        for t in ("Первый отзыв — проверка сайта", "Второй отзыв — проверка сайта"):
+            s.page.fill("#rvText", t); s.page.click('#rvForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        my_reviews = f"select count(*) from reviews where bath_id = {bath} and player_id = '{player_id('Шурик')}' and text like '%— проверка сайта'"
+        check("второй отзыв на ту же баню не затирает первый", sql(my_reviews) == "2", sql(my_reviews))
+        s.page.click("#drawer [data-rvdel]"); s.page.wait_for_timeout(900)
+        check("свой отзыв можно удалить", sql(my_reviews) == "1", sql(my_reviews))
         s.clean("участник после отправки похода")
         s.close()
 
         print("Комиссия")
         s = Site(browser, url, sess=vitek, name="commission")
         s.view("feed")
-        s.page.click("label.switch")
         s.page.wait_for_timeout(400)
-        check("Комиссия видит «Стол Комиссии» и кнопки решения", s.js(f"() => !!document.querySelector('[data-ok=\"{vid}\"]')"))
+        check("Комиссия сразу видит кнопки решения — без переключателя «Режим Комиссии»", s.js(f"() => !!document.querySelector('[data-ok=\"{vid}\"]')"))
         s.page.click(f'[data-ok="{vid}"]')
         s.page.wait_for_timeout(1500)
         check("«Засчитать» с сайта: поход засчитан", sql(f"select status from visits where id = {vid}") == "ok")
@@ -196,13 +204,26 @@ with sync_playwright() as pw:
         check("очки за поход посчитаны", int(sql(f"select count(*) from visit_points where visit_id = {vid}") or 0) >= 1)
         check("повторное решение по уже решённой заявке не проходит",
               s.js(f"async () => {{ try {{ await window.EBLData.moderate({vid}, 'rejected'); return false; }} catch (e) {{ return /уже решили/.test(e.message); }} }}"))
+        # правка засчитанного похода: «🔥 Долгая» вместо минут
+        s.page.click('#feedFilter button[data-f="all"]'); s.page.wait_for_timeout(300)
+        s.page.click(f'[data-edit="{vid}"]'); s.page.wait_for_timeout(300)
+        s.page.click('#eDur button[data-long="1"]')
+        s.page.click('#editForm button[type="submit"]'); s.page.wait_for_timeout(1500)
+        check("Комиссия правит засчитанный поход: «🔥 Долгая» — в базе больше 150 минут", int(sql(f"select duration_min from visits where id = {vid}")) > 150)
+        # название бани Комиссия правит прямо в карточке (prompt отвечает «проверка сайта»)
+        bath_name = sql(f"select name from baths where id = {bath}")
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
+        s.page.click("#dRename"); s.page.wait_for_timeout(900)
+        check("Комиссия переименовывает баню в карточке", sql(f"select name from baths where id = {bath}") == "проверка сайта")
+        sql(f"update baths set name = '{bath_name}' where id = {bath}")
         s.clean("Комиссия")
         s.close()
         # второй поход в ту же баню в те же сутки: Комиссия должна видеть до решения, что очков не будет (п. 5)
         dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
         sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")
         s = Site(browser, url, sess=vitek, name="commission-repeat")
-        s.view("feed"); s.page.click("label.switch"); s.page.wait_for_timeout(400)
+        s.view("feed"); s.page.wait_for_timeout(400)
         check("Комиссия видит пометку «похоже на повтор бани в те же сутки — проверь дату»",
               s.js(f"() => (document.querySelector('[data-ok=\"{dup}\"]')?.closest('.post')?.innerText || '').includes('повтор бани')"))
         s.clean("Комиссия: повтор")
@@ -241,6 +262,13 @@ with sync_playwright() as pw:
         check("участник на телефоне: аватарка видна (не белая точка)",
               s.js("() => { const a = document.querySelector('#meBtn .ava'); return !!a && a.getBoundingClientRect().width >= 24; }"))
         all_views(s, "участник на телефоне", mobile=True)
+        s.view("map"); s.page.wait_for_timeout(300)
+        if s.js("() => !!document.querySelector('#race .race-toggle')"):
+            s.page.click("#race .race-toggle"); s.page.wait_for_timeout(300)
+            check("телефон: развёрнутая гонка недели не уходит под шторку (листается внутри)",
+                  s.js("() => document.getElementById('race').getBoundingClientRect().bottom <= document.getElementById('map').getBoundingClientRect().bottom - 10"),
+                  s.js("() => [document.getElementById('race').getBoundingClientRect().bottom, document.getElementById('map').getBoundingClientRect().bottom]"))
+            s.page.click("#race .race-toggle")
         s.view("table"); s.js(open_shurik)
         s.no_clip("карточка участника с датами на телефоне", "#playerModal")
         s.js("() => (document.getElementById('playerModal').hidden = true)")
@@ -259,6 +287,8 @@ with sync_playwright() as pw:
         s.close()
     finally:
         sql(f"delete from visits where source = 'site' and created_at > now() - interval '1 hour' and created_by = '{player_id('Шурик')}'")
+        sql("delete from reviews where text like '%— проверка сайта'")
+        sql(f"update baths set name = 'Василевские' where id = {bath} and name = 'проверка сайта'")
     browser.close()
     sql(f"update settings set value = '{cutover}' where key = 'cutover_week'")
     print("Готово.")
