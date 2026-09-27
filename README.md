@@ -32,6 +32,7 @@ Telegram-группа ──@eblsu_bot──▶ tg-bot ─┐
 | [docs/bot.md](docs/bot.md) | что умеет бот, как разбирает посты, сценарии |
 | [docs/operations.md](docs/operations.md) | регламент работ: выкладка, переход с таблицы, новые участники, домен, ротация токена |
 | [docs/data.md](docs/data.md) | откуда данные: Google-таблица, выгрузка, сопоставление бань, геокодинг |
+| [docs/workflow.md](docs/workflow.md) | **как мы работаем:** ветки, pull request'ы, проверки, выкладка, откат — для людей и агентов |
 | [AGENTS.md](AGENTS.md) | инструкция для ИИ-агентов, которые будут работать с кодом |
 
 ## Структура репозитория
@@ -59,20 +60,20 @@ python3 -m http.server 8765 --directory prototype
 Сайт по умолчанию смотрит в боевой Supabase (`prototype/config.js`). Чтобы работать с локальным, временно впиши в `config.js`
 адрес `http://127.0.0.1:54321` и publishable-ключ из `supabase status` — и не коммить это.
 
-Тесты (локальный стенд должен быть запущен):
+Тесты (локальный стенд должен быть запущен, настройка — в [docs/workflow.md](docs/workflow.md#рабочее-место--настроить-один-раз)):
 
 ```bash
-supabase db reset
-python3 tests/test_backend.py    # вход, права, поход → модерация → очки, точки бань
-python3 tests/test_bot.py        # разбор постов ботом
+scripts/check.sh                 # всё сразу: бэкенд, бот и сайт в настоящем Chrome (гость, участник, Комиссия, телефон)
 ```
 
-## Выкладка
+## Как вносить изменения и выкладывать
+
+В `main` напрямую не коммитим: задача → ветка → pull request → зелёные проверки → merge → выкладка скриптом.
+Выкладывают только скрипты и только из актуального `main` — они сами гоняют все тесты:
 
 ```bash
-scripts/deploy.sh                 # сайт → GitHub Pages (ветка gh-pages собирается из prototype/)
-supabase db push                  # новые миграции → боевая база
-supabase functions deploy <имя> --project-ref yeerkfdgmhcmvdqzaoio --no-verify-jwt
+scripts/deploy.sh                          # сайт → GitHub Pages
+scripts/deploy-backend.sh [функция …]      # миграции + функции (без аргументов — все) + пересчёт таблицы
 ```
 
-Подробности и грабли — в [docs/operations.md](docs/operations.md).
+Весь порядок по шагам, конфликты, данные на бою и откат — в [docs/workflow.md](docs/workflow.md), грабли — в [docs/operations.md](docs/operations.md).
