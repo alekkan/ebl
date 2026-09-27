@@ -93,6 +93,13 @@
   }
   const mskDate = () => new Date(Date.now() + 3 * 3600e3); // UTC-поля = московское время
   const mskNow = () => mskDate().toISOString().slice(0, 16);
+  // день похода коротко: «сегодня», «вчера», «27 сент.» (s — МСК 'YYYY-MM-DDTHH:MM')
+  function dayLabel(s) {
+    const day = s.slice(0, 10), today = mskNow().slice(0, 10);
+    if (day === today) return "сегодня";
+    if (day === new Date(Date.parse(today + "T00:00:00Z") - 864e5).toISOString().slice(0, 10)) return "вчера";
+    return new Date(day + "T00:00:00Z").toLocaleDateString("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" });
+  }
   const curWeek = weekOf(mskNow());
   function timeLeft() {
     const now = mskDate(), end = new Date(now);
@@ -202,11 +209,13 @@
     const noPin = current.length - onMap.length;
     $("#count").textContent = `${current.length} ${plural(current.length, "баня", "бани", "бань")} · ${season === "2026" ? "походы в 2026" : "походы за 2023–2026"}` + (noPin ? ` · ${noPin} без точки` : "");
     const LIMIT = 250;
+    // выбран участник — рядом с регионом дата его последнего похода с портала (журнал видят только участники)
+    const jrP = player && !(D.live && !member) ? journalOf(player) : null;
     $("#list").innerHTML = current.length ? current.slice(0, LIMIT).map((b) => {
-      const n = b._m;
+      const n = b._m, last = jrP?.get(b.id)?.last;
       return `<button class="item ${b.id === openId ? "active" : ""}" data-id="${b.id}">
         ${tdot(b.t)}
-        <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(where(b))}</span></span>
+        <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(where(b))}${last ? ` · ${dayLabel(last)}` : ""}</span></span>
         <span class="it-heat">${n ? `<b>${n}</b><i style="--w:${Math.max(8, (n / maxM) * 100)}%"></i>` : ""}</span>
       </button>`;
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
@@ -283,6 +292,8 @@
     const myRate = myReview?.rate || 4;
     const avg = rv.length ? rv.reduce((a, r) => a + r.rate, 0) / rv.length : 0;
     const pending = visits.filter((v) => v.bathId === id && v.status === "pending").length;
+    // последний засчитанный поход с портала — журнал видят только участники, гостю строки нет
+    const lastV = visits.filter((v) => v.bathId === id && v.status === "ok").sort((x, y) => y.date.localeCompare(x.date))[0];
     const hist = Object.entries(b.hist || {}).sort();
     const d = $("#drawer");
     d.innerHTML = `
@@ -324,6 +335,7 @@
             : `<p class="hint" style="margin:0">${!b.nHist && !b.isNew
                 ? "С 2023 года здесь никого из лиги не было — первые, кто сходит, возьмут +1 за ультрауникальную и +1 за уникальную."
                 : "В этом сезоне здесь ещё никого не было — каждому, кто сходит, +1 за уникальную."}</p>`}
+          ${lastV ? `<p class="hint last-visit" style="margin:10px 0 0">Последний раз — <b>${dayLabel(lastV.date)}</b>: ${esc([lastV.player, ...(lastV.companions || [])].join(", "))}</p>` : ""}
           ${hist.length ? `<p class="hint" style="margin:10px 0 0">Прошлые сезоны: ${hist.map(([y, n]) => `${y} — ${n}`).join(" · ")} · всего с 2023 — <b>${b.nAll}</b></p>` : ""}
           ${pending ? `<p class="hint" style="margin:6px 0 0">Ещё ${pending} на модерации</p>` : ""}
         </section>
@@ -636,6 +648,19 @@
   });
 
   // ---------- профиль участника ----------
+  // походы участника из журнала портала (с 26.09; видят только участники лиги): баня → последний поход, засчитано, на проверке.
+  // В таблице Комиссии дат нет — только сколько раз за сезон, поэтому бани оттуда идут без даты
+  function journalOf(name) {
+    const by = new Map();
+    for (const v of visits) {
+      if (v.status === "rejected" || !byId.has(v.bathId) || !(v.player === name || v.companions?.includes(name))) continue;
+      const r = by.get(v.bathId) || { last: "", ok: 0, pending: 0 };
+      if (v.status === "pending") r.pending++; else r.ok++;
+      if (v.date > r.last) r.last = v.date;
+      by.set(v.bathId, r);
+    }
+    return by;
+  }
   function openPlayer(name) {
     // новичка ещё нет в таблице (ни бань из таблицы, ни засчитанных походов) — карточка всё равно открывается
     const s = ranked.find((x) => x.name === name)
@@ -648,11 +673,25 @@
     const empty = !s.baths;
     const types = mine.reduce((a, b) => ((a[b.t] = (a[b.t] || 0) + b.v26[name]), a), {});
     const best = Math.max(...weeks.map((w) => s.weekBaths[w] ?? 0));
+    // сверху — свежие походы с портала (по дате), ниже — бани из таблицы Комиссии (там дат нет); гостю журнал не виден
+    const guest = D.live && !member;
+    const jr = guest ? new Map() : journalOf(name);
+    const lastDay = [...jr.values()].filter((r) => r.ok).reduce((a, r) => (r.last > a ? r.last : a), "");
+    const onlyJournal = [...jr.keys()].filter((id) => !byId.get(id).v26?.[name]).map((id) => byId.get(id));   // ещё на проверке
+    const dated = [...mine.filter((b) => jr.has(b.id)), ...onlyJournal].sort((a, b) => jr.get(b.id).last.localeCompare(jr.get(a.id).last));
+    const undated = mine.filter((b) => !jr.has(b.id)).sort((a, b) => b.v26[name] - a.v26[name] || a.name.localeCompare(b.name, "ru"));
+    const bRow = (b) => {
+      const r = jr.get(b.id), n = b.v26?.[name] || 0;
+      return `<button data-bath="${b.id}"><span>${esc(b.name)}</span><span class="bl-r">${r?.pending ? "<em>на проверке</em>" : ""}${n > 1 ? `<b>×${n}</b>` : ""}${r ? `<time datetime="${r.last.slice(0, 10)}">${dayLabel(r.last)}</time>` : ""}</span></button>`;
+    };
+    const blist = dated.map(bRow).join("")
+      + (undated.length && !guest ? `<div class="bl-sep">${dated.length ? "Раньше — по таблице Комиссии, там без дат" : "По таблице Комиссии — там без дат"}</div>` : "")
+      + undated.map(bRow).join("");
     $("#playerBody").innerHTML = `
       <div class="p-head">${ava(name, "xl")}<div>
         <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${empty ? "участник лиги" : `${s.place} место в сезоне`}</div>
         <h2>${esc(name)}</h2>
-        <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${best ? ` · рекорд — ${best} ${plural(best, "баня", "бани", "бань")} за неделю` : ""}`}</div>
+        <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${best ? ` · рекорд — ${best} ${plural(best, "баня", "бани", "бань")} за неделю` : ""}${lastDay ? ` · последняя — ${dayLabel(lastDay)}` : ""}`}</div>
       </div></div>
       ${empty ? `<div class="p-body"><div class="empty" style="padding:28px 8px">${markSvg()}<b>Сезон ещё впереди</b><p>Первая баня — сразу +1 за поход и +1 за уникальную.</p></div></div>` : `<div class="p-body">
         <div class="stats four">
@@ -665,7 +704,8 @@
           <div class="axis"><span>W1</span><span>W${Math.round(curWeek / 2)}</span><span>W${curWeek}</span></div>
         </section>
         <div class="cols2">
-          <section><h3>Бани сезона · ${mine.length}</h3><div class="blist">${mine.map((b) => `<button data-bath="${b.id}"><span>${esc(b.name)}</span><b>${b.v26[name] > 1 ? "×" + b.v26[name] : ""}</b></button>`).join("") || '<span class="hint">Пока пусто</span>'}</div></section>
+          <section><h3>Бани сезона · ${mine.length}</h3><div class="blist">${blist || '<span class="hint">Пока пусто</span>'}</div>
+            ${guest && mine.length ? '<p class="hint" style="margin:8px 0 0">Даты походов видны участникам лиги после входа.</p>' : ""}</section>
           <section>
             <h3>География</h3>
             <p class="geo" style="margin:0 0 4px"><b>${ctry.size}</b> ${plural(ctry.size, "страна", "страны", "стран")} · <b>${regions.size}</b> ${plural(regions.size, "регион", "региона", "регионов")}</p>
