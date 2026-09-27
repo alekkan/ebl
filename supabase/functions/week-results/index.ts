@@ -1,7 +1,7 @@
 // Итоги недели в чат лиги: картинка-поздравление (пьедестал, бани, очки за места — как на странице недельного зачёта) и подпись.
 //
 // Неделя закрывается в воскресенье в 22:59 МСК (п. 6). Пост — один на неделю и только когда по закрытой неделе всё решено:
-// нет походов на проверке у Комиссии, новых бань на согласовании и недописанных черновиков в боте (баню могли отметить в 22:58).
+// нет походов на проверке у Комиссии и новых бань на согласовании. Черновики в боте не ждём (решение лиги 27.09).
 // Не решено — ждём: pg_cron зовёт функцию каждые 5 минут (ebl-week-results), пост выйдет после последнего решения Комиссии.
 // Окно — с 23:00 воскресенья до конца среды; старые недели в чат не вытаскиваем.
 //
@@ -58,18 +58,16 @@ async function weekData(season: number, week: number) {
   return { rows, dates, total: raw.reduce((a, r) => a + r[1], 0) };
 }
 
-// что по неделе ещё не решено: походы на проверке, новые бани на согласовании, недописанные черновики в боте
+// что по неделе ещё не решено Комиссией: походы на проверке и новые бани на согласовании
 async function pendingFor(season: number, week: number) {
   const inWeek = (t: string | number | Date) => weekOf(new Date(t), season) === week;
-  const [{ data: pv }, { data: pb }, { data: ss }] = await Promise.all([
+  const [{ data: pv }, { data: pb }] = await Promise.all([
     sb.from("visits").select("id, posted_at").eq("status", "pending"),
     sb.from("baths").select("id, visits(posted_at, status)").eq("status", "pending"),
-    sb.from("bot_sessions").select("state"),
   ]);
   const visits = (pv ?? []).filter((v: Any) => inWeek(v.posted_at)).length;
   const bathsN = (pb ?? []).filter((b: Any) => (b.visits ?? []).some((v: Any) => v.status !== "rejected" && inWeek(v.posted_at))).length;
-  const drafts = (ss ?? []).filter((x: Any) => { const s = x.state; return s && !s.stash && s.posted && Date.now() - (s.ts ?? 0) < 6 * 3600e3 && inWeek(s.posted * 1000); }).length;
-  return { visits, baths: bathsN, drafts, total: visits + bathsN + drafts };
+  return { visits, baths: bathsN, total: visits + bathsN };
 }
 
 // ---------- картинка ----------
