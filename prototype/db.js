@@ -59,7 +59,7 @@ window.EBLData = (() => {
     }
     const newBaths = store.get("newBaths", []);
     return {
-      baths: [...baths, ...newBaths], standings, reviews: store.get("reviews", {}), visits: store.get("visits", []),
+      baths: [...baths, ...newBaths], standings, reviews: store.get("reviews", {}), prices: store.get("prices", {}), visits: store.get("visits", []),
       players: standings.map((s) => s.name), me: null,
       commission: ["Витёк", "Леха"],   // в витрине — как в scripts/seed.py
     };
@@ -95,11 +95,12 @@ window.EBLData = (() => {
   }
 
   async function loadLive() {
-    const [baths, counts, standings, reviews, players, me] = await Promise.all([
+    const [baths, counts, standings, reviews, prices, players, me] = await Promise.all([
       all("baths", "id, name, type, country, region, lat, lng, precision, status, created_by", (q) => q.neq("status", "rejected")),
       all("bath_counts", "bath_id, year, nick, n", null, ["bath_id", "year", "nick"]),
       all("standings", "*", null, ["nick"]),
       all("reviews", "id, bath_id, rating, text, created_at, player_id, players(nick)", null, ["id"]),
+      all("bath_prices", "id, bath_id, price, currency, duration_min, price_date", null, ["bath_id", "price_date"]),
       all("players", "id, nick, is_commission, photo_url"),
       whoami(),
     ]);
@@ -116,13 +117,15 @@ window.EBLData = (() => {
     for (const r of reviews.sort((a, b) => b.created_at.localeCompare(a.created_at))) {
       (rv[r.bath_id] ||= []).push({ id: r.id, author: r.players?.nick ?? "участник", rate: r.rating, text: r.text, at: r.created_at, mine: r.player_id === me?.playerId });
     }
+    const pr = {};
+    for (const p of prices) (pr[p.bath_id] ||= []).push(p);   // price_date по возрастанию — свежая в конце
     const playersById = Object.fromEntries(players.map((p) => [p.id, p.nick]));
     const visits = me?.playerId ? await loadVisits(playersById) : [];
     return {
       baths,
       standings: standings.map((s) => ({ name: s.nick, total: +s.total, baths: s.baths, u: s.u, uu: s.uu, long: s.long, k: s.k, pub: s.pub, reg: s.reg,
         weekPts: s.week_pts, weekBaths: s.week_baths, updatedAt: s.updated_at })),
-      reviews: rv, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
+      reviews: rv, prices: pr, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
       photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, viaApi(p.photo_url)])),
     };
@@ -159,6 +162,19 @@ window.EBLData = (() => {
       if (!live) { cache.reviews[bathId] = (cache.reviews[bathId] || []).filter((r) => r.id !== reviewId); store.set("reviews", cache.reviews); return; }
       const rows = check(await sb.from("reviews").delete().eq("id", reviewId).select("id"));
       if (!rows?.length) throw new Error("не удалось — это чужой отзыв");
+    },
+
+    // если цена не изменилась с прошлой записи (та же валюта и время) — сервер новую строку не пишет и возвращает null
+    async submitBathPrice(bathId, price, currency, durationMin) {
+      if (!live) {
+        const last = (cache.prices[bathId] || [])[cache.prices[bathId]?.length - 1];
+        const curr = (currency || "RUB").toUpperCase();
+        if (last && last.currency === curr && (last.duration_min || null) === (durationMin || null) && +last.price === +price) return null;
+        const rec = { id: Date.now(), bath_id: bathId, price, currency: curr, duration_min: durationMin || null, price_date: new Date().toISOString().slice(0, 10) };
+        cache.prices[bathId] = [...(cache.prices[bathId] || []), rec];
+        store.set("prices", cache.prices); return rec.id;
+      }
+      return check(await sb.rpc("submit_bath_price", { p_bath_id: bathId, p_price: price, p_currency: currency || null, p_duration_min: durationMin || null }));
     },
 
     // поход: v = { bathId | newBath, bathType (тип не размеченной бани со слов автора), date (МСК), dur, companions, lines, total, player, week }

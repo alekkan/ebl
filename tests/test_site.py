@@ -206,6 +206,15 @@ with sync_playwright() as pw:
         check("второй отзыв на ту же баню не затирает первый", sql(my_reviews) == "2", sql(my_reviews))
         s.page.click("#drawer [data-rvdel]"); s.page.wait_for_timeout(900)
         check("свой отзыв можно удалить", sql(my_reviews) == "1", sql(my_reviews))
+        # цена: новая запись, повтор той же цены не дублирует, другая цена — новая строка (история, не перезапись)
+        price_rows = f"select count(*) from bath_prices where bath_id = {bath}"
+        s.page.fill("#prPrice", "500"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("цена сохранилась", sql(price_rows) == "1", sql(price_rows))
+        s.page.fill("#prPrice", "500"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("та же цена ещё раз — не дублируем", sql(price_rows) == "1", sql(price_rows))
+        s.page.fill("#prPrice", "600"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("цена изменилась — новая запись, старая осталась", sql(price_rows) == "2", sql(price_rows))
+        check("карточка показывает свежую цену", s.js("() => document.querySelector('#drawer').innerText.includes('600')"))
         s.clean("участник после отправки похода")
         s.close()
 
@@ -328,6 +337,7 @@ with sync_playwright() as pw:
     finally:
         sql(f"delete from visits where source = 'site' and created_at > now() - interval '1 hour' and created_by = '{player_id('Шурик')}'")
         sql("delete from reviews where text like '%— проверка сайта'")
+        sql(f"delete from bath_prices where bath_id = {bath}")
         sql(f"update baths set name = 'Василевские' where id = {bath} and name = 'проверка сайта'")
     browser.close()
     sql(f"update settings set value = '{cutover}' where key = 'cutover_week'")
