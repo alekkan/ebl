@@ -6,3 +6,4 @@ const url = (key: string, real: string) => (Deno.env.get(key) || real).replace(/
 export const TELEGRAM_API = url("TELEGRAM_API_URL", "https://api.telegram.org");
 export const NOMINATIM = url("NOMINATIM_URL", "https://nominatim.openstreetmap.org");
 export const NPM_CDN = url("NPM_CDN_URL", "https://cdn.jsdelivr.net/npm");
+export const YANDEX_S3 = url("S3_URL", "https://storage.yandexcloud.net");

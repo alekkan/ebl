@@ -402,6 +402,86 @@ check("вышел из чата — забыт", sql(f"select count(*) from chat
 sql(f"delete from chat_members where chat_id = {CHAT}")
 sql("delete from bot_log where kind = 'eblany'")
 
+print("Фото из походов")
+# фото кладёт бот, файлы перекачивает функция photos: из Telegram (заглушка) в бакет Яндекса (заглушка, TELEGRAM.s3)
+from local import TELEGRAM
+sql("""update settings set value = '"http://supabase_kong_ebl:8000/functions/v1"' where key = 'functions_url'""")
+sql("delete from bot_sessions")
+sql("delete from visit_photos")
+sql("delete from visits where source = 'bot' and created_at > now() - interval '1 day' and created_by in (select id from players where nick in ('Леха', 'Ден'))")
+sql("delete from player_accounts where tg_id = 909")
+sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
+
+def photo(mid, fid, caption=None, album=None, who=ME, chat=CHAT, chat_type="supergroup", reply_to=None):
+    """Фото в Telegram — сразу в четырёх размерах, как присылает настоящий (90, 320, 1280, 2560 px)."""
+    sizes = [{"file_id": f"photo-{fid}-{n}", "file_unique_id": f"u-{fid}-{n}", "width": w, "height": w * 3 // 4}
+             for n, w in (("s", 90), ("m", 320), ("y", 1280), ("w", 2560))]
+    msg = {"message_id": mid, "date": now(), "chat": {"id": chat, "type": chat_type},
+           "from": {"id": who, "is_bot": False, "first_name": "X"}, "photo": sizes}
+    if caption is not None:
+        msg["caption"] = caption
+        msg["caption_entities"] = [{"type": "mention", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"@\w+", caption)]
+    if album:
+        msg["media_group_id"] = album
+    if reply_to:
+        msg["reply_to_message"] = {"message_id": reply_to, "chat": msg["chat"], "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}}
+    s, _ = req("POST", "/functions/v1/tg-bot", {"update_id": mid, "message": msg}, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+    assert s == 200, s
+
+n_photos = lambda where: int(sql(f"select count(*) from visit_photos where {where}"))
+reacted = lambda mid, emoji: any(m == "setMessageReaction" and int(p.get("message_id") or 0) == mid
+                                 and (p.get("reaction") or [{}])[0].get("emoji") == emoji for m, p in TELEGRAM.calls)
+# альбом приходит тремя сообщениями почти одновременно, подпись — у одного
+with ThreadPoolExecutor(3) as ex:
+    list(ex.map(lambda a: photo(*a), [(201, "b", None, "alb1"), (200, "a", "@eblsu_bot Василевские с Деном", "alb1"), (202, "c", None, "alb1")]))
+st = state()
+check("альбом с подписью — все три фото в черновике, в карточке «📷 3»", n_photos(f"draft_msg = 200 and visit_id is null and tg_from = {ME}") == 3
+      and st.get("hasPhotos") and st.get("photos") == 3, st)
+check("берём размер до 1600 px и превью от 320 px", sql("select string_agg(distinct w || 'x' || h || ':' || (tg_thumb_id like '%-m'), ',') from visit_photos where draft_msg = 200") == "1280x960:true")
+photo(203, "x", None, "alb-x", who=901)
+check("чужой альбом без подписи бот не хранит", n_photos("tg_album = 'alb-x'") == 0)
+card("send", cid="ph1")
+vid = sql(f"select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot'")
+check("«В Комиссию» — фото черновика ушли в поход", n_photos(f"visit_id = {vid}") == 3 and n_photos("visit_id is null") == 0)
+cardmsg = sql(f"select card_msg from bot_posts where visit_id = {vid}")
+check("в карточке похода — «📷 3 фото»", "📷 3 фото" in sql(f"select card_text from bot_posts where visit_id = {vid}"))
+def wait_ready(n):
+    for _ in range(40):
+        if n_photos(f"visit_id = {vid} and ready") == n: return True
+        time.sleep(0.5)
+    return False
+check("файлы перекачаны в бакет сами (триггер → функция photos)", wait_ready(3), sql(f"select string_agg(tries || '', ',') from visit_photos where visit_id = {vid}"))
+keys = sql(f"select string_agg(key, ',') from visit_photos where visit_id = {vid}").split(",")
+objs = [TELEGRAM.s3.get(f"ebl-photos/{k}{sfx}.jpg") for k in keys for sfx in ("", "_s")]
+check("в бакете большое фото и превью, JPEG, кэш навсегда",
+      all(o and o["body"][:2] == b"\xff\xd8" and o["type"] == "image/jpeg" and "immutable" in (o["cache"] or "") for o in objs), [bool(o) for o in objs])
+check("ключ файла — 32 случайных символа", all(re.fullmatch(r"[0-9a-f]{32}", k) for k in keys), keys)
+photo(204, "d", reply_to=int(cardmsg))
+check("фото ответом на карточку похода — в поход, 👍, «📷 4 фото»", n_photos(f"visit_id = {vid}") == 4 and reacted(204, "👍")
+      and "📷 4 фото" in sql(f"select card_text from bot_posts where visit_id = {vid}"))
+photo(205, "e", reply_to=int(cardmsg), who=909)
+check("кто не был в походе — фото не кладёт (🤔)", n_photos(f"visit_id = {vid}") == 4 and reacted(205, "🤔"))
+photo(206, "d", reply_to=int(cardmsg))
+check("то же фото второй раз не ложится", n_photos(f"visit_id = {vid}") == 4)
+seen = len(TELEGRAM.calls)
+photo(207, "g", chat=901, chat_type="private", who=901)
+check("фото в личку — в свой последний поход (Ден был в компании), подтверждение в личке",
+      n_photos(f"visit_id = {vid}") == 5 and any(m == "sendMessage" and "Приложил к походу" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]))
+photo(208, "h", "@eblsu_bot Василевские с Лехой", who=901)
+st = state(901)
+check("пост про уже отмеченный поход — бот говорит, что он есть", (st.get("dup") or {}).get("id") == int(vid), st)
+card("dx", who=901, cid="ph2")
+check("«Не отмечаю» — фото этого поста ушли в тот поход", n_photos(f"visit_id = {vid}") == 6 and n_photos("visit_id is null") == 0)
+photo(209, "i", "Сандуны", chat=ME, chat_type="private")
+check("фото с новой баней в личке — черновик с фото", n_photos(f"draft_msg = 209 and visit_id is null") == 1)
+post("/cancel", 210, chat=ME, chat_type="private")
+check("черновик отменили — его фото удалены", n_photos(f"tg_from = {ME} and visit_id is null") == 0)
+check("гость фото походов не видит", req("GET", "/rest/v1/visit_photos?select=id")[1] in ([], None) or req("GET", "/rest/v1/visit_photos?select=id")[0] in (401, 403))
+sql(f"delete from visits where id = {vid}")
+check("удалили поход — строки фото удалены с ним", n_photos(f"visit_id = {vid}") == 0)
+sql("delete from player_accounts where tg_id = 909")
+sql("delete from bot_sessions")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)

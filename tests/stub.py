@@ -1,4 +1,4 @@
-"""Заглушка внешних сервисов для функций на локальном стенде: Telegram Bot API, геокодер OSM (Nominatim), npm-CDN.
+"""Заглушка внешних сервисов для функций на локальном стенде: Telegram Bot API, геокодер OSM (Nominatim), npm-CDN, хранилище Яндекса (S3).
 
 Без неё локальные функции ходили в интернет: tg-bot и tg-login — в api.telegram.org, week-results — за wasm на jsDelivr,
 bath-location — в Nominatim. На медленной сети запросы висели, и проверки падали каждый раз в новом месте (28.09).
@@ -12,7 +12,10 @@ from email.policy import default as email_policy
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENV_FILE = ROOT / "supabase" / "functions" / ".env"
 EDGE_CONTAINER = "supabase_edge_runtime_ebl"
-KEYS = ("TELEGRAM_API_URL", "NOMINATIM_URL", "NPM_CDN_URL")
+KEYS = ("TELEGRAM_API_URL", "NOMINATIM_URL", "NPM_CDN_URL", "S3_URL")
+# файл фото из Telegram: file_id «photo-…» — есть (крошечный JPEG), остальные — «invalid file_id», как у настоящего
+PHOTO_PREFIX = "photo-"
+jpeg = lambda tag: b"\xff\xd8\xff\xe0" + tag.encode() + b"\xff\xd9"
 # npm-пакеты функций уже лежат в кэше Deno внутри edge runtime (без них функция не запустится) — отдаём файлы оттуда,
 # это те же байты, что на jsDelivr
 NPM_CACHE = "/root/.cache/deno/npm/registry.npmjs.org"
@@ -64,6 +67,9 @@ class Telegram:
             if method == "getUserProfilePhotos":
                 return 200, {"ok": True, "result": {"total_count": 0, "photos": []}}
             if method == "getFile":
+                fid = str(params.get("file_id") or "")
+                if fid.startswith(PHOTO_PREFIX):
+                    return 200, {"ok": True, "result": {"file_id": fid, "file_unique_id": fid, "file_path": f"photos/{fid}.jpg"}}
                 return 400, {"ok": False, "error_code": 400, "description": "Bad Request: invalid file_id"}
             if method == "getMe":
                 return 200, {"ok": True, "result": {"id": int(self.token.split(":")[0]), "is_bot": True, "first_name": "ЕБЛ", "username": "eblsu_bot",
@@ -115,6 +121,7 @@ def start(token):
         raise SystemExit(f"supabase functions serve запущен со старым .env ({', '.join(stale)} не совпадают) — перезапусти: "
                          "supabase functions serve --env-file supabase/functions/.env")
     tg = Telegram(token)
+    tg.s3 = {}
     prefixes = {k: urllib.parse.urlsplit(env[k]).path.rstrip("/") for k in KEYS}
     port = urllib.parse.urlsplit(env["TELEGRAM_API_URL"]).port
 
@@ -148,6 +155,13 @@ def start(token):
 
         def route(self):
             u = urllib.parse.urlsplit(self.path)
+            if u.path.startswith(prefixes["TELEGRAM_API_URL"] + "/file/bot"):
+                m = re.match(r"^/file/bot([^/]+)/photos/(" + PHOTO_PREFIX + r"[\w-]+)\.jpg$", u.path[len(prefixes["TELEGRAM_API_URL"]):])
+                if m and m[1] == tg.token:
+                    return self.reply(200, jpeg(m[2]), "application/octet-stream")   # Telegram отдаёт файлы без типа
+                return self.reply(404, {"ok": False, "error_code": 404, "description": "Not Found"})
+            if u.path.startswith(prefixes["S3_URL"] + "/"):
+                return self.s3(u.path[len(prefixes["S3_URL"]) + 1:])
             if u.path.startswith(prefixes["TELEGRAM_API_URL"] + "/bot"):
                 m = re.match(r"^/bot([^/]+)/(\w+)$", u.path[len(prefixes["TELEGRAM_API_URL"]):])
                 if m:
@@ -166,7 +180,21 @@ def start(token):
             self.rfile.read(int(self.headers.get("Content-Length") or 0))   # непрочитанное тело при закрытии — это сброс соединения
             self.reply(404, {"ok": False, "error_code": 404, "description": "Not Found (заглушка тестов)"})
 
-        do_GET = do_POST = route
+        # бакет Яндекса: PUT кладёт (только с подписью AWS4 — как настоящий), GET/HEAD отдают; всё в памяти (tg.s3)
+        def s3(self, path):
+            if self.command == "PUT":
+                if not (self.headers.get("Authorization") or "").startswith("AWS4-HMAC-SHA256"):
+                    return self.reply(403, {"error": "AccessDenied"})
+                n = int(self.headers.get("Content-Length") or 0)
+                tg.s3[path] = {"body": self.rfile.read(n) if n else b"", "type": self.headers.get("Content-Type"),
+                               "cache": self.headers.get("Cache-Control")}
+                return self.reply(200, b"", "application/xml")
+            obj = tg.s3.get(path)
+            if not obj:
+                return self.reply(404, {"error": "NoSuchKey"})
+            return self.reply(200, b"" if self.command == "HEAD" else obj["body"], obj["type"] or "application/octet-stream")
+
+        do_GET = do_POST = do_PUT = do_HEAD = route
 
     class Server(http.server.ThreadingHTTPServer):
         request_queue_size = 128   # по умолчанию 5: функции зовут Telegram пачками, лишние соединения сбрасывались бы
