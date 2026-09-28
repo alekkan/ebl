@@ -4,16 +4,16 @@
 Запуск:          python3 tests/test_backend.py
 Тест пишет в локальную базу; после него удобно сделать `supabase db reset`.
 """
-import urllib.request, urllib.error, time
+import json, urllib.request, urllib.error, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from local import check, link, login, player_id, req, sql, tg_payload
+from local import check, link, login, now, player_id, req, sql, tg_payload
 
 print("Вход через Telegram")
 bad = tg_payload(1, "x"); bad["hash"] = "0" * 64
 check("поддельная подпись отклоняется", req("POST", "/functions/v1/tg-login", bad)[0] == 401)
 check("данные входа старше часа не принимаются",
-      req("POST", "/functions/v1/tg-login", tg_payload(1, "x", auth_date=str(int(time.time()) - 2 * 3600)))[0] == 401)
+      req("POST", "/functions/v1/tg-login", tg_payload(1, "x", auth_date=str(now() - 2 * 3600)))[0] == 401)
 r, stranger = login(1001, "stranger")
 check("новый человек входит без привязки", r["nick"] is None)
 check("журнал ему не виден", req("GET", "/rest/v1/visits?select=id", token=stranger)[1] == [])
@@ -200,20 +200,20 @@ check("ссылка Google Maps", put(12, "https://www.google.com/maps/place/X/@
 check("точную точку участник не перезаписывает", put(10, "55.1111, 37.1111")[0] == 409)
 check("без входа нельзя", req("POST", "/functions/v1/bath-location", {"bath_id": 10, "input": "55.7,37.6"})[0] == 401)
 sql("update baths set country = null, region = null, precision = 'region' where id = 13")
-# страну и регион функция спрашивает у геокодера OSM: он ограничивает частые запросы (429) — тогда проверку честно
-# пропускаем с пометкой, а не валим весь набор из-за чужого сервиса
+# страну и регион функция спрашивает у геокодера OSM — на стенде это заглушка (tests/stub.py) с ответом настоящего Nominatim
+put(13, "58.6036, 49.6601")   # Киров
+check("страна и регион по точке — в написании таблицы (п. 14)", sql("select country || ' / ' || region from baths where id = 13") == "Россия / Кировская обл",
+      sql("select country || ' / ' || region from baths where id = 13"))
+# настоящий геокодер отвечает так же, как заглушка? Это проверка чужого сервиса по сети: сети нет или он ограничил частые
+# запросы (429) — честно пропускаем с пометкой, а не валим весь набор
 try:
-    osm = urllib.request.urlopen(urllib.request.Request("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=58.6&lon=49.66&zoom=5",
-                                                        headers={"User-Agent": "ebl-tests"}), timeout=15).status
-except urllib.error.HTTPError as e:
-    osm = e.code
-except Exception:
-    osm = None
-if osm == 200:
-    put(13, "58.6036, 49.6601")   # Киров
-    check("страна и регион по точке — в написании таблицы (п. 14)", sql("select country || ' / ' || region from baths where id = 13") == "Россия / Кировская обл")
-else:
-    print(f"  – пропущено: страна и регион по точке — геокодер OSM сейчас не отвечает (HTTP {osm})")
+    osm = urllib.request.urlopen(urllib.request.Request("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=58.6036&lon=49.6601&zoom=5&accept-language=ru",
+                                                        headers={"User-Agent": "ebl-tests"}), timeout=8)
+    real = json.loads(osm.read()).get("address", {})
+    check("[сеть] настоящий геокодер OSM отвечает как заглушка тестов: «Кировская область», «Россия»",
+          (real.get("state"), real.get("country")) == ("Кировская область", "Россия"), real)
+except (urllib.error.URLError, OSError, ValueError) as e:
+    print(f"  – пропущено [сеть]: настоящий геокодер OSM сейчас недоступен ({getattr(e, 'code', None) or getattr(e, 'reason', None) or e})")
 # убираем за собой: иначе следующий прогон упрётся в «одна баня в сутки»
 sql(f"delete from visits where id = {vid}")
 sql("update settings set value = '40' where key = 'cutover_week'")

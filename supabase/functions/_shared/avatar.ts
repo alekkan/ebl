@@ -1,6 +1,8 @@
 // Фото профиля из Telegram → наше хранилище (бакет avatars, публичный).
 // Сначала через Bot API (актуальное фото и его file_unique_id — по нему видно, менялось ли фото),
 // иначе — по ссылке photo_url из данных входа. Перекачиваем, только если фото поменялось.
+import { TELEGRAM_API } from "./hosts.ts";
+
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const PUBLIC_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const TG_PHOTO = /^https:\/\/(t\.me|telegram\.org|[a-z0-9-]+\.telegram\.org|[a-z0-9-]+\.telesco\.pe)\//;
@@ -13,7 +15,7 @@ export let lastBotApiNote = "";
 
 async function fromBotApi(tgId: number): Promise<{ src: string; download: string } | null> {
   if (!TOKEN) { lastBotApiNote = "нет токена бота"; return null; }
-  const api = `https://api.telegram.org/bot${TOKEN}`;
+  const api = `${TELEGRAM_API}/bot${TOKEN}`;
   try {
     const r = await (await fetch(`${api}/getUserProfilePhotos?user_id=${tgId}&limit=1`)).json();
     if (!r.ok) { lastBotApiNote = `Telegram: ${r.error_code} ${r.description}`; return null; }
@@ -23,7 +25,7 @@ async function fromBotApi(tgId: number): Promise<{ src: string; download: string
     const pick = sizes.find((s: { width: number }) => s.width >= 320) ?? sizes[sizes.length - 1];
     const f = await (await fetch(`${api}/getFile?file_id=${pick.file_id}`)).json();
     if (!f.ok) return null;
-    return { src: pick.file_unique_id, download: `https://api.telegram.org/file/bot${TOKEN}/${f.result.file_path}` };
+    return { src: pick.file_unique_id, download: `${TELEGRAM_API}/file/bot${TOKEN}/${f.result.file_path}` };
   } catch {
     return null;
   }

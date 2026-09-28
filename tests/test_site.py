@@ -7,8 +7,9 @@
 Перед запуском: supabase start, supabase functions serve (см. AGENTS.md). Нужен Google Chrome.
 Запуск: python3 tests/test_site.py        (скриншоты провалов — в tests/artifacts/)
 """
-import functools, http.server, json, pathlib, threading, time
+import base64, functools, http.server, json, pathlib, re, threading, time, urllib.parse
 from playwright.sync_api import sync_playwright
+import stub
 from local import API, KEY, check, link, player_id, session, sql
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -18,6 +19,10 @@ SHOWCASE_CONFIG = 'window.EBL_CONFIG = { supabaseUrl: "", supabaseKey: "", teleg
 # ключ, под которым supabase-js хранит сессию: sb-<первая часть адреса>-auth-token
 AUTH_KEY = "sb-" + API.split("//")[1].split(".")[0].split(":")[0] + "-auth-token"
 VIEWS = ["map", "heat", "table", "feed", "rules"]
+# всё, что не со стенда и не с локального сервера сайта
+EXTERNAL = re.compile(r"^https?://(?!(127\.0\.0\.1|localhost)[:/])")
+DEAD = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
+TILE = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=")
 
 # вёрстка: элемент с текстом вылез за свой контейнер (без прокрутки) или за экран; карты и прокручиваемые таблицы — не в счёт
 CLIP_JS = """(root) => {
@@ -51,9 +56,15 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class Server(http.server.ThreadingHTTPServer):
+    # очередь соединений по умолчанию — 5: Chrome открывает сразу шесть, и часть сбрасывалась (ERR_CONNECTION_RESET на vendor/*.js) —
+    # без Leaflet сайт падал, и тест проваливался в случайном месте («шлюз отвечает», «Комиссия видит кнопки», 28.09)
+    request_queue_size = 128
+
+
 def serve():
     handler = functools.partial(Quiet, directory=str(ROOT / "prototype"))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    srv = Server(("127.0.0.1", 0), handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{srv.server_address[1]}/"
 
@@ -67,8 +78,9 @@ class Site:
                                        is_mobile=mobile, has_touch=mobile)
         self.page = self.ctx.new_page()
         self.errors = []
-        self.page.on("console", lambda m: m.type == "error" and not self._noise(m.text) and self.errors.append(m.text))
+        self.page.on("console", lambda m: m.type == "error" and not self._noise(m) and self.errors.append(f"{m.text} ({(m.location or {}).get('url', '')[-60:]})"))
         self.page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
+        self.page.route(EXTERNAL, self._offline)
         self.page.route("**/config.js*", lambda r: r.fulfill(body=config, content_type="application/javascript"))
         if sess:
             self.page.add_init_script(f"localStorage.setItem({json.dumps(AUTH_KEY)}, {json.dumps(json.dumps(sess))})")
@@ -81,11 +93,29 @@ class Site:
             ART.mkdir(exist_ok=True)
             self.page.screenshot(path=str(ART / f"{name}-boot.png"))
         check(f"{name}: сайт загрузился", not err, err)
+        if self.errors:   # не догрузился скрипт — дальше всё посыплется, причину показываем сразу
+            check(f"{name}: страница загрузилась без ошибок", False, self.errors[:3])
+
+    def _offline(self, route):
+        """Сайт в тестах — без интернета: шрифты Google пустые (остаются системные), тайлы карт прозрачные, геокодер отвечает
+        как настоящий. На медленной сети они держали загрузку страницы и клики (28.09). Любой другой запрос наружу — ошибка:
+        значит, сайт полез куда-то, чего тесты не знают (а в России часть адресов режут)."""
+        u = urllib.parse.urlsplit(route.request.url)
+        if u.hostname == "fonts.googleapis.com":
+            return route.fulfill(body="", content_type="text/css")
+        if u.hostname in ("tile.openstreetmap.org", "server.arcgisonline.com"):
+            return route.fulfill(body=TILE, content_type="image/png")
+        if u.hostname == "nominatim.openstreetmap.org" and u.path == "/reverse":
+            status, body = stub.reverse(urllib.parse.parse_qs(u.query))
+            return route.fulfill(status=status, json=body, headers={"Access-Control-Allow-Origin": "*"})
+        self.errors.append(f"сайт полез в интернет: {route.request.url[:120]}")
+        route.abort()
 
     @staticmethod
-    def _noise(text):
-        # тайлы карт и шрифты из интернета могут не догрузиться — это не ошибка сайта
-        return any(s in text for s in ("tile", "openstreetmap", "arcgisonline", "fonts.g", "ERR_INTERNET", "net::ERR"))
+    def _noise(m):
+        # не ошибка сайта — только нарочно мёртвый адрес в проверке двух путей к базе; тайлы и шрифты подменены (_offline),
+        # а сбой загрузки своих файлов прятать нельзя: так пряталась причина провалов 28.09
+        return DEAD in m.text or DEAD in (m.location or {}).get("url", "")
 
     def js(self, code, arg=None):
         return self.page.evaluate(code, arg)
@@ -110,6 +140,9 @@ class Site:
         check(f"{label} — ничего не вылезает", not clipped, clipped)
 
     def close(self):
+        away = [e for e in self.errors if e.startswith("сайт полез в интернет")]
+        if away:   # и там, где консоль не проверяем (два пути к базе, гость и даты)
+            check(f"{self.name}: сайт не ходит в интернет мимо известных адресов", False, away[:3])
         self.ctx.close()
 
 
@@ -120,6 +153,7 @@ def all_views(s, label, mobile=False):
             s.no_clip(f"{label}: «{v}» на телефоне", f"#view-{v}")
     s.view("table")
     s.page.click('#tMode [data-m="week"]')
+    s.page.wait_for_selector("#tWeek:not([hidden])", timeout=8000)
     check(f"{label}: недельный зачёт открылся", s.js("() => !document.getElementById('tWeek').hidden && document.querySelectorAll('#weekTable tbody tr').length > 0"))
     if mobile:
         s.no_clip(f"{label}: недельный зачёт на телефоне", "#view-table")
@@ -157,7 +191,7 @@ with sync_playwright() as pw:
         check("API сайта — через шлюз в Яндексе, а не напрямую *.supabase.co", "supabase.co" not in cfg.split("supabaseUrl:")[1].split("\n")[0])
 
         print("Два пути к базе")
-        dead = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
+        dead = DEAD
         cfg2 = lambda main, direct: f'window.EBL_CONFIG = {{ supabaseUrl: "{main}", directUrl: "{direct}", supabaseKey: "{KEY}", telegramBot: "eblsu_bot", telegramBotId: 1 }};'
         s = Site(browser, url, config=cfg2(dead, API), name="fallback-direct")
         check("шлюз недоступен (VPN не пускает к Яндексу) — сайт идёт в базу напрямую и загружается", s.js("() => document.querySelectorAll('#list .item').length > 0"))
@@ -221,7 +255,9 @@ with sync_playwright() as pw:
         print("Комиссия")
         s = Site(browser, url, sess=vitek, name="commission")
         s.view("feed")
-        s.page.wait_for_timeout(400)
+        # ждём кнопку, а не фиксированные доли секунды: лента дорисовывается после загрузки данных
+        try: s.page.wait_for_selector(f'[data-ok="{vid}"]', timeout=8000)
+        except Exception: pass
         check("Комиссия сразу видит кнопки решения — без переключателя «Режим Комиссии»", s.js(f"() => !!document.querySelector('[data-ok=\"{vid}\"]')"))
         s.page.click(f'[data-ok="{vid}"]')
         s.page.wait_for_timeout(1500)
@@ -249,7 +285,9 @@ with sync_playwright() as pw:
         dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
         sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")
         s = Site(browser, url, sess=vitek, name="commission-repeat")
-        s.view("feed"); s.page.wait_for_timeout(400)
+        s.view("feed")
+        try: s.page.wait_for_selector(f'[data-ok="{dup}"]', timeout=8000)
+        except Exception: pass
         check("Комиссия видит пометку «похоже на повтор бани в те же сутки — проверь дату»",
               s.js(f"() => (document.querySelector('[data-ok=\"{dup}\"]')?.closest('.post')?.innerText || '').includes('повтор бани')"))
         s.clean("Комиссия: повтор")
@@ -261,6 +299,7 @@ with sync_playwright() as pw:
         first_row = "() => document.querySelector('#playerBody .blist button')?.innerText || ''"
         s = Site(browser, url, sess=shurik, name="member-dates")
         s.view("table"); s.js(open_shurik)
+        s.page.wait_for_selector("#playerBody .blist button", timeout=8000)
         row = s.js(first_row)
         check("карточка участника: сверху свежая баня с портала — с датой и «на проверке»",
               "Василевские" in row and "сегодня" in row and "на проверке" in row, row)

@@ -80,6 +80,7 @@ Edge-функции работают с service role и сами проверя�
 | `TELEGRAM_WEBHOOK_SECRET` | секрет вебхука бота (заголовок `X-Telegram-Bot-Api-Secret-Token`) |
 | `SITE_URL` | адрес сайта для ссылок в сообщениях бота (`https://ebl.su/`) |
 | `ALLOWED_ORIGINS` | (необязательно) CORS для `tg-login`/`bath-location`; по умолчанию ebl.su, alekkan.github.io, localhost |
+| `TELEGRAM_API_URL`, `NOMINATIM_URL`, `NPM_CDN_URL` | **на бою не задавать.** Только на локальном стенде — адреса заглушки тестов (`.env.example`, `tests/stub.py`); без них функции ходят в настоящие Telegram, Nominatim и jsDelivr (`_shared/hosts.ts`) |
 
 Публичный ключ Supabase (publishable) лежит в `prototype/config.js` — так и задумано: доступ ограничивают политики.
 Числовой id бота в `config.js` тоже публичный, это не токен.
