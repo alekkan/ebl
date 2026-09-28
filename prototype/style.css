@@ -93,8 +93,9 @@ a { color: var(--oak); }
 :root[data-theme="dark"] .ava { background: hsl(var(--h) 25% 24%); color: hsl(var(--h) 60% 80%); }
 
 /* ---------- шапка ---------- */
+/* выше углов Leaflet (z-index 1000): при равных побеждал DOM, и подпись карты и её кнопки рисовались поверх нижнего меню на телефоне */
 .top {
-  position: relative; z-index: 1000; display: flex; align-items: center; gap: 16px;
+  position: relative; z-index: 1100; display: flex; align-items: center; gap: 16px;
   padding: 10px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 }
@@ -193,6 +194,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .leaflet-control-attribution { background: color-mix(in srgb, var(--panel) 80%, transparent) !important; color: var(--ink-3) !important; border-radius: 8px 0 0 0; font-size: 11px; }
 .leaflet-control-attribution a { color: var(--ink-2) !important; }
 #map .leaflet-top.leaflet-left { left: 392px; top: 4px; }   /* только на главной карте — справа от панели; мини-карта формы не трогается */
+#heatmap .leaflet-top.leaflet-left { left: 372px; }   /* на «Жаре» — справа от карточки, а не поверх её заголовка */
 
 .pin {
   border-radius: 50%; background: var(--c); border: 2px solid var(--panel); color: var(--panel);
@@ -697,15 +699,18 @@ tr.below { color: var(--ink-2); }
   .mark { width: 38px; height: 38px; }
   .brand .word { font-size: 22px; }
   .cta#addVisitBtn { margin-left: auto; padding: 10px 14px; }
+  /* высота нижнего меню — столько же отступ снизу у main: иначе низ вкладки (карта, карточка «Жара») уходит под меню */
+  :root { --nav-h: 70px; }
   .nav {
     position: fixed; z-index: 1500; left: 0; right: 0; bottom: 0; margin: 0; border-radius: 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
     justify-content: space-around; box-shadow: 0 -1px 0 var(--line); background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(12px);
   }
-  .nav button { flex-direction: column; gap: 3px; padding: 6px 10px; font-size: 11px; border-radius: 12px; }
+  .nav button { flex-direction: column; gap: 3px; padding: 8px 10px; font-size: 11px; border-radius: 12px; }
   .nav button .ic { width: 22px; height: 22px; }
   .nav button[aria-selected="true"] { background: none; color: var(--oak); }
   .nav .badge { position: absolute; top: 2px; right: 4px; }
-  main { padding-bottom: calc(62px + env(safe-area-inset-bottom, 0px)); }
+  main { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
 
   /* карта сверху, панель со списком под ней — листается одним экраном, без прокрутки внутри прокрутки */
   .view-map { display: block; overflow-y: auto; overscroll-behavior: contain; }
@@ -758,8 +763,9 @@ tr.below { color: var(--ink-2); }
   .cta#addVisitBtn .cta-long { display: none; }
   .cta#addVisitBtn .cta-short { display: inline-block; }
 }
-@media (max-width: 900px) { .brand .word { display: none; } .nav button { padding: 8px 10px; } }
-@media (min-width: 761px) and (max-width: 900px) { .nav button .ic { display: none; } }   /* «Войти» с подписью — шапке нужно место */
+@media (max-width: 900px) { .brand .word { display: none; } }
+/* «Войти» с подписью — шапке нужно место; на телефоне у меню свои отступы (раньше это правило перебивало их, и меню было выше отступа под него) */
+@media (min-width: 761px) and (max-width: 900px) { .nav button { padding: 8px 10px; } .nav button .ic { display: none; } }
 .cta-short { display: none; }
 /* плюс, а при наведении — ковш: замах, бросок воды на надпись и хлопок мелкого пара над ней */
 #addVisitBtn { position: relative; overflow: visible; }

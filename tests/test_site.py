@@ -50,6 +50,24 @@ CLIP_JS = """(root) => {
   return [...new Set(out)].slice(0, 6);
 }"""
 
+# нижнее меню на телефоне: вкладка кончается там, где начинается меню, и ничего из <main> не лежит поверх него
+# (28.09 клики по меню на «Жаре» ловили тайлы карты; подпись карты рисовалась на меню, низ карточки «Жара» уходил под него)
+NAV_FREE_JS = """() => {
+  const nav = document.querySelector('.nav'), n = nav.getBoundingClientRect(), out = [];
+  const view = [...document.querySelectorAll('.view')].find((v) => !v.hidden)?.getBoundingClientRect();
+  if (view && view.bottom > n.top + 0.5) out.push(`вкладка уходит под меню на ${Math.round(view.bottom - n.top)} px`);
+  for (const y of [n.top + 1, n.top + 6, (n.top + n.bottom) / 2, n.bottom - 2]) for (let x = 2; x < innerWidth; x += 16) {
+    const el = document.elementFromPoint(x, y);
+    if (el && !nav.contains(el)) out.push(`${x},${Math.round(y)}: ${el.tagName}.${[...el.classList].slice(0, 2).join('.')}`);
+  }
+  return [...new Set(out)].slice(0, 5);
+}"""
+# кнопки масштаба карты не лежат на карточке рядом (на «Жаре» они сидели поверх её заголовка)
+ZOOM_OVER_JS = """([map, card]) => {
+  const z = document.querySelector(map + ' .leaflet-control-zoom')?.getBoundingClientRect(), c = document.querySelector(card)?.getBoundingClientRect();
+  return !!(z && c && z.width && c.width) && z.left < c.right && z.right > c.left && z.top < c.bottom && z.bottom > c.top;
+}"""
+
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a):
@@ -139,6 +157,13 @@ class Site:
             self.page.screenshot(path=str(ART / f"{self.name}-clip.png"))
         check(f"{label} — ничего не вылезает", not clipped, clipped)
 
+    def nav_free(self, label):
+        bad = self.js(NAV_FREE_JS)
+        if bad:
+            ART.mkdir(exist_ok=True)
+            self.page.screenshot(path=str(ART / f"{self.name}-nav.png"))
+        check(f"{label} — нижнее меню ничем не перекрыто", not bad, bad)
+
     def close(self):
         away = [e for e in self.errors if e.startswith("сайт полез в интернет")]
         if away:   # и там, где консоль не проверяем (два пути к базе, гость и даты)
@@ -151,6 +176,10 @@ def all_views(s, label, mobile=False):
         s.view(v)
         if mobile:
             s.no_clip(f"{label}: «{v}» на телефоне", f"#view-{v}")
+            s.nav_free(f"{label}: «{v}» на телефоне")
+        elif v in ("map", "heat"):
+            check(f"{label}: на «{v}» кнопки масштаба не лежат на карточке",
+                  not s.js(ZOOM_OVER_JS, ["#map", "#view-map .panel"] if v == "map" else ["#heatmap", "#view-heat .heat-card"]))
     s.view("table")
     s.page.click('#tMode [data-m="week"]')
     s.page.wait_for_selector("#tWeek:not([hidden])", timeout=8000)
@@ -342,6 +371,13 @@ with sync_playwright() as pw:
         s = Site(browser, url, mobile=True, name="mobile-guest")
         s.no_clip("гость: шапка на телефоне", ".top")
         all_views(s, "гость на телефоне", mobile=True)
+        # «Жар»: пока карта летит к бане из списка (анимация приближения, 0,8 с), меню не перекрыто и нажимается
+        s.view("heat")
+        s.page.click("#hTop li[data-id]")
+        s.page.wait_for_timeout(200)
+        s.nav_free("«Жар» на телефоне во время приближения")
+        s.page.click('.nav [data-view="table"]', timeout=3000)
+        check("…и меню переключает вкладку, не дожидаясь конца анимации", s.js("() => !document.getElementById('view-table').hidden"))
         s.close()
         s = Site(browser, url, sess=shurik, mobile=True, name="mobile-member")
         check("участник на телефоне: аватарка видна (не белая точка)",
