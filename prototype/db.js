@@ -6,9 +6,23 @@ window.EBLData = (() => {
   // адрес задан, а библиотека с CDN не загрузилась — это поломка, а не витрина: не показываем старые данные как живые
   const broken = configured && !window.supabase;
   const live = configured && !broken;
-  const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, cfg.authKey ? { auth: { storageKey: cfg.authKey } } : undefined) : null;
-  // фото участников лежат в Storage Supabase: ссылки на *.supabase.co ведём через тот же шлюз, что и API (в обход Cloudflare)
-  const viaApi = (u) => (u && cfg.supabaseUrl ? u.replace(/^https:\/\/[a-z0-9]+\.supabase\.co(?=\/storage\/)/, cfg.supabaseUrl) : u);
+  // Два пути к базе. Основной — шлюз в Яндексе (supabaseUrl): Supabase за Cloudflare, а его в России режут провайдеры.
+  // Запасной — напрямую (directUrl): у части VPN до *.yandexcloud.net не достучаться (28.09). Шлюз не ответил за 6 с — напрямую.
+  // По скорости не выбираем: без VPN маленький запрос напрямую проходит — режутся только большие ответы.
+  let sb = null, base = cfg.supabaseUrl;
+  const clientFor = (url) => window.supabase.createClient(url, cfg.supabaseKey, cfg.authKey ? { auth: { storageKey: cfg.authKey } } : undefined);
+  async function pickBase() {
+    if (!cfg.directUrl) return cfg.supabaseUrl;
+    try {
+      const r = await fetch(cfg.supabaseUrl + "/rest/v1/settings?select=key&limit=1",
+        { headers: { apikey: cfg.supabaseKey }, ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(6000) } : {}) });
+      if (r.ok) return cfg.supabaseUrl;
+    } catch { /* шлюз недоступен — идём запасным путём */ }
+    return cfg.directUrl;
+  }
+  const ready = live ? pickBase().then((b) => { base = b; sb = clientFor(b); api.sb = sb; }) : Promise.resolve();
+  // фото участников лежат в Storage Supabase: ссылки на *.supabase.co ведём тем же путём, что и API
+  const viaApi = (u) => (u && base ? u.replace(/^https:\/\/[a-z0-9]+\.supabase\.co(?=\/storage\/)/, base) : u);
   const YEARS_HIST = [2023, 2024, 2025];
   const LINE_LABEL = { visit: "Поход в баню", public: "Общественная", company: "Компания", unique: "Уникальная",
     ultra: "Ультрауникальная", region: "Новый регион", country: "Новая страна", long: "Долгий поход" };
@@ -121,7 +135,7 @@ window.EBLData = (() => {
 
     // вход: данные Telegram Login Widget → edge-функция → сессия Supabase
     async login(tgUser) {
-      const r = await fetch(cfg.supabaseUrl + "/functions/v1/tg-login", {
+      const r = await fetch(base + "/functions/v1/tg-login", {
         method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey }, body: JSON.stringify(tgUser),
       });
       const body = await r.json();
@@ -197,7 +211,7 @@ window.EBLData = (() => {
     },
     async recompute() {
       if (!live) return;
-      const r = await fetch(cfg.supabaseUrl + "/functions/v1/recompute", { method: "POST", headers: { apikey: cfg.supabaseKey } });
+      const r = await fetch(base + "/functions/v1/recompute", { method: "POST", headers: { apikey: cfg.supabaseKey } });
       if (!r.ok) throw new Error("Таблица не пересчиталась");
     },
 
@@ -216,7 +230,7 @@ window.EBLData = (() => {
     },
     async setBathLocation(bathId, input) {
       const { data: { session } } = await sb.auth.getSession();
-      const r = await fetch(cfg.supabaseUrl + "/functions/v1/bath-location", {
+      const r = await fetch(base + "/functions/v1/bath-location", {
         method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: "Bearer " + (session?.access_token ?? "") },
         body: JSON.stringify({ bath_id: bathId, input }),
       });
@@ -233,5 +247,9 @@ window.EBLData = (() => {
     store,
     broken,
   };
+  // любой вызов в боевом режиме сначала ждёт, пока выбран путь к базе
+  if (live) for (const [k, f] of Object.entries(api)) {
+    if (f?.constructor?.name === "AsyncFunction") api[k] = async (...a) => { await ready; return f.apply(api, a); };
+  }
   return api;
 })();

@@ -156,6 +156,16 @@ with sync_playwright() as pw:
               not any(h in html for h in ("cdnjs.cloudflare.com", "cdn.jsdelivr.net", "unpkg.com")))
         check("API сайта — через шлюз в Яндексе, а не напрямую *.supabase.co", "supabase.co" not in cfg.split("supabaseUrl:")[1].split("\n")[0])
 
+        print("Два пути к базе")
+        dead = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
+        cfg2 = lambda main, direct: f'window.EBL_CONFIG = {{ supabaseUrl: "{main}", directUrl: "{direct}", supabaseKey: "{KEY}", telegramBot: "eblsu_bot", telegramBotId: 1 }};'
+        s = Site(browser, url, config=cfg2(dead, API), name="fallback-direct")
+        check("шлюз недоступен (VPN не пускает к Яндексу) — сайт идёт в базу напрямую и загружается", s.js("() => document.querySelectorAll('#list .item').length > 0"))
+        s.close()
+        s = Site(browser, url, config=cfg2(API, dead), name="fallback-main")
+        check("шлюз отвечает — работаем через него, прямой путь не нужен", s.js("() => document.querySelectorAll('#list .item').length > 0"))
+        s.close()
+
         print("Гость")
         s = Site(browser, url, name="guest")
         check("сайт загрузился, кнопка «Войти» на месте", s.js("() => document.getElementById('meBtn').innerText.includes('Войти')"))
