@@ -2,12 +2,13 @@
 // Бонусы за новый регион и страну (п. 14) сравнивают названия, поэтому «Кировская область» из OpenStreetMap
 // приводим к написанию, которое у лиги уже встречалось; не встречалось — сокращаем по-таблично.
 import { regionKey } from "./scoring.js";
+import { NOMINATIM } from "./hosts.ts";
 
 export type Place = { country: string | null; region: string | null };
 type Known = { country: string | null; region: string | null; n?: number };
 
 export async function reversePlace(lat: number, lng: number): Promise<Place> {
-  const url = "https://nominatim.openstreetmap.org/reverse?" +
+  const url = `${NOMINATIM}/reverse?` +
     new URLSearchParams({ lat: String(lat), lon: String(lng), format: "jsonv2", zoom: "5", "accept-language": "ru" });
   try {
     const a = (await (await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } })).json())?.address ?? {};

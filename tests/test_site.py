@@ -7,8 +7,9 @@
 Перед запуском: supabase start, supabase functions serve (см. AGENTS.md). Нужен Google Chrome.
 Запуск: python3 tests/test_site.py        (скриншоты провалов — в tests/artifacts/)
 """
-import functools, http.server, json, pathlib, threading, time
+import base64, functools, http.server, json, pathlib, re, threading, time, urllib.parse
 from playwright.sync_api import sync_playwright
+import stub
 from local import API, KEY, check, link, player_id, session, sql
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -18,6 +19,10 @@ SHOWCASE_CONFIG = 'window.EBL_CONFIG = { supabaseUrl: "", supabaseKey: "", teleg
 # ключ, под которым supabase-js хранит сессию: sb-<первая часть адреса>-auth-token
 AUTH_KEY = "sb-" + API.split("//")[1].split(".")[0].split(":")[0] + "-auth-token"
 VIEWS = ["map", "heat", "table", "feed", "rules"]
+# всё, что не со стенда и не с локального сервера сайта
+EXTERNAL = re.compile(r"^https?://(?!(127\.0\.0\.1|localhost)[:/])")
+DEAD = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
+TILE = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=")
 
 # вёрстка: элемент с текстом вылез за свой контейнер (без прокрутки) или за экран; карты и прокручиваемые таблицы — не в счёт
 CLIP_JS = """(root) => {
@@ -45,15 +50,39 @@ CLIP_JS = """(root) => {
   return [...new Set(out)].slice(0, 6);
 }"""
 
+# нижнее меню на телефоне: вкладка кончается там, где начинается меню, и ничего из <main> не лежит поверх него
+# (28.09 клики по меню на «Жаре» ловили тайлы карты; подпись карты рисовалась на меню, низ карточки «Жара» уходил под него)
+NAV_FREE_JS = """() => {
+  const nav = document.querySelector('.nav'), n = nav.getBoundingClientRect(), out = [];
+  const view = [...document.querySelectorAll('.view')].find((v) => !v.hidden)?.getBoundingClientRect();
+  if (view && view.bottom > n.top + 0.5) out.push(`вкладка уходит под меню на ${Math.round(view.bottom - n.top)} px`);
+  for (const y of [n.top + 1, n.top + 6, (n.top + n.bottom) / 2, n.bottom - 2]) for (let x = 2; x < innerWidth; x += 16) {
+    const el = document.elementFromPoint(x, y);
+    if (el && !nav.contains(el)) out.push(`${x},${Math.round(y)}: ${el.tagName}.${[...el.classList].slice(0, 2).join('.')}`);
+  }
+  return [...new Set(out)].slice(0, 5);
+}"""
+# кнопки масштаба карты не лежат на карточке рядом (на «Жаре» они сидели поверх её заголовка)
+ZOOM_OVER_JS = """([map, card]) => {
+  const z = document.querySelector(map + ' .leaflet-control-zoom')?.getBoundingClientRect(), c = document.querySelector(card)?.getBoundingClientRect();
+  return !!(z && c && z.width && c.width) && z.left < c.right && z.right > c.left && z.top < c.bottom && z.bottom > c.top;
+}"""
+
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
 
+class Server(http.server.ThreadingHTTPServer):
+    # очередь соединений по умолчанию — 5: Chrome открывает сразу шесть, и часть сбрасывалась (ERR_CONNECTION_RESET на vendor/*.js) —
+    # без Leaflet сайт падал, и тест проваливался в случайном месте («шлюз отвечает», «Комиссия видит кнопки», 28.09)
+    request_queue_size = 128
+
+
 def serve():
     handler = functools.partial(Quiet, directory=str(ROOT / "prototype"))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    srv = Server(("127.0.0.1", 0), handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{srv.server_address[1]}/"
 
@@ -67,8 +96,9 @@ class Site:
                                        is_mobile=mobile, has_touch=mobile)
         self.page = self.ctx.new_page()
         self.errors = []
-        self.page.on("console", lambda m: m.type == "error" and not self._noise(m.text) and self.errors.append(m.text))
+        self.page.on("console", lambda m: m.type == "error" and not self._noise(m) and self.errors.append(f"{m.text} ({(m.location or {}).get('url', '')[-60:]})"))
         self.page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
+        self.page.route(EXTERNAL, self._offline)
         self.page.route("**/config.js*", lambda r: r.fulfill(body=config, content_type="application/javascript"))
         if sess:
             self.page.add_init_script(f"localStorage.setItem({json.dumps(AUTH_KEY)}, {json.dumps(json.dumps(sess))})")
@@ -81,11 +111,29 @@ class Site:
             ART.mkdir(exist_ok=True)
             self.page.screenshot(path=str(ART / f"{name}-boot.png"))
         check(f"{name}: сайт загрузился", not err, err)
+        if self.errors:   # не догрузился скрипт — дальше всё посыплется, причину показываем сразу
+            check(f"{name}: страница загрузилась без ошибок", False, self.errors[:3])
+
+    def _offline(self, route):
+        """Сайт в тестах — без интернета: шрифты Google пустые (остаются системные), тайлы карт прозрачные, геокодер отвечает
+        как настоящий. На медленной сети они держали загрузку страницы и клики (28.09). Любой другой запрос наружу — ошибка:
+        значит, сайт полез куда-то, чего тесты не знают (а в России часть адресов режут)."""
+        u = urllib.parse.urlsplit(route.request.url)
+        if u.hostname == "fonts.googleapis.com":
+            return route.fulfill(body="", content_type="text/css")
+        if u.hostname in ("tile.openstreetmap.org", "server.arcgisonline.com"):
+            return route.fulfill(body=TILE, content_type="image/png")
+        if u.hostname == "nominatim.openstreetmap.org" and u.path == "/reverse":
+            status, body = stub.reverse(urllib.parse.parse_qs(u.query))
+            return route.fulfill(status=status, json=body, headers={"Access-Control-Allow-Origin": "*"})
+        self.errors.append(f"сайт полез в интернет: {route.request.url[:120]}")
+        route.abort()
 
     @staticmethod
-    def _noise(text):
-        # тайлы карт и шрифты из интернета могут не догрузиться — это не ошибка сайта
-        return any(s in text for s in ("tile", "openstreetmap", "arcgisonline", "fonts.g", "ERR_INTERNET", "net::ERR"))
+    def _noise(m):
+        # не ошибка сайта — только нарочно мёртвый адрес в проверке двух путей к базе; тайлы и шрифты подменены (_offline),
+        # а сбой загрузки своих файлов прятать нельзя: так пряталась причина провалов 28.09
+        return DEAD in m.text or DEAD in (m.location or {}).get("url", "")
 
     def js(self, code, arg=None):
         return self.page.evaluate(code, arg)
@@ -109,7 +157,17 @@ class Site:
             self.page.screenshot(path=str(ART / f"{self.name}-clip.png"))
         check(f"{label} — ничего не вылезает", not clipped, clipped)
 
+    def nav_free(self, label):
+        bad = self.js(NAV_FREE_JS)
+        if bad:
+            ART.mkdir(exist_ok=True)
+            self.page.screenshot(path=str(ART / f"{self.name}-nav.png"))
+        check(f"{label} — нижнее меню ничем не перекрыто", not bad, bad)
+
     def close(self):
+        away = [e for e in self.errors if e.startswith("сайт полез в интернет")]
+        if away:   # и там, где консоль не проверяем (два пути к базе, гость и даты)
+            check(f"{self.name}: сайт не ходит в интернет мимо известных адресов", False, away[:3])
         self.ctx.close()
 
 
@@ -118,8 +176,13 @@ def all_views(s, label, mobile=False):
         s.view(v)
         if mobile:
             s.no_clip(f"{label}: «{v}» на телефоне", f"#view-{v}")
+            s.nav_free(f"{label}: «{v}» на телефоне")
+        elif v in ("map", "heat"):
+            check(f"{label}: на «{v}» кнопки масштаба не лежат на карточке",
+                  not s.js(ZOOM_OVER_JS, ["#map", "#view-map .panel"] if v == "map" else ["#heatmap", "#view-heat .heat-card"]))
     s.view("table")
     s.page.click('#tMode [data-m="week"]')
+    s.page.wait_for_selector("#tWeek:not([hidden])", timeout=8000)
     check(f"{label}: недельный зачёт открылся", s.js("() => !document.getElementById('tWeek').hidden && document.querySelectorAll('#weekTable tbody tr').length > 0"))
     if mobile:
         s.no_clip(f"{label}: недельный зачёт на телефоне", "#view-table")
@@ -157,7 +220,7 @@ with sync_playwright() as pw:
         check("API сайта — через шлюз в Яндексе, а не напрямую *.supabase.co", "supabase.co" not in cfg.split("supabaseUrl:")[1].split("\n")[0])
 
         print("Два пути к базе")
-        dead = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
+        dead = DEAD
         cfg2 = lambda main, direct: f'window.EBL_CONFIG = {{ supabaseUrl: "{main}", directUrl: "{direct}", supabaseKey: "{KEY}", telegramBot: "eblsu_bot", telegramBotId: 1 }};'
         s = Site(browser, url, config=cfg2(dead, API), name="fallback-direct")
         check("шлюз недоступен (VPN не пускает к Яндексу) — сайт идёт в базу напрямую и загружается", s.js("() => document.querySelectorAll('#list .item').length > 0"))
@@ -240,7 +303,9 @@ with sync_playwright() as pw:
         print("Комиссия")
         s = Site(browser, url, sess=vitek, name="commission")
         s.view("feed")
-        s.page.wait_for_timeout(400)
+        # ждём кнопку, а не фиксированные доли секунды: лента дорисовывается после загрузки данных
+        try: s.page.wait_for_selector(f'[data-ok="{vid}"]', timeout=8000)
+        except Exception: pass
         check("Комиссия сразу видит кнопки решения — без переключателя «Режим Комиссии»", s.js(f"() => !!document.querySelector('[data-ok=\"{vid}\"]')"))
         s.page.click(f'[data-ok="{vid}"]')
         s.page.wait_for_timeout(1500)
@@ -268,7 +333,9 @@ with sync_playwright() as pw:
         dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
         sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")
         s = Site(browser, url, sess=vitek, name="commission-repeat")
-        s.view("feed"); s.page.wait_for_timeout(400)
+        s.view("feed")
+        try: s.page.wait_for_selector(f'[data-ok="{dup}"]', timeout=8000)
+        except Exception: pass
         check("Комиссия видит пометку «похоже на повтор бани в те же сутки — проверь дату»",
               s.js(f"() => (document.querySelector('[data-ok=\"{dup}\"]')?.closest('.post')?.innerText || '').includes('повтор бани')"))
         s.clean("Комиссия: повтор")
@@ -280,6 +347,7 @@ with sync_playwright() as pw:
         first_row = "() => document.querySelector('#playerBody .blist button')?.innerText || ''"
         s = Site(browser, url, sess=shurik, name="member-dates")
         s.view("table"); s.js(open_shurik)
+        s.page.wait_for_selector("#playerBody .blist button", timeout=8000)
         row = s.js(first_row)
         check("карточка участника: сверху свежая баня с портала — с датой и «на проверке»",
               "Василевские" in row and "сегодня" in row and "на проверке" in row, row)
@@ -322,6 +390,13 @@ with sync_playwright() as pw:
         s = Site(browser, url, mobile=True, name="mobile-guest")
         s.no_clip("гость: шапка на телефоне", ".top")
         all_views(s, "гость на телефоне", mobile=True)
+        # «Жар»: пока карта летит к бане из списка (анимация приближения, 0,8 с), меню не перекрыто и нажимается
+        s.view("heat")
+        s.page.click("#hTop li[data-id]")
+        s.page.wait_for_timeout(200)
+        s.nav_free("«Жар» на телефоне во время приближения")
+        s.page.click('.nav [data-view="table"]', timeout=3000)
+        check("…и меню переключает вкладку, не дожидаясь конца анимации", s.js("() => !document.getElementById('view-table').hidden"))
         s.close()
         s = Site(browser, url, sess=shurik, mobile=True, name="mobile-member")
         check("участник на телефоне: аватарка видна (не белая точка)",

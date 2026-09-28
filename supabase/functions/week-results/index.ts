@@ -14,12 +14,13 @@ import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 import { msk, placePoints, weekOf } from "../_shared/scoring.js";
 import { GOLOS400, GOLOS700, UNBOUNDED700 } from "../_shared/fonts.ts";
 import { HAT } from "./hat.ts";
+import { NPM_CDN, TELEGRAM_API } from "../_shared/hosts.ts";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const BASE = Deno.env.get("SUPABASE_URL")!;
 const SITE = (Deno.env.get("SITE_URL") ?? "https://ebl.su/").replace(/\/?$/, "/");
 const sb = createClient(BASE, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-const WASM = "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.6.2/index_bg.wasm";
+const WASM = `${NPM_CDN}/@resvg/resvg-wasm@2.6.2/index_bg.wasm`;   // версия — как в import выше
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
@@ -188,7 +189,7 @@ async function sendPhoto(chat: number, png: Uint8Array, text: string) {
   const fd = new FormData();
   fd.append("chat_id", String(chat)); fd.append("caption", text); fd.append("parse_mode", "HTML");
   fd.append("photo", new Blob([png], { type: "image/png" }), "week.png");
-  return await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, { method: "POST", body: fd }).then((r) => r.json()).catch(() => ({ ok: false }));
+  return await fetch(`${TELEGRAM_API}/bot${TOKEN}/sendPhoto`, { method: "POST", body: fd }).then((r) => r.json()).catch(() => ({ ok: false }));
 }
 
 // ---------- когда постить ----------

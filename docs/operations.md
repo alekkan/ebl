@@ -79,6 +79,11 @@
   Затем перерегистрировать вебхук (выше).
 - Диагностика: `curl -s "https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/tg-bot?diag=1"`.
 
+**Общий сбор «@eblany»** зовёт тех, кто в `chat_members` (номер аккаунта и имя). Список ОУД (38 человек) залит 28.09 из
+Telegram Web скриптом `scripts/seed-chat-members.sh <файл> --prod` (файл с номерами в репозиторий не кладём), дальше бот
+пополняет его сам по входам и выходам. Сбор ушёл с «участник» вместо имени — бот поправит сам; вручную:
+`curl -X POST 'https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/tg-bot?rollfix=<id>'` (`id` — из `rollcalls`).
+
 ## Домен ebl.su
 
 Сайт живёт в Yandex Cloud: облако `cloud-cumulus-511`, каталог `ebl` (владелец — Леха). Переезд с GitHub Pages — 27.09.2026:
@@ -140,9 +145,29 @@ curl -X POST https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/recompute
 
 ## Резервные копии
 
-База — в Supabase (на бесплатном тарифе ежедневные копии хранятся ограниченно). Для ручной копии:
-`supabase db dump --linked -f backup.sql` (схема) и `supabase db dump --linked --data-only -f data.sql` (данные).
-Фото — в Storage, бакеты `proofs` и `avatars`.
+**Ночной бэкап в Яндекс** (с 28.09.2026): функция `backup` в 03:30 МСК (pg_cron `ebl-nightly-backup`) выгружает все таблицы
+схемы `public` сжатым JSON и копирует аватарки в закрытый бакет `ebl-backups` (каталог `ebl`). Раскладка: `<дата>/public.<таблица>.json.gz`,
+`<дата>/manifest.json` (сколько строк, какие миграции применены), `avatars/…`. Копии старше 30 дней бакет удаляет сам (правило
+жизненного цикла). Одна копия в сутки: манифест пишется последним, есть манифест за сегодня — функция ничего не делает.
+Схема базы — в миграциях (git), поэтому для восстановления хватает данных.
+
+- **Разовая настройка ключа** (владелец): `scripts/setup-backup-key.sh` — сервисный аккаунт `ebl-backup` с доступом только к бакету
+  `ebl-backups` (ACL бакета, не роль на каталог — ключом нельзя переписать сайт), статический ключ сразу в секреты Supabase
+  (`BACKUP_S3_KEY_ID`, `BACKUP_S3_SECRET`), на экран не выводится.
+- **Проверить:** `curl -s https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/backup?dry=1` — какие таблицы и сколько строк;
+  список копий — `yc storage s3api list-objects --bucket ebl-backups --delimiter /`.
+- **Восстановить:** `scripts/restore-backup.sh <дата>` — в локальную базу (разобрать инцидент, проверить копию);
+  `scripts/restore-backup.sh <дата> --prod` — в боевую (спросит подтверждение; сначала схема: новый проект + `supabase db push`).
+  Все таблицы очищаются одним `truncate` и заливаются с выключенными триггерами, счётчики id выставляются по данным, ссылки на
+  пользователей Supabase Auth обнуляются — участники войдут заново. Полный круг проверяет `tests/test_backend.py`.
+- Ручная копия средствами Supabase: `supabase db dump --linked -f backup.sql` (схема) и `supabase db dump --linked --data-only -f data.sql`.
+
+## Фото из походов
+
+Файлы — в бакете `ebl-photos` в Яндексе, устройство — [photos.md](photos.md). Разовая настройка (владелец облака):
+`scripts/setup-photos-bucket.sh` — бакет, сервисный аккаунт с доступом только к нему и ключ в секреты Supabase.
+Застряли фото (`select count(*) from visit_photos where visit_id is not null and not ready`) — `photos?sync=all`
+покажет ошибки; после 5 попыток строка остаётся с `ready = false`, сбросить: `update visit_photos set tries = 0 where id = …`.
 
 ## Локальный стенд
 

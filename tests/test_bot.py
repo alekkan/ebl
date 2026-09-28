@@ -1,12 +1,12 @@
 """Проверка разбора постов ботом на локальном стенде: время, компания, баня, УУ, ответы только на отметку.
 
-До Telegram локально ничего не доходит (токен фейковый) — проверяем черновик, который бот сохраняет в bot_sessions.
+Telegram на стенде — заглушка tests/stub.py (отвечает как настоящий, без интернета); проверяем черновик в bot_sessions и базу.
 Перед запуском: supabase start && supabase db reset && supabase functions serve --env-file supabase/functions/.env
 Запуск: python3 tests/test_bot.py
 """
 import json, re, time
 from concurrent.futures import ThreadPoolExecutor
-from local import API, KEY, WEBHOOK_SECRET, check, req, sql
+from local import API, KEY, WEBHOOK_SECRET, check, now, req, sql
 
 CHAT, ME = -1001234567890, 900
 sql("delete from bot_sessions")
@@ -17,7 +17,7 @@ sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 901,
 
 def post(text, mid, who=ME, chat=CHAT, chat_type="supergroup"):
     ents = [{"type": "mention", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"@\w+", text)]
-    update = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": chat, "type": chat_type},
+    update = {"update_id": mid, "message": {"message_id": mid, "date": now(), "chat": {"id": chat, "type": chat_type},
               "from": {"id": who, "is_bot": False, "first_name": "Alexey"}, "text": text, "entities": ents}}
     s, _ = req("POST", "/functions/v1/tg-bot", update, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
     assert s == 200, s
@@ -26,9 +26,10 @@ def post(text, mid, who=ME, chat=CHAT, chat_type="supergroup"):
 
 
 def card(data, who=ME, chat=CHAT, chat_type="supergroup", cid="c"):
-    """Кнопка на карточке черновика. Локально Telegram не отвечает, у черновика нет id карточки — жмём «на неё же» (без message_id)."""
+    """Кнопка на карточке черновика — той, которую бот прислал (её номер бот запомнил в черновике)."""
+    st = json.loads(sql(f"select state from bot_sessions where tg_id = {who}") or "null") or {}
     upd = {"update_id": 3000, "callback_query": {"id": cid, "from": {"id": who, "is_bot": False, "first_name": "X"}, "data": data,
-           "message": {"chat": {"id": chat, "type": chat_type}, "text": "карточка"}}}
+           "message": {"message_id": st.get("card"), "chat": {"id": chat, "type": chat_type}, "text": "карточка"}}}
     s, _ = req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
     assert s == 200, s
 
@@ -213,7 +214,7 @@ check("«🙋 Один» — компания выбрана", state().get("comp
 check("«один» прямо в посте — бот не переспрашивает", case("@eblsu_bot Василевские 2ч один", 81).get("companyOk") is True)
 def mention(text, name, mid, uid=777777):
     sql("delete from bot_sessions")
-    upd = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
+    upd = {"update_id": mid, "message": {"message_id": mid, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
            "from": {"id": ME, "is_bot": False, "first_name": "Alexey"}, "text": text,
            "entities": [{"type": "mention", "offset": 0, "length": 10},
                         {"type": "text_mention", "offset": text.index(name), "length": len(name), "user": {"id": uid, "is_bot": False, "first_name": "X"}}]}}
@@ -277,7 +278,7 @@ vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, so
 sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick in ('Леха', 'Ден')")
 sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text, geo_msg) values ({vid}, {CHAT}, 4241, {CARD}, 5, 'Ушло в Комиссию ✅', {CARD})")
 def reply_card(text, mid, who=ME):
-    upd = {"update_id": 5000 + mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
+    upd = {"update_id": 5000 + mid, "message": {"message_id": mid, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
            "from": {"id": who, "is_bot": False, "first_name": "X"}, "text": text,
            "reply_to_message": {"message_id": CARD, "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": CHAT, "type": "supergroup"}, "text": "карточка"}}}
     req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
@@ -315,7 +316,18 @@ check("поход этой недели на проверке — итоги ж�
 sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
 check("решили — ждать нечего", dry()["waiting"]["visits"] == 0, dry()["waiting"])
 sql(f"delete from visits where id = {vid}")
-import urllib.request
+import pathlib, stub, urllib.error, urllib.request
+# wasm для картинки функция берёт с npm-CDN — на стенде из заглушки (тот же файл из кэша npm), на бою с jsDelivr
+wr = (pathlib.Path(__file__).resolve().parent.parent / "supabase/functions/week-results/index.ts").read_text()
+ver = re.search(r'"npm:@resvg/resvg-wasm@([\d.]+)"', wr)[1]
+check("wasm для картинки — той же версии, что библиотека resvg в import", f"/@resvg/resvg-wasm@{ver}/index_bg.wasm" in wr, ver)
+try:
+    cdn = urllib.request.urlopen(urllib.request.Request(f"https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@{ver}/index_bg.wasm", method="HEAD"), timeout=8)
+    local_wasm = stub.npm_file(f"@resvg/resvg-wasm@{ver}/index_bg.wasm") or b""
+    check("[сеть] боевой адрес wasm на jsDelivr отвечает, файл того же размера, что у заглушки",
+          cdn.status == 200 and int(cdn.headers.get("Content-Length") or -1) == len(local_wasm), (cdn.headers.get("Content-Length"), len(local_wasm)))
+except (urllib.error.URLError, OSError) as e:
+    print(f"  – пропущено [сеть]: jsDelivr сейчас недоступен ({getattr(e, 'code', None) or getattr(e, 'reason', None) or e})")
 png = urllib.request.urlopen(urllib.request.Request(f"{API}/functions/v1/week-results?render=", headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"}), timeout=120).read()
 check("картинка итогов — PNG 1080×1350", png[:8] == b"\x89PNG\r\n\x1a\n" and int.from_bytes(png[16:20], "big") == 1080 and int.from_bytes(png[20:24], "big") == 1350, len(png))
 
@@ -358,7 +370,134 @@ check("подтвердили на сайте — отложенный пост 
 sql(f"delete from player_accounts where tg_id in ({NEW1}, {NEW2}, {NEW3})")
 sql("delete from bot_sessions")
 
+print("«@eblany» — позвать всех")
+sql(f"delete from chat_members where chat_id = {CHAT}")
+sql(f"delete from rollcalls where chat_id = {CHAT}")
+sql(f"insert into chat_members (chat_id, tg_id) values ({CHAT}, {ME}), ({CHAT}, 901), ({CHAT}, 902), ({CHAT}, 908), ({CHAT}, 910)")
+sql("delete from bot_sessions")
+calls = lambda: sql(f"select count(*) from rollcalls where chat_id = {CHAT}")
+from local import TELEGRAM
+seen = len(TELEGRAM.calls)
+check("«@eblany …» — бот зовёт всех, а не заводит черновик похода", post("@eblany погнали в Сандуны к 19", 70) is None and calls() == "1")
+sent = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]
+txt = sent[0].get("text", "") if sent else ""
+check("ответ на сообщение: «Ебланы, общий сбор!» и ссылка на него, текст автора не повторяем",
+      len(sent) == 1 and (sent[0].get("reply_parameters") or {}).get("message_id") == 70 and "Ебланы, общий сбор!" in txt
+      and 'href="https://t.me/c/1234567890/70"' in txt and "погнали" not in txt, sent)
+check("отметки: ник лиги у привязанных, имя из Telegram у остальных; автора не отмечает",
+      '<a href="tg://user?id=901">Ден</a>' in txt and '<a href="tg://user?id=908">Участник908</a>' in txt and "id=900" not in txt, txt)
+check("вышедшего из чата не отмечает и забывает", "id=902" not in txt and sql(f"select count(*) from chat_members where chat_id = {CHAT} and tg_id = 902") == "0")
+check("имя из Telegram запомнено — второй раз не спрашивает", sql(f"select name from chat_members where chat_id = {CHAT} and tg_id = 908") == "Участник908")
+check("Telegram попросил подождать — отметка всё равно есть, «участник» вместо имени (не человечек)",
+      '<a href="tg://user?id=910">участник</a>' in txt and "🧖" not in txt, txt)
+check("сообщение сбора запомнено — его можно поправить", sql(f"select cardinality(msgs) from rollcalls where chat_id = {CHAT}") == "1")
+def edited(name):
+    for _ in range(30):
+        if any(m == "editMessageText" and name in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]): return True
+        time.sleep(0.5)
+    return False
+check("имя узнали фоном — бот поправил своё сообщение, без нового", edited("Участник910")
+      and sql(f"select name from chat_members where chat_id = {CHAT} and tg_id = 910") == "Участник910"
+      and len([1 for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]) == 1)
+rc = sql(f"select id from rollcalls where chat_id = {CHAT}")
+check("?rollfix=<id> — поправить вручную (безопасно повторять)", req("POST", f"/functions/v1/tg-bot?rollfix={rc}", {})[1] == {"fixed": True})
+check("с отметкой бота — тоже сбор, не пост про баню", post("@eblsu_bot @eblany Василевские с Деном", 71, who=901) is None)
+check("второй сбор в течение 10 минут — не зовёт (спам)", calls() == "1")
+check("в личке «@eblany» ничего не зовёт", post("@eblany", 72, chat=ME, chat_type="private") is None and calls() == "1")
+def service(mid, **extra):
+    upd = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
+           "from": {"id": 901, "is_bot": False, "first_name": "Ден"}, **extra}}
+    assert req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})[0] == 200
+service(73, new_chat_members=[{"id": 906, "is_bot": False, "first_name": "Новенький"}, {"id": 907, "is_bot": True, "first_name": "Бот"}])
+check("вошёл в чат — бот его запомнил (ботов не запоминает)",
+      sql(f"select string_agg(tg_id || ':' || coalesce(name, ''), ',' order by tg_id) from chat_members where chat_id = {CHAT} and tg_id in (906, 907)") == "906:Новенький")
+service(74, left_chat_member={"id": 906, "is_bot": False, "first_name": "Новенький"})
+check("вышел из чата — забыт", sql(f"select count(*) from chat_members where chat_id = {CHAT} and tg_id = 906") == "0")
+sql(f"delete from chat_members where chat_id = {CHAT}")
+sql(f"delete from rollcalls where chat_id = {CHAT}")
+
+print("Фото из походов")
+# фото кладёт бот, файлы перекачивает функция photos: из Telegram (заглушка) в бакет Яндекса (заглушка, TELEGRAM.s3)
+from local import TELEGRAM
+sql("""update settings set value = '"http://supabase_kong_ebl:8000/functions/v1"' where key = 'functions_url'""")
+sql("delete from bot_sessions")
+sql("delete from visit_photos")
+sql("delete from visits where source = 'bot' and created_at > now() - interval '1 day' and created_by in (select id from players where nick in ('Леха', 'Ден'))")
+sql("delete from player_accounts where tg_id = 909")
+sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
+
+def photo(mid, fid, caption=None, album=None, who=ME, chat=CHAT, chat_type="supergroup", reply_to=None):
+    """Фото в Telegram — сразу в четырёх размерах, как присылает настоящий (90, 320, 1280, 2560 px)."""
+    sizes = [{"file_id": f"photo-{fid}-{n}", "file_unique_id": f"u-{fid}-{n}", "width": w, "height": w * 3 // 4}
+             for n, w in (("s", 90), ("m", 320), ("y", 1280), ("w", 2560))]
+    msg = {"message_id": mid, "date": now(), "chat": {"id": chat, "type": chat_type},
+           "from": {"id": who, "is_bot": False, "first_name": "X"}, "photo": sizes}
+    if caption is not None:
+        msg["caption"] = caption
+        msg["caption_entities"] = [{"type": "mention", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"@\w+", caption)]
+    if album:
+        msg["media_group_id"] = album
+    if reply_to:
+        msg["reply_to_message"] = {"message_id": reply_to, "chat": msg["chat"], "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}}
+    s, _ = req("POST", "/functions/v1/tg-bot", {"update_id": mid, "message": msg}, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+    assert s == 200, s
+
+n_photos = lambda where: int(sql(f"select count(*) from visit_photos where {where}"))
+reacted = lambda mid, emoji: any(m == "setMessageReaction" and int(p.get("message_id") or 0) == mid
+                                 and (p.get("reaction") or [{}])[0].get("emoji") == emoji for m, p in TELEGRAM.calls)
+# альбом приходит тремя сообщениями почти одновременно, подпись — у одного
+with ThreadPoolExecutor(3) as ex:
+    list(ex.map(lambda a: photo(*a), [(201, "b", None, "alb1"), (200, "a", "@eblsu_bot Василевские с Деном", "alb1"), (202, "c", None, "alb1")]))
+st = state()
+check("альбом с подписью — все три фото в черновике, в карточке «📷 3»", n_photos(f"draft_msg = 200 and visit_id is null and tg_from = {ME}") == 3
+      and st.get("hasPhotos") and st.get("photos") == 3, st)
+check("берём размер до 1600 px и превью от 320 px", sql("select string_agg(distinct w || 'x' || h || ':' || (tg_thumb_id like '%-m'), ',') from visit_photos where draft_msg = 200") == "1280x960:true")
+photo(203, "x", None, "alb-x", who=901)
+check("чужой альбом без подписи бот не хранит", n_photos("tg_album = 'alb-x'") == 0)
+card("send", cid="ph1")
+vid = sql(f"select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot'")
+check("«В Комиссию» — фото черновика ушли в поход", n_photos(f"visit_id = {vid}") == 3 and n_photos("visit_id is null") == 0)
+cardmsg = sql(f"select card_msg from bot_posts where visit_id = {vid}")
+check("в карточке похода — «📷 3 фото»", "📷 3 фото" in sql(f"select card_text from bot_posts where visit_id = {vid}"))
+def wait_ready(n):
+    for _ in range(40):
+        if n_photos(f"visit_id = {vid} and ready") == n: return True
+        time.sleep(0.5)
+    return False
+check("файлы перекачаны в бакет сами (триггер → функция photos)", wait_ready(3), sql(f"select string_agg(tries || '', ',') from visit_photos where visit_id = {vid}"))
+keys = sql(f"select string_agg(key, ',') from visit_photos where visit_id = {vid}").split(",")
+objs = [TELEGRAM.s3.get(f"ebl-photos/{k}{sfx}.jpg") for k in keys for sfx in ("", "_s")]
+check("в бакете большое фото и превью, JPEG, кэш навсегда",
+      all(o and o["body"][:2] == b"\xff\xd8" and o["type"] == "image/jpeg" and "immutable" in (o["cache"] or "") for o in objs), [bool(o) for o in objs])
+check("ключ файла — 32 случайных символа", all(re.fullmatch(r"[0-9a-f]{32}", k) for k in keys), keys)
+photo(204, "d", reply_to=int(cardmsg))
+check("фото ответом на карточку похода — в поход, 👍, «📷 4 фото»", n_photos(f"visit_id = {vid}") == 4 and reacted(204, "👍")
+      and "📷 4 фото" in sql(f"select card_text from bot_posts where visit_id = {vid}"))
+photo(205, "e", reply_to=int(cardmsg), who=909)
+check("кто не был в походе — фото не кладёт (🤔)", n_photos(f"visit_id = {vid}") == 4 and reacted(205, "🤔"))
+photo(206, "d", reply_to=int(cardmsg))
+check("то же фото второй раз не ложится", n_photos(f"visit_id = {vid}") == 4)
+seen = len(TELEGRAM.calls)
+photo(207, "g", chat=901, chat_type="private", who=901)
+check("фото в личку — в свой последний поход (Ден был в компании), подтверждение в личке",
+      n_photos(f"visit_id = {vid}") == 5 and any(m == "sendMessage" and "Приложил к походу" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]))
+photo(208, "h", "@eblsu_bot Василевские с Лехой", who=901)
+st = state(901)
+check("пост про уже отмеченный поход — бот говорит, что он есть", (st.get("dup") or {}).get("id") == int(vid), st)
+card("dx", who=901, cid="ph2")
+check("«Не отмечаю» — фото этого поста ушли в тот поход", n_photos(f"visit_id = {vid}") == 6 and n_photos("visit_id is null") == 0)
+photo(209, "i", "Сандуны", chat=ME, chat_type="private")
+check("фото с новой баней в личке — черновик с фото", n_photos(f"draft_msg = 209 and visit_id is null") == 1)
+post("/cancel", 210, chat=ME, chat_type="private")
+check("черновик отменили — его фото удалены", n_photos(f"tg_from = {ME} and visit_id is null") == 0)
+check("гость фото походов не видит", req("GET", "/rest/v1/visit_photos?select=id")[1] in ([], None) or req("GET", "/rest/v1/visit_photos?select=id")[0] in (401, 403))
+sql(f"delete from visits where id = {vid}")
+check("удалили поход — строки фото удалены с ним", n_photos(f"visit_id = {vid}") == 0)
+sql("delete from player_accounts where tg_id = 909")
+sql("delete from bot_sessions")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)
+check("?diag показывает, видит ли бот все сообщения группы", diag.get("reads_all") is True, diag)
 print("Готово.")
