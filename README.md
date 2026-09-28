@@ -1,10 +1,10 @@
 # ЕБЛ — портал Евразийской банной лиги
 
 Сайт и Telegram-бот лиги: карта бань с подсказкой, куда сходить за очками, турнирная таблица чемпионата по регламенту,
-журнал походов с модерацией Комиссией, отзывы, тепловая карта походов за 2023–2026.
+журнал походов с модерацией Комиссией, отзывы, тепловая карта походов за 2023–2026, фото из походов (бот прикрепляет их к походу, файлы — в Яндексе), общий сбор «@eblany» в чате.
 
 - **Сайт:** https://ebl.su — хранилище Yandex Object Storage (резерв — GitHub Pages, см. [docs/operations.md](docs/operations.md#домен-eblsu))
-- **Бот:** [@eblsu_bot](https://t.me/eblsu_bot) — отмечать походы прямо в общем чате
+- **Бот:** [@eblsu_bot](https://t.me/eblsu_bot) — отмечать походы прямо в общем чате, прикладывать к ним фото, звать всех «@eblany»
 - **Код:** https://github.com/alekkan/ebl
 - **База и серверные функции:** Supabase, проект `yeerkfdgmhcmvdqzaoio` (Франкфурт)
 
@@ -13,7 +13,7 @@
 ```
 Telegram-группа ──@eblsu_bot──▶ tg-bot ─┐
                                         ├─▶ Supabase Postgres ──▶ recompute ──▶ standings (таблица)
-Сайт ebl.su (Яндекс) ─────── db.js ───┘        ▲
+Сайт ebl.su (Яндекс) ── шлюз ── db.js ─┘        ▲         └──▶ photos ──▶ бакет ebl-photos (Яндекс)
      └── вход через Telegram ─▶ tg-login ───────┘
 ```
 
@@ -29,7 +29,8 @@ Telegram-группа ──@eblsu_bot──▶ tg-bot ─┐
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | компоненты, модель данных, права доступа, секреты, расписания |
 | [docs/scoring.md](docs/scoring.md) | как движок считает очки — по пунктам регламента |
-| [docs/bot.md](docs/bot.md) | что умеет бот, как разбирает посты, сценарии |
+| [docs/bot.md](docs/bot.md) | что умеет бот, как разбирает посты, общий сбор «@eblany», сценарии |
+| [docs/photos.md](docs/photos.md) | фото из походов: как попадают в поход, где хранятся, кто видит, что впереди |
 | [docs/operations.md](docs/operations.md) | регламент работ: выкладка, переход с таблицы, новые участники, домен, ротация токена |
 | [docs/data.md](docs/data.md) | откуда данные: Google-таблица, выгрузка, сопоставление бань, геокодинг |
 | [docs/workflow.md](docs/workflow.md) | **как мы работаем:** ветки, pull request'ы, проверки, выкладка, откат — для людей и агентов |
@@ -40,10 +41,11 @@ Telegram-группа ──@eblsu_bot──▶ tg-bot ─┐
 ```
 prototype/            сайт (статический, хранилище Яндекса + резерв на GitHub Pages): index.html, style.css, app.js, db.js, config.js, data/*.json
 supabase/migrations/  схема базы, политики доступа, расписания pg_cron
-supabase/functions/   edge-функции: tg-login, tg-bot, recompute, sync-avatars, bath-location, _shared/
+supabase/functions/   edge-функции: tg-login, tg-bot, recompute, sync-avatars, bath-location, week-results, backup, photos, _shared/
+infra/                API-шлюз Яндекса (api-gateway.yaml)
 supabase/seed.sql     входящий остаток из таблицы (генерируется scripts/seed.py)
 scripts/              выгрузка таблицы, сопоставление бань, геокодинг, выкладка
-tests/                сквозные тесты на локальном стенде Supabase
+tests/                сквозные тесты на локальном стенде Supabase; stub.py — заглушка Telegram, геокодера, npm-CDN и хранилища Яндекса
 ```
 
 ## Быстрый старт для разработчика

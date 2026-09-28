@@ -8,13 +8,15 @@
 | API-шлюз | Yandex API Gateway `ebl-api` (`infra/api-gateway.yaml`), каталог `ebl` | браузер ходит к Supabase только через него: сам Supabase за Cloudflare, а его в России режут провайдеры. Проксирует REST, Auth, Storage и функции как есть |
 | База | Supabase Postgres, проект `yeerkfdgmhcmvdqzaoio`, eu-central-1 | журнал походов, бани, участники, входящий остаток, итоговая таблица |
 | `tg-login` | edge-функция | вход через Telegram: проверка подписи → пользователь Supabase Auth → одноразовый `token_hash` |
-| `tg-bot` | edge-функция, вебхук Telegram | походы из общего чата, модерация Комиссией, отметка «долгая», геоточки, клички, заявки «это я» |
+| `tg-bot` | edge-функция, вебхук Telegram | походы из общего чата, модерация Комиссией, отметка «долгая», геоточки, клички, заявки «это я», фото к походу, общий сбор «@eblany» |
+| `photos` | edge-функция | перекачивает фото походов из Telegram в бакет `ebl-photos` (триггер на новое фото + повторы по расписанию), см. [photos.md](photos.md) |
 | `recompute` | edge-функция | пересчёт таблицы по регламенту (`_shared/scoring.js`) → `standings`, `visit_points` |
 | `sync-avatars` | edge-функция | раз в неделю сверяет фото профилей через Telegram Bot API |
 | `week-results` | edge-функция | итоги недели в чат лиги: картинка с пьедесталом (SVG → PNG через resvg-wasm, шрифты вложены в `_shared/fonts.ts`) и подпись — один раз, когда по закрытой неделе всё решено |
 | `backup` | edge-функция | ночной бэкап таблиц `public` и аватарок в бакет `ebl-backups` в Яндексе (см. operations.md, «Резервные копии») |
 | `bath-location` | edge-функция | уточнение точки бани с сайта: ссылка на карту, адрес или координаты (участник — только примерные точки, Комиссия — любые) |
 | Хранилище | Supabase Storage | `proofs` — фото с отметками времени (закрытый; не используется с 26.09.2026 — долгий на доверии), `avatars` — фото профилей (публичный) |
+| Хранилище в Яндексе | Object Storage, каталог `ebl` | `ebl-photos` — фото походов (файл по ссылке, список закрыт, версии 30 дней; пишет только сервисный аккаунт `ebl-photos`), `ebl-backups` — ночные копии базы (закрытый, 30 дней) |
 
 Сайт — чистый HTML/CSS/JS без сборки. Библиотеки лежат в `prototype/vendor/` (с проверкой целостности SRI): Leaflet 1.9.4,
 Leaflet.markercluster 1.5.3, Leaflet.heat 0.2.0, supabase-js 2.117.2. С CDN их не берём — cdnjs и jsDelivr за Cloudflare. Шрифты — Unbounded (заголовки) и Golos Text (текст) с Google Fonts. Подложка карты — тайлы OpenStreetMap
