@@ -7,6 +7,7 @@
 // Баню отмечают сразу после входа; долгую (п. 15, на доверии — без фото) участник отмечает сам: в течение 8 часов
 // после захода отмечает бота и пишет «долгая». Сам бот ничего не спрашивает — чат не захламляется.
 // В личке с ботом работает то же самое, только без отметки.
+// «@eblany текст» в группе — бот отвечает на сообщение отметками всех участников чата (позвать всех).
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -961,6 +962,63 @@ async function claimLong(msg: Any, me: Any) {
   if (msg.chat.type === "private") return send(msg.chat.id, "🔥 Отметил долгую — +1 всей компании.");
 }
 
+// ---------- «@eblany» — позвать всех ----------
+// Кто угодно в группе пишет «@eblany» и текст (можно и с отметкой бота) — бот отвечает на это сообщение отметками всех, кого знает
+// в чате (chat_members), кроме автора. Сообщение участника бот не правит: чужие сообщения в группах Telegram не даёт править никому.
+// Не чаще раза в 10 минут на чат — чаще это спам (отметку видят даже те, у кого чат без звука).
+const EBLANY = /(^|[^\p{L}\p{N}_@])@eblany(?![\p{L}\p{N}_])/iu;
+const ROLLCALL_GAP = 10 * 60e3;
+const ROLLCALL_CHUNK = 50;   // отметок в одном сообщении; больше — следующим сообщением
+async function rollCall(msg: Any) {
+  const chat = msg.chat.id;
+  const { data: recent } = await sb.from("bot_log").select("id").eq("kind", "eblany").eq("detail", String(chat))
+    .gte("at", new Date(Date.now() - ROLLCALL_GAP).toISOString()).limit(1);
+  if (recent?.length) return react(chat, msg.message_id, "🥱");
+  await sb.from("bot_log").insert({ kind: "eblany", detail: String(chat) });
+  const lg = await league();
+  // у кого Telegram привязан к нику лиги — отмечаем ником
+  const nickOf = new Map<number, string>();
+  for (const a of lg.accounts) {
+    const nick = lg.players.find((p: Any) => p.id === a.player_id)?.nick;
+    if (a.tg_id && nick) nickOf.set(Number(a.tg_id), nick);
+  }
+  const { data: known } = await sb.from("chat_members").select("tg_id, name").eq("chat_id", chat);
+  const links: string[] = [];
+  for (const m of known ?? []) {
+    const id = Number(m.tg_id);
+    if (id === msg.from.id) continue;
+    let name = nickOf.get(id) ?? m.name;
+    if (!name) {
+      // имени ещё нет — спрашиваем у Telegram; заодно узнаём, что человек уже вышел из чата
+      const r = await tg("getChatMember", { chat_id: chat, user_id: id });
+      const status = r.result?.status, u = r.result?.user;
+      if (r.ok && (["left", "kicked"].includes(status) || u?.is_bot)) {
+        await sb.from("chat_members").delete().eq("chat_id", chat).eq("tg_id", id);
+        continue;
+      }
+      name = u?.first_name ?? null;
+      if (name) await sb.from("chat_members").update({ name }).eq("chat_id", chat).eq("tg_id", id);
+    }
+    links.push(`<a href="tg://user?id=${id}">${esc(name ?? "🧖")}</a>`);
+  }
+  if (!links.length) return send(chat, "Некого звать: я пока не знаю участников этого чата.", undefined, msg.message_id);
+  const author = nickOf.get(msg.from.id) ?? msg.from.first_name ?? "Кто-то";
+  const said = (msg.text ?? msg.caption ?? "").replace(new RegExp(`@eblany|@${BOT}`, "gi"), " ").replace(/\s+/g, " ").trim().slice(0, 300);
+  const head = `📣 <b>Ебланы, общий сбор!</b>\n${said ? `${esc(author)}: ${esc(said)}` : `зовёт ${esc(author)}`}`;
+  const parts = chunk(links, ROLLCALL_CHUNK);
+  for (let i = 0; i < parts.length; i++) {
+    await send(chat, `${i === 0 ? `${head}\n\n` : ""}${parts[i].join(", ")}`, undefined, msg.message_id);
+  }
+}
+
+// кто вошёл в чат и вышел — чтобы «@eblany» звал тех, кто сейчас в чате (номер и имя, больше ничего)
+async function trackMembers(msg: Any) {
+  const chat = msg.chat.id;
+  const joined = (msg.new_chat_members ?? []).filter((u: Any) => !u.is_bot);
+  if (joined.length) await sb.from("chat_members").upsert(joined.map((u: Any) => ({ chat_id: chat, tg_id: u.id, name: u.first_name ?? null })));
+  if (msg.left_chat_member && !msg.left_chat_member.is_bot) await sb.from("chat_members").delete().eq("chat_id", chat).eq("tg_id", msg.left_chat_member.id);
+}
+
 // ---------- клички ----------
 // в личке с ботом: «клички» — список (всем участникам); «кличка Мамонтов = Ден», «убери кличку Мамонтов» — Комиссия
 async function aliasCommand(chat: number, text: string, me: Any) {
@@ -1005,8 +1063,11 @@ async function onMessage(msg: Any) {
   if (msg.new_chat_members?.some((u: Any) => u.is_bot && u.username?.toLowerCase() === BOT)) {
     return send(chat, `Привет, ЕБЛ! 🧖\n\n${HOWTO}`);
   }
+  if (msg.new_chat_members || msg.left_chat_member) return trackMembers(msg);
   if (!tgId || msg.from.is_bot) return;
   const text: string = (msg.text ?? msg.caption ?? "").trim();
+  // позвать всех — не пост про баню, даже с отметкой бота
+  if (EBLANY.test(text)) return isPrivate ? send(chat, "Общий сбор — в чате лиги: напиши там «@eblany» и текст.") : rollCall(msg);
   const replyTo = msg.reply_to_message?.message_id;
 
   // ответ на «Долгая была?» или на просьбу прислать точку
@@ -1183,11 +1244,13 @@ Deno.serve(async (req) => {
   // диагностика без секретов: состояние вебхука у Telegram и последние записи журнала — только время и тип,
   // detail (данные кнопок, стек ошибки) наружу не отдаём: по нему видно, кто что решал
   if (url.searchParams.get("diag") === "1") {
-    const info = await tg("getWebhookInfo", {});
+    const [info, me] = await Promise.all([tg("getWebhookInfo", {}), tg("getMe", {})]);
     const { data: log } = await sb.from("bot_log").select("at, kind").order("id", { ascending: false }).limit(10);
     const r = info.result ?? {};
     return new Response(JSON.stringify({ pending: r.pending_update_count, last_error: r.last_error_message, last_error_at: r.last_error_date,
-      allowed: r.allowed_updates, url_ok: r.url === `${BASE}/functions/v1/tg-bot`, log }), { headers: { "Content-Type": "application/json" } });
+      allowed: r.allowed_updates, url_ok: r.url === `${BASE}/functions/v1/tg-bot`,
+      // режим приватности выключен — бот видит все сообщения группы (без этого не дойдут «@бот …» и «@eblany»)
+      reads_all: me.result?.can_read_all_group_messages ?? null, log }), { headers: { "Content-Type": "application/json" } });
   }
   if (SECRET && url.searchParams.get("setup") === SECRET) {
     const hook = await tg("setWebhook", { url: `${BASE}/functions/v1/tg-bot`, secret_token: SECRET, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
@@ -1203,9 +1266,9 @@ Deno.serve(async (req) => {
   // В группе бот получает все сообщения (режим приватности выключен, иначе Telegram не присылает отметки @бота),
   // но обрабатывает и пишет в журнал только адресованные ему: отметку, ответ ему, команду, добавление в группу.
   const m = update.message;
-  const addressed = !m || m.chat?.type === "private" || mentionsBot(m) || m.new_chat_members
-    || m.reply_to_message?.from?.username?.toLowerCase() === BOT;
   const text = m?.text ?? m?.caption ?? "";
+  const addressed = !m || m.chat?.type === "private" || mentionsBot(m) || m.new_chat_members || m.left_chat_member
+    || m.reply_to_message?.from?.username?.toLowerCase() === BOT || EBLANY.test(text);
   const maybeAnswer = m && (m.location || m.venue || /https?:\/\//.test(text) || looksLikeAddress(text));
   if (!addressed) {
     if (maybeAnswer) { try { await onMessage(m); } catch (e) { console.error("tg-bot", e); } }
