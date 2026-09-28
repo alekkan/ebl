@@ -5,6 +5,7 @@
 | Компонент | Где | Что делает |
 |---|---|---|
 | Сайт | Yandex Object Storage, бакет `ebl.su` (https — Certificate Manager, DNS — Cloud DNS); резерв — GitHub Pages, ветка `gh-pages`. Оба собираются из `prototype/` | карта (с подсказкой «куда сходить за очками» и «📍 Рядом»), тепловая карта, таблица, лента, правила, форма похода, вход |
+| API-шлюз | Yandex API Gateway `ebl-api` (`infra/api-gateway.yaml`), каталог `ebl` | браузер ходит к Supabase только через него: сам Supabase за Cloudflare, а его в России режут провайдеры. Проксирует REST, Auth, Storage и функции как есть |
 | База | Supabase Postgres, проект `yeerkfdgmhcmvdqzaoio`, eu-central-1 | журнал походов, бани, участники, входящий остаток, итоговая таблица |
 | `tg-login` | edge-функция | вход через Telegram: проверка подписи → пользователь Supabase Auth → одноразовый `token_hash` |
 | `tg-bot` | edge-функция, вебхук Telegram | походы из общего чата, модерация Комиссией, отметка «долгая», геоточки, клички, заявки «это я» |
@@ -14,8 +15,8 @@
 | `bath-location` | edge-функция | уточнение точки бани с сайта: ссылка на карту, адрес или координаты (участник — только примерные точки, Комиссия — любые) |
 | Хранилище | Supabase Storage | `proofs` — фото с отметками времени (закрытый; не используется с 26.09.2026 — долгий на доверии), `avatars` — фото профилей (публичный) |
 
-Сайт — чистый HTML/CSS/JS без сборки. Библиотеки с CDN: Leaflet 1.9.4, Leaflet.markercluster 1.5.3, Leaflet.heat 0.2.0,
-supabase-js 2.117.2. Шрифты — Unbounded (заголовки) и Golos Text (текст) с Google Fonts. Подложка карты — тайлы OpenStreetMap
+Сайт — чистый HTML/CSS/JS без сборки. Библиотеки лежат в `prototype/vendor/` (с проверкой целостности SRI): Leaflet 1.9.4,
+Leaflet.markercluster 1.5.3, Leaflet.heat 0.2.0, supabase-js 2.117.2. С CDN их не берём — cdnjs и jsDelivr за Cloudflare. Шрифты — Unbounded (заголовки) и Golos Text (текст) с Google Fonts. Подложка карты — тайлы OpenStreetMap
 с CSS-фильтром (CARTO требует ключ, у Esri нет русских подписей).
 
 `prototype/db.js` — слой данных. Если в `config.js` заданы адрес и ключ Supabase — боевой режим; если пусто — режим витрины:

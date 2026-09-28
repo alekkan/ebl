@@ -6,7 +6,9 @@ window.EBLData = (() => {
   // адрес задан, а библиотека с CDN не загрузилась — это поломка, а не витрина: не показываем старые данные как живые
   const broken = configured && !window.supabase;
   const live = configured && !broken;
-  const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey) : null;
+  const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, cfg.authKey ? { auth: { storageKey: cfg.authKey } } : undefined) : null;
+  // фото участников лежат в Storage Supabase: ссылки на *.supabase.co ведём через тот же шлюз, что и API (в обход Cloudflare)
+  const viaApi = (u) => (u && cfg.supabaseUrl ? u.replace(/^https:\/\/[a-z0-9]+\.supabase\.co(?=\/storage\/)/, cfg.supabaseUrl) : u);
   const YEARS_HIST = [2023, 2024, 2025];
   const LINE_LABEL = { visit: "Поход в баню", public: "Общественная", company: "Компания", unique: "Уникальная",
     ultra: "Ультрауникальная", region: "Новый регион", country: "Новая страна", long: "Долгий поход" };
@@ -108,7 +110,7 @@ window.EBLData = (() => {
         weekPts: s.week_pts, weekBaths: s.week_baths, updatedAt: s.updated_at })),
       reviews: rv, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
-      photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, p.photo_url])),
+      photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, viaApi(p.photo_url)])),
     };
   }
 

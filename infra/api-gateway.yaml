@@ -1,0 +1,29 @@
+# API Gateway в Яндекс Облаке: прокси к Supabase (REST, Auth, Storage, Edge Functions).
+# Зачем: api Supabase стоит за Cloudflare, а его в России режут мобильные и домашние провайдеры — без VPN сайт висел на
+# «Грею парилку…» (28.09.2026). Браузер ходит к Яндексу, Яндекс из дата-центра — к Supabase.
+# Обновить: yc serverless api-gateway update --name ebl-api --spec infra/api-gateway.yaml
+openapi: 3.0.0
+info:
+  title: ebl-api
+  version: 1.0.0
+paths:
+  /{path+}:
+    x-yc-apigateway-any-method:
+      x-yc-apigateway-integration:
+        type: http
+        url: https://yeerkfdgmhcmvdqzaoio.supabase.co/{path}
+        headers:
+          '*': '*'
+          Host: ''
+        omitEmptyHeaders: true
+        query:
+          '*': '*'
+        timeouts:
+          connect: 5
+          read: 30
+      parameters:
+        - name: path
+          in: path
+          required: false
+          schema:
+            type: string
