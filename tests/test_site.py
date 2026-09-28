@@ -251,6 +251,7 @@ with sync_playwright() as pw:
         check("Enter в поле не отправляет форму", s.js("() => !document.getElementById('visitModal').hidden"))
         s.page.click('#vDurChips button[data-m="180"]')
         s.page.click("#vComp button")
+        s.page.fill("#vPrice", "700"); s.page.fill("#vPrBeer", "280")
         s.page.wait_for_timeout(500)
         check("в талоне есть очки", s.js("() => /Итого\\s*\\+[1-9]/.test(document.getElementById('calc').innerText)"),
               s.js("() => document.getElementById('calc').innerText"))
@@ -260,6 +261,10 @@ with sync_playwright() as pw:
         vid = max(map(int, new)) if new else None
         row = sql(f"select source || ' ' || status || ' ' || (select count(*) from visit_players where visit_id = {vid}) from visits where id = {vid}") if vid else ""
         check("поход сохранился: с сайта, на модерации, с попутчиком", row == "site pending 2", row)
+        # цена и цена пива, вписанные прямо в форму похода, сохраняются тем же путём, что и через карточку бани
+        check("цена из формы похода сохранилась", sql(f"select count(*) from bath_prices where bath_id = {bath}") == "1")
+        check("цена пива из формы похода сохранилась", sql(f"select count(*) from bath_beer_prices where bath_id = {bath}") == "1")
+        sql(f"delete from bath_prices where bath_id = {bath}"); sql(f"delete from bath_beer_prices where bath_id = {bath}")
         # отзывы: второй не затирает первый, свой можно удалить
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
@@ -278,6 +283,20 @@ with sync_playwright() as pw:
         s.page.fill("#prPrice", "600"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
         check("цена изменилась — новая запись, старая осталась", sql(price_rows) == "2", sql(price_rows))
         check("карточка показывает свежую цену", s.js("() => document.querySelector('#drawer').innerText.includes('600')"))
+        # цена по выходным до 16:00 — отдельная история от обычной, показывается с пометкой
+        s.page.fill("#prPrice", "600"); s.page.click("#prMore"); s.page.click('#prWeekend button[data-w="1"]'); s.page.fill("#prBefore", "16:00")
+        s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("цена с будни/выходной и временем — своя запись, не путается с обычной", sql(price_rows) == "3", sql(price_rows))
+        check("карточка показывает пометку вых/до 16:00", s.js("() => document.querySelector('#drawer').innerText.includes('до 16:00')"))
+        # цена пива — отдельная история, не путается с ценой входа
+        beer_rows = f"select count(*) from bath_beer_prices where bath_id = {bath}"
+        s.page.fill("#prPrice", "600"); s.page.fill("#prBeer", "250"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("цена пива сохранилась", sql(beer_rows) == "1", sql(beer_rows))
+        check("карточка показывает цену пива", s.js("() => document.querySelector('#drawer').innerText.includes('250')"))
+        s.page.fill("#prPrice", "600"); s.page.fill("#prBeer", "250"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("та же цена пива ещё раз — не дублируем", sql(beer_rows) == "1", sql(beer_rows))
+        s.page.fill("#prPrice", "600"); s.page.fill("#prBeer", "300"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("цена пива изменилась — новая запись, старая осталась", sql(beer_rows) == "2", sql(beer_rows))
         s.clean("участник после отправки похода")
         s.close()
 
@@ -413,6 +432,7 @@ with sync_playwright() as pw:
         sql(f"delete from visits where source = 'site' and created_at > now() - interval '1 hour' and created_by = '{player_id('Шурик')}'")
         sql("delete from reviews where text like '%— проверка сайта'")
         sql(f"delete from bath_prices where bath_id = {bath}")
+        sql(f"delete from bath_beer_prices where bath_id = {bath}")
         sql(f"update baths set name = 'Василевские' where id = {bath} and name = 'проверка сайта'")
     browser.close()
     sql(f"update settings set value = '{cutover}' where key = 'cutover_week'")
