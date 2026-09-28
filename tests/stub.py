@@ -75,8 +75,11 @@ class Telegram:
                 return 200, {"ok": True, "result": {"id": int(self.token.split(":")[0]), "is_bot": True, "first_name": "ЕБЛ", "username": "eblsu_bot",
                                                    "can_read_all_group_messages": True}}
             if method == "getChatMember":
-                # 902 — вышел из чата (так тесты проверяют, что бот его забывает); остальные — участники
+                # 902 — вышел из чата (бот его забывает); 910 — на первый вопрос «подожди» (429), как Telegram при частых
+                # вопросах; остальные — участники
                 uid = int(params.get("user_id") or 0)
+                if uid == 910 and not any(m == "getChatMember" and int(p.get("user_id") or 0) == 910 for m, p in self.calls[:-1]):
+                    return 429, {"ok": False, "error_code": 429, "description": "Too Many Requests: retry after 1", "parameters": {"retry_after": 1}}
                 return 200, {"ok": True, "result": {"status": "left" if uid == 902 else "member",
                                                    "user": {"id": uid, "is_bot": False, "first_name": f"Участник{uid}"}}}
             if method == "getWebhookInfo":
