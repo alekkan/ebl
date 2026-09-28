@@ -16,7 +16,7 @@ sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 901,
 
 
 def post(text, mid, who=ME, chat=CHAT, chat_type="supergroup"):
-    ents = [{"type": "mention", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"@\w+", text)]
+    ents = [{"type": "mention" if m.group()[0] == "@" else "hashtag", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"[@#]\w+", text)]
     update = {"update_id": mid, "message": {"message_id": mid, "date": now(), "chat": {"id": chat, "type": chat_type},
               "from": {"id": who, "is_bot": False, "first_name": "Alexey"}, "text": text, "entities": ents}}
     s, _ = req("POST", "/functions/v1/tg-bot", update, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
@@ -212,6 +212,32 @@ check("повторное нажатие убирает", state().get("company")
 card("c1")
 check("«🙋 Один» — компания выбрана", state().get("companyOk") is True and state().get("company") == [] and not state().get("picking"), state())
 check("«один» прямо в посте — бот не переспрашивает", case("@eblsu_bot Василевские 2ч один", 81).get("companyOk") is True)
+from local import TELEGRAM
+def card_kb(who=ME):
+    """Кнопки последней версии карточки черновика — как их видит участник."""
+    cid = state(who).get("card")
+    for m, p in reversed(TELEGRAM.calls):
+        if m in ("editMessageText", "sendMessage") and (int(p.get("message_id") or 0) == cid or m == "sendMessage"):
+            return [b.get("callback_data") for row in (p.get("reply_markup") or {}).get("inline_keyboard", []) for b in row], \
+                   [b.get("text") for row in (p.get("reply_markup") or {}).get("inline_keyboard", []) for b in row]
+    return [], []
+case("@eblsu_bot Василевские 2ч", 84)
+card(f"cp:{den}")
+data, texts = card_kb()
+check("отметил ник — выбор сразу: в карточке «В Комиссию», ник с галочкой, без «Готово»",
+      state().get("companyOk") is True and "send" in data and "✓ Ден" in texts and "cd" not in data, texts)
+check("и можно отметить ещё кого-то — кнопки с никами остались", sum(1 for d in data if d and d.startswith("cp:")) >= 2, texts)
+card("send", cid="n2")
+check("один человек отмечен — «В Комиссию» сразу отправляет", sql(f"select count(*) from bot_sessions where tg_id = {ME}") == "0")
+sql("delete from visits where id = (select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot')")
+
+print("«#баня» — вместо отметки бота")
+st = case("#баня Василевские 2ч с Деном", 85)
+check("«#баня …» — черновик, как с отметкой бота", (st or {}).get("bathName") == "Василевские" and nicks(st.get("company", [])) == {"Ден"}
+      and "#" not in (st.get("query") or ""), st)
+check("«#банька» — тоже", (case("#банька Василевские один", 86) or {}).get("bathName") == "Василевские")
+sql("delete from bot_sessions")
+check("другие хэштеги бота не зовут", post("#сауна Василевские огонь", 87) is None)
 def mention(text, name, mid, uid=777777):
     sql("delete from bot_sessions")
     upd = {"update_id": mid, "message": {"message_id": mid, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
@@ -434,7 +460,8 @@ def photo(mid, fid, caption=None, album=None, who=ME, chat=CHAT, chat_type="supe
            "from": {"id": who, "is_bot": False, "first_name": "X"}, "photo": sizes}
     if caption is not None:
         msg["caption"] = caption
-        msg["caption_entities"] = [{"type": "mention", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"@\w+", caption)]
+        msg["caption_entities"] = [{"type": "mention" if m.group()[0] == "@" else "hashtag", "offset": m.start(), "length": len(m.group())}
+                                   for m in re.finditer(r"[@#]\w+", caption)]
     if album:
         msg["media_group_id"] = album
     if reply_to:
@@ -490,6 +517,10 @@ photo(209, "i", "Сандуны", chat=ME, chat_type="private")
 check("фото с новой баней в личке — черновик с фото", n_photos(f"draft_msg = 209 and visit_id is null") == 1)
 post("/cancel", 210, chat=ME, chat_type="private")
 check("черновик отменили — его фото удалены", n_photos(f"tg_from = {ME} and visit_id is null") == 0)
+photo(211, "j", "#баня Сандуны с Деном")
+check("фото с подписью «#баня …» — черновик с фото (в подписи к фото ники не подсказываются)", n_photos("draft_msg = 211 and visit_id is null") == 1)
+post("/cancel", 212, chat=ME, chat_type="private")
+sql("delete from bot_sessions")
 check("гость фото походов не видит", req("GET", "/rest/v1/visit_photos?select=id")[1] in ([], None) or req("GET", "/rest/v1/visit_photos?select=id")[0] in (401, 403))
 sql(f"delete from visits where id = {vid}")
 check("удалили поход — строки фото удалены с ним", n_photos(f"visit_id = {vid}") == 0)
