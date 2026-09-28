@@ -348,10 +348,14 @@ wr = (pathlib.Path(__file__).resolve().parent.parent / "supabase/functions/week-
 ver = re.search(r'"npm:@resvg/resvg-wasm@([\d.]+)"', wr)[1]
 check("wasm для картинки — той же версии, что библиотека resvg в import", f"/@resvg/resvg-wasm@{ver}/index_bg.wasm" in wr, ver)
 try:
-    cdn = urllib.request.urlopen(urllib.request.Request(f"https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@{ver}/index_bg.wasm", method="HEAD"), timeout=8)
+    wasm_url = f"https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@{ver}/index_bg.wasm"
+    cdn = urllib.request.urlopen(urllib.request.Request(wasm_url, method="HEAD"), timeout=8)
+    size = int(cdn.headers.get("Content-Length") or -1)
+    if size < 0:   # jsDelivr бывает отвечает на HEAD без Content-Length (28.09) — тогда меряем сам файл
+        size = len(urllib.request.urlopen(wasm_url, timeout=30).read())
     local_wasm = stub.npm_file(f"@resvg/resvg-wasm@{ver}/index_bg.wasm") or b""
     check("[сеть] боевой адрес wasm на jsDelivr отвечает, файл того же размера, что у заглушки",
-          cdn.status == 200 and int(cdn.headers.get("Content-Length") or -1) == len(local_wasm), (cdn.headers.get("Content-Length"), len(local_wasm)))
+          cdn.status == 200 and size == len(local_wasm), (size, len(local_wasm)))
 except (urllib.error.URLError, OSError) as e:
     print(f"  – пропущено [сеть]: jsDelivr сейчас недоступен ({getattr(e, 'code', None) or getattr(e, 'reason', None) or e})")
 png = urllib.request.urlopen(urllib.request.Request(f"{API}/functions/v1/week-results?render=", headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"}), timeout=120).read()
