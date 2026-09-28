@@ -140,9 +140,22 @@ curl -X POST https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/recompute
 
 ## Резервные копии
 
-База — в Supabase (на бесплатном тарифе ежедневные копии хранятся ограниченно). Для ручной копии:
-`supabase db dump --linked -f backup.sql` (схема) и `supabase db dump --linked --data-only -f data.sql` (данные).
-Фото — в Storage, бакеты `proofs` и `avatars`.
+**Ночной бэкап в Яндекс** (с 28.09.2026): функция `backup` в 03:30 МСК (pg_cron `ebl-nightly-backup`) выгружает все таблицы
+схемы `public` сжатым JSON и копирует аватарки в закрытый бакет `ebl-backups` (каталог `ebl`). Раскладка: `<дата>/public.<таблица>.json.gz`,
+`<дата>/manifest.json` (сколько строк, какие миграции применены), `avatars/…`. Копии старше 30 дней бакет удаляет сам (правило
+жизненного цикла). Одна копия в сутки: манифест пишется последним, есть манифест за сегодня — функция ничего не делает.
+Схема базы — в миграциях (git), поэтому для восстановления хватает данных.
+
+- **Разовая настройка ключа** (владелец): `scripts/setup-backup-key.sh` — сервисный аккаунт `ebl-backup` с доступом только к бакету
+  `ebl-backups` (ACL бакета, не роль на каталог — ключом нельзя переписать сайт), статический ключ сразу в секреты Supabase
+  (`BACKUP_S3_KEY_ID`, `BACKUP_S3_SECRET`), на экран не выводится.
+- **Проверить:** `curl -s https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/backup?dry=1` — какие таблицы и сколько строк;
+  список копий — `yc storage s3api list-objects --bucket ebl-backups --delimiter /`.
+- **Восстановить:** `scripts/restore-backup.sh <дата>` — в локальную базу (разобрать инцидент, проверить копию);
+  `scripts/restore-backup.sh <дата> --prod` — в боевую (спросит подтверждение; сначала схема: новый проект + `supabase db push`).
+  Все таблицы очищаются одним `truncate` и заливаются с выключенными триггерами, счётчики id выставляются по данным, ссылки на
+  пользователей Supabase Auth обнуляются — участники войдут заново. Полный круг проверяет `tests/test_backend.py`.
+- Ручная копия средствами Supabase: `supabase db dump --linked -f backup.sql` (схема) и `supabase db dump --linked --data-only -f data.sql`.
 
 ## Локальный стенд
 

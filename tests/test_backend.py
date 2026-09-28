@@ -170,6 +170,27 @@ check("отклонённой бане цену не добавить", price(7,
 sql("update baths set status = 'ok' where id = 7")
 sql("delete from bath_prices where bath_id = 7")
 
+print("Ночной бэкап и восстановление")
+dry = req("GET", "/functions/v1/backup?dry=1")[1]
+check("бэкап видит все таблицы public и сколько в них строк", dry.get("tables", {}).get("baths") == int(sql("select count(*) from baths")), dry)
+# полный круг без Яндекса: копия локальной базы в формате бэкапа → портим данные → scripts/restore-backup.sh <папка> → сверяем
+import gzip, json, pathlib, subprocess, tempfile
+bk = pathlib.Path(tempfile.mkdtemp())
+tables = sql("select string_agg(tablename, ',' order by tablename) from pg_tables where schemaname = 'public'").split(",")
+for t in tables:
+    data = sql(f'select coalesce(json_agg(x), \'[]\'::json)::text from (select * from public."{t}" order by 1) x')
+    (bk / f"public.{t}.json.gz").write_bytes(gzip.compress(data.encode()))
+(bk / "manifest.json").write_text(json.dumps({"day": "test", "tables": {t: 0 for t in tables}}))
+before_b = sql("select count(*) || '|' || coalesce(max(id), 0) from baths")
+sql("delete from player_aliases"); sql("update baths set name = name || ' (испорчено)' where id = 1")
+r = subprocess.run(["scripts/restore-backup.sh", str(bk)], capture_output=True, text=True, cwd=pathlib.Path(__file__).resolve().parent.parent)
+check("восстановление из копии проходит", r.returncode == 0, r.stderr[-400:])
+check("данные вернулись как были", sql("select count(*) || '|' || coalesce(max(id), 0) from baths") == before_b
+      and "испорчено" not in sql("select name from baths where id = 1") and int(sql("select count(*) from player_aliases")) >= 3)
+nb = sql("insert into baths (name, status) values ('Проверка счётчика', 'pending') returning id").splitlines()[0]
+check("счётчик id после восстановления продолжает с максимума", int(nb) > int(before_b.split("|")[1]))
+sql(f"delete from baths where id = {nb}")
+
 print("Точки бань")
 sql("update baths set precision='region' where id in (10, 11, 12)")
 put = lambda bath, inp: req("POST", "/functions/v1/bath-location", {"bath_id": bath, "input": inp}, token=shurik)
