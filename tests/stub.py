@@ -180,6 +180,7 @@ def start(token):
                 if data:
                     return self.reply(200, data, "application/wasm" if u.path.endswith(".wasm") else "application/octet-stream")
                 return self.reply(404, {"error": f"нет в кэше npm у {EDGE_CONTAINER}: {u.path}"})
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))   # непрочитанное тело при закрытии — это сброс соединения
             self.reply(404, {"ok": False, "error_code": 404, "description": "Not Found (заглушка тестов)"})
 
         # бакет Яндекса: PUT кладёт (только с подписью AWS4 — как настоящий), GET/HEAD отдают; всё в памяти (tg.s3)
@@ -198,8 +199,11 @@ def start(token):
 
         do_GET = do_POST = do_PUT = do_HEAD = route
 
+    class Server(http.server.ThreadingHTTPServer):
+        request_queue_size = 128   # по умолчанию 5: функции зовут Telegram пачками, лишние соединения сбрасывались бы
+
     try:
-        srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        srv = Server(("127.0.0.1", port), Handler)
     except OSError as e:
         raise SystemExit(f"Порт заглушки {port} занят ({e}): видимо, тесты уже идут в другом окне — дождись их")
     srv.daemon_threads = True
