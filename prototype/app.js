@@ -10,7 +10,7 @@
   const plural = (n, a, b, c) => { n = Math.round(Math.abs(+n) * 10) / 10; if (!Number.isInteger(n)) return b; const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
   const TYPE_LABEL = { public: "Общественная", spa: "Хуитнес", private: "Частная", unknown: "Тип не указан" };
   const PREC_LABEL = { city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
-  const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€" };
+  const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€", JPY: "¥", AED: "د.إ" };
   const curSign = (c) => CUR_SIGN[c] || c;
   const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
