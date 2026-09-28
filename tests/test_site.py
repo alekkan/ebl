@@ -21,6 +21,7 @@ AUTH_KEY = "sb-" + API.split("//")[1].split(".")[0].split(":")[0] + "-auth-token
 VIEWS = ["map", "heat", "table", "feed", "rules"]
 # всё, что не со стенда и не с локального сервера сайта
 EXTERNAL = re.compile(r"^https?://(?!(127\.0\.0\.1|localhost)[:/])")
+DEAD = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
 TILE = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=")
 
 # вёрстка: элемент с текстом вылез за свой контейнер (без прокрутки) или за экран; карты и прокручиваемые таблицы — не в счёт
@@ -55,9 +56,15 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class Server(http.server.ThreadingHTTPServer):
+    # очередь соединений по умолчанию — 5: Chrome открывает сразу шесть, и часть сбрасывалась (ERR_CONNECTION_RESET на vendor/*.js) —
+    # без Leaflet сайт падал, и тест проваливался в случайном месте («шлюз отвечает», «Комиссия видит кнопки», 28.09)
+    request_queue_size = 128
+
+
 def serve():
     handler = functools.partial(Quiet, directory=str(ROOT / "prototype"))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    srv = Server(("127.0.0.1", 0), handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{srv.server_address[1]}/"
 
@@ -71,7 +78,7 @@ class Site:
                                        is_mobile=mobile, has_touch=mobile)
         self.page = self.ctx.new_page()
         self.errors = []
-        self.page.on("console", lambda m: m.type == "error" and not self._noise(m.text) and self.errors.append(m.text))
+        self.page.on("console", lambda m: m.type == "error" and not self._noise(m) and self.errors.append(f"{m.text} ({(m.location or {}).get('url', '')[-60:]})"))
         self.page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
         self.page.route(EXTERNAL, self._offline)
         self.page.route("**/config.js*", lambda r: r.fulfill(body=config, content_type="application/javascript"))
@@ -86,6 +93,8 @@ class Site:
             ART.mkdir(exist_ok=True)
             self.page.screenshot(path=str(ART / f"{name}-boot.png"))
         check(f"{name}: сайт загрузился", not err, err)
+        if self.errors:   # не догрузился скрипт — дальше всё посыплется, причину показываем сразу
+            check(f"{name}: страница загрузилась без ошибок", False, self.errors[:3])
 
     def _offline(self, route):
         """Сайт в тестах — без интернета: шрифты Google пустые (остаются системные), тайлы карт прозрачные, геокодер отвечает
@@ -103,9 +112,10 @@ class Site:
         route.abort()
 
     @staticmethod
-    def _noise(text):
-        # тайлы и шрифты подменены (_offline); «net::ERR» — от нарочно мёртвого адреса в проверке двух путей к базе
-        return any(s in text for s in ("tile", "openstreetmap", "arcgisonline", "fonts.g", "ERR_INTERNET", "net::ERR"))
+    def _noise(m):
+        # не ошибка сайта — только нарочно мёртвый адрес в проверке двух путей к базе; тайлы и шрифты подменены (_offline),
+        # а сбой загрузки своих файлов прятать нельзя: так пряталась причина провалов 28.09
+        return DEAD in m.text or DEAD in (m.location or {}).get("url", "")
 
     def js(self, code, arg=None):
         return self.page.evaluate(code, arg)
@@ -181,7 +191,7 @@ with sync_playwright() as pw:
         check("API сайта — через шлюз в Яндексе, а не напрямую *.supabase.co", "supabase.co" not in cfg.split("supabaseUrl:")[1].split("\n")[0])
 
         print("Два пути к базе")
-        dead = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
+        dead = DEAD
         cfg2 = lambda main, direct: f'window.EBL_CONFIG = {{ supabaseUrl: "{main}", directUrl: "{direct}", supabaseKey: "{KEY}", telegramBot: "eblsu_bot", telegramBotId: 1 }};'
         s = Site(browser, url, config=cfg2(dead, API), name="fallback-direct")
         check("шлюз недоступен (VPN не пускает к Яндексу) — сайт идёт в базу напрямую и загружается", s.js("() => document.querySelectorAll('#list .item').length > 0"))
