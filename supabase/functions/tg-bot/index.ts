@@ -1244,11 +1244,13 @@ Deno.serve(async (req) => {
   // диагностика без секретов: состояние вебхука у Telegram и последние записи журнала — только время и тип,
   // detail (данные кнопок, стек ошибки) наружу не отдаём: по нему видно, кто что решал
   if (url.searchParams.get("diag") === "1") {
-    const info = await tg("getWebhookInfo", {});
+    const [info, me] = await Promise.all([tg("getWebhookInfo", {}), tg("getMe", {})]);
     const { data: log } = await sb.from("bot_log").select("at, kind").order("id", { ascending: false }).limit(10);
     const r = info.result ?? {};
     return new Response(JSON.stringify({ pending: r.pending_update_count, last_error: r.last_error_message, last_error_at: r.last_error_date,
-      allowed: r.allowed_updates, url_ok: r.url === `${BASE}/functions/v1/tg-bot`, log }), { headers: { "Content-Type": "application/json" } });
+      allowed: r.allowed_updates, url_ok: r.url === `${BASE}/functions/v1/tg-bot`,
+      // режим приватности выключен — бот видит все сообщения группы (без этого не дойдут «@бот …» и «@eblany»)
+      reads_all: me.result?.can_read_all_group_messages ?? null, log }), { headers: { "Content-Type": "application/json" } });
   }
   if (SECRET && url.searchParams.get("setup") === SECRET) {
     const hook = await tg("setWebhook", { url: `${BASE}/functions/v1/tg-bot`, secret_token: SECRET, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
