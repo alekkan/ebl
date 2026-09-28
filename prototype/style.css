@@ -340,9 +340,10 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .rate { display: inline-flex; gap: 2px; }
 .rate button { border: 0; background: none; padding: 2px; border-radius: 6px; transition: transform .15s var(--ease); }
 .rate button:hover { transform: translateY(-2px) rotate(-6deg); }
-.rvform { display: grid; gap: 10px; padding: 14px; background: var(--panel-2); border-radius: var(--r); }
-.rvform .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rvform, .prform { display: grid; gap: 10px; padding: 14px; background: var(--panel-2); border-radius: var(--r); }
+.rvform .row, .prform .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .rvform .sel { width: auto; height: 36px; font-size: 13px; }
+.prform .row .inp { flex: 1 1 160px; }
 
 /* ---------- вход и профиль ---------- */
 .me-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 600; padding: 4px 14px 4px 4px; border-radius: 999px; white-space: nowrap; }

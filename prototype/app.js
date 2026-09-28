@@ -10,6 +10,8 @@
   const plural = (n, a, b, c) => { n = Math.round(Math.abs(+n) * 10) / 10; if (!Number.isInteger(n)) return b; const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
   const TYPE_LABEL = { public: "Общественная", spa: "Хуитнес", private: "Частная", unknown: "Тип не указан" };
   const PREC_LABEL = { city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
+  const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€", JPY: "¥", AED: "د.إ" };
+  const curSign = (c) => CUR_SIGN[c] || c;
   const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -28,6 +30,7 @@
   const canModerate = !D.live || !!me?.isCommission;
   let visits = data.visits;
   const reviews = data.reviews;
+  const prices = data.prices;
   const standings = data.standings;
   const players = data.players?.length ? data.players : standings.map((s) => s.name);
   const baths = data.baths;
@@ -360,6 +363,8 @@
       selectPin(id);
     }
     const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
+    const pv = prices[id] || [];   // по возрастанию price_date — последняя цена в конце
+    const lastP = pv[pv.length - 1], olderP = pv.slice(0, -1).reverse();
     const rv = reviews[id] || [];
     // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); в средней — последняя оценка каждого
     const lastRate = new Map();
@@ -410,6 +415,23 @@
             : `https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}`}">${icon("route")}Маршрут</a>
         </div>
         <section>
+          <h3>Цена</h3>
+          ${lastP ? `<p class="hint" style="margin:0"><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` / ${lastP.duration_min} мин` : ""} <small>— ${dayLabel(lastP.price_date)}</small></p>
+            ${olderP.length ? `<p class="hint" style="margin:6px 0 0">Раньше: ${olderP.map((p) => `${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` / ${p.duration_min} мин` : ""} (${dayLabel(p.price_date)})`).join(" · ")}</p>` : ""}`
+            : `<p class="hint" style="margin:0">Цену пока никто не указал.</p>`}
+          ${member ? `<form class="prform" id="prForm">
+            <div class="row">
+              <input class="inp" id="prPrice" type="number" min="1" step="1" placeholder="Сколько стоит, ₽" required>
+              <button class="btn solid" type="submit">Добавить</button>
+            </div>
+            <button type="button" class="linkbtn" id="prMore">ещё: валюта · время →</button>
+            <div class="row" id="prExtra" hidden>
+              <input class="inp" id="prCurrency" placeholder="Валюта (по умолчанию ₽)">
+              <input class="inp" id="prDur" type="number" min="1" placeholder="Время, мин">
+            </div>
+          </form>` : ""}
+        </section>
+        <section>
           <h3>Кто парился в 2026</h3>
           ${who.length ? `<div class="who">${who.map(([p, n]) => `<button data-player="${esc(p)}">${ava(p, "sm")}${esc(p)}${n > 1 ? `<b>×${n}</b>` : ""}</button>`).join("")}</div>`
             : `<p class="hint" style="margin:0">${!b.nHist && !b.isNew
@@ -448,6 +470,20 @@
       } catch (err) { toast("Не получилось: " + err.message); }
     });
     $("#dVisit", d).onclick = () => openVisit({ bathId: id });
+    $("#prMore", d)?.addEventListener("click", () => { $("#prMore", d).hidden = true; $("#prExtra", d).hidden = false; });
+    $("#prForm", d)?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const price = +$("#prPrice", d).value; if (!price || price <= 0) return;
+      const currency = $("#prCurrency", d).value.trim() || null;
+      const durationMin = +$("#prDur", d).value || null;
+      try {
+        const pid = await D.submitBathPrice(id, price, currency, durationMin);
+        if (pid) {
+          (prices[id] ||= []).push({ id: pid, price, currency: (currency || "RUB").toUpperCase(), duration_min: durationMin, price_date: new Date().toISOString().slice(0, 10) });
+          toast("Цена добавлена — спасибо"); openBath(id);
+        } else toast("Такая же цена уже есть — не дублирую");
+      } catch (err) { toast("Не сохранилось: " + err.message); }
+    });
     $$("[data-player]", d).forEach((x) => (x.onclick = () => openPlayer(x.dataset.player)));
     const rateBtns = $$("#rvRate button", d);
     const setRate = (n) => rateBtns.forEach((x) => { const on = +x.dataset.r <= n; x.setAttribute("aria-checked", String(+x.dataset.r === n)); $(".leaf", x).classList.toggle("on", on); });
@@ -1214,6 +1250,7 @@
     }
     visits = fresh.visits;
     Object.keys(reviews).forEach((k) => delete reviews[k]); Object.assign(reviews, fresh.reviews);
+    Object.keys(prices).forEach((k) => delete prices[k]); Object.assign(prices, fresh.prices);
     rankTable(); renderKpis(); render(); renderRace(); renderTable(); updateBadge();
     if (!$("#tWeek").hidden) renderWeek();
     if (!$("#view-feed").hidden) renderFeed();

@@ -38,6 +38,11 @@ insert into public.players (nick) values
 on conflict (nick) do nothing;
 update public.players set is_commission = true where nick in ('Витёк', 'Леха');
 
+insert into public.player_aliases (alias, player_id)
+select a.alias, p.id from (values ('Мамонтов', 'Ден'), ('Демон', 'Фил'), ('Уважаемый', 'Шурик')) a(alias, nick)
+join public.players p on p.nick = a.nick
+on conflict do nothing;
+
 insert into public.baths (id, name, type, country, region, lat, lng, precision) overriding system value values
   (1, 'Паппенхайм2', null, 'Австрия', 'Вена', 48.20835, 16.3725, 'region'),
   (2, 'Amalienbad', null, 'Австрия', 'Вена', 48.17423, 16.37913, 'exact'),

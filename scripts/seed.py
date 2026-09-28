@@ -27,6 +27,14 @@ out.append("insert into public.players (nick) values")
 out.append(",\n".join(f"  ({q(s['name'])})" for s in standings) + "\non conflict (nick) do nothing;")
 out.append(f"update public.players set is_commission = true where nick in ({', '.join(q(n) for n in COMMISSION)});\n")
 
+# клички от Комиссии (см. 20260927110000_player_aliases.sql) — миграция сама их не заводит: она идёт до seed.sql,
+# когда players ещё пуст, поэтому join с players там ничего не находит. Заводим здесь же, где players уже есть.
+ALIASES = [("Мамонтов", "Ден"), ("Демон", "Фил"), ("Уважаемый", "Шурик")]
+out.append("insert into public.player_aliases (alias, player_id)")
+out.append("select a.alias, p.id from (values " + ", ".join(f"({q(alias)}, {q(nick)})" for alias, nick in ALIASES) + ") a(alias, nick)")
+out.append("join public.players p on p.nick = a.nick")
+out.append("on conflict do nothing;\n")
+
 rows = []
 for b in baths:
     c = coords.get(str(b["id"]))
