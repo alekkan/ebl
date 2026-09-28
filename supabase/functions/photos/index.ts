@@ -7,10 +7,9 @@
 // Ключ к бакету (PHOTOS_S3_KEY_ID, PHOTOS_S3_SECRET) кладёт владелец скриптом scripts/setup-photos-bucket.sh — он пишет только сюда.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { AwsClient } from "npm:aws4fetch@1.0.20";
+import { TELEGRAM_API, YANDEX_S3 as S3 } from "../_shared/hosts.ts";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
-const TELEGRAM_API = (Deno.env.get("TELEGRAM_API_URL") || "https://api.telegram.org").replace(/\/+$/, "");
-const S3 = (Deno.env.get("S3_URL") || "https://storage.yandexcloud.net").replace(/\/+$/, "");
 const BUCKET = Deno.env.get("PHOTOS_BUCKET") ?? "ebl-photos";
 const KEY_ID = Deno.env.get("PHOTOS_S3_KEY_ID") ?? "", SECRET = Deno.env.get("PHOTOS_S3_SECRET") ?? "";
 const TRIES = 5;
