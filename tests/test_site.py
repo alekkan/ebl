@@ -120,6 +120,7 @@ def all_views(s, label, mobile=False):
             s.no_clip(f"{label}: «{v}» на телефоне", f"#view-{v}")
     s.view("table")
     s.page.click('#tMode [data-m="week"]')
+    s.page.wait_for_selector("#tWeek:not([hidden])", timeout=8000)
     check(f"{label}: недельный зачёт открылся", s.js("() => !document.getElementById('tWeek').hidden && document.querySelectorAll('#weekTable tbody tr').length > 0"))
     if mobile:
         s.no_clip(f"{label}: недельный зачёт на телефоне", "#view-table")
@@ -221,7 +222,9 @@ with sync_playwright() as pw:
         print("Комиссия")
         s = Site(browser, url, sess=vitek, name="commission")
         s.view("feed")
-        s.page.wait_for_timeout(400)
+        # ждём кнопку, а не фиксированные доли секунды: лента дорисовывается после загрузки данных
+        try: s.page.wait_for_selector(f'[data-ok="{vid}"]', timeout=8000)
+        except Exception: pass
         check("Комиссия сразу видит кнопки решения — без переключателя «Режим Комиссии»", s.js(f"() => !!document.querySelector('[data-ok=\"{vid}\"]')"))
         s.page.click(f'[data-ok="{vid}"]')
         s.page.wait_for_timeout(1500)
@@ -249,7 +252,9 @@ with sync_playwright() as pw:
         dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
         sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")
         s = Site(browser, url, sess=vitek, name="commission-repeat")
-        s.view("feed"); s.page.wait_for_timeout(400)
+        s.view("feed")
+        try: s.page.wait_for_selector(f'[data-ok="{dup}"]', timeout=8000)
+        except Exception: pass
         check("Комиссия видит пометку «похоже на повтор бани в те же сутки — проверь дату»",
               s.js(f"() => (document.querySelector('[data-ok=\"{dup}\"]')?.closest('.post')?.innerText || '').includes('повтор бани')"))
         s.clean("Комиссия: повтор")
@@ -261,6 +266,7 @@ with sync_playwright() as pw:
         first_row = "() => document.querySelector('#playerBody .blist button')?.innerText || ''"
         s = Site(browser, url, sess=shurik, name="member-dates")
         s.view("table"); s.js(open_shurik)
+        s.page.wait_for_selector("#playerBody .blist button", timeout=8000)
         row = s.js(first_row)
         check("карточка участника: сверху свежая баня с портала — с датой и «на проверке»",
               "Василевские" in row and "сегодня" in row and "на проверке" in row, row)
