@@ -1,6 +1,8 @@
 // Координаты бани из того, что прислал участник: координаты текстом, ссылка на Яндекс Карты, Google Maps, 2ГИС или OSM.
 // Короткие ссылки (maps.app.goo.gl, yandex.ru/maps/-/…, go.2gis.com) раскрываем по редиректам.
 // Ссылка на карточку организации без координат в адресе не подходит — тогда просим геопозицию.
+import { NOMINATIM } from "./hosts.ts";
+
 export type Point = { lat: number; lng: number };
 
 const valid = (lat: number, lng: number): Point | null =>
@@ -69,7 +71,7 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
     clean.replace(/,?\s*(строение|стр\.?|корпус|корп\.?|к\.|с\.)\s*\d+\S*/gi, "").replace(/\b(ул\.?|улица)\s*/gi, "")])].filter((v) => v.length > 4);
   for (const v of variants) {
     try {
-      const url = "https://nominatim.openstreetmap.org/search?" + new URLSearchParams({ q: v, format: "jsonv2", limit: "3", "accept-language": "ru" });
+      const url = `${NOMINATIM}/search?` + new URLSearchParams({ q: v, format: "jsonv2", limit: "3", "accept-language": "ru" });
       const res = await (await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } })).json();
       for (const hit of res ?? []) {
         const p = valid(+hit.lat, +hit.lon);

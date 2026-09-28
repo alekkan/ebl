@@ -7,8 +7,9 @@
 Перед запуском: supabase start, supabase functions serve (см. AGENTS.md). Нужен Google Chrome.
 Запуск: python3 tests/test_site.py        (скриншоты провалов — в tests/artifacts/)
 """
-import functools, http.server, json, pathlib, threading, time
+import base64, functools, http.server, json, pathlib, re, threading, time, urllib.parse
 from playwright.sync_api import sync_playwright
+import stub
 from local import API, KEY, check, link, player_id, session, sql
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -18,6 +19,9 @@ SHOWCASE_CONFIG = 'window.EBL_CONFIG = { supabaseUrl: "", supabaseKey: "", teleg
 # ключ, под которым supabase-js хранит сессию: sb-<первая часть адреса>-auth-token
 AUTH_KEY = "sb-" + API.split("//")[1].split(".")[0].split(":")[0] + "-auth-token"
 VIEWS = ["map", "heat", "table", "feed", "rules"]
+# всё, что не со стенда и не с локального сервера сайта
+EXTERNAL = re.compile(r"^https?://(?!(127\.0\.0\.1|localhost)[:/])")
+TILE = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=")
 
 # вёрстка: элемент с текстом вылез за свой контейнер (без прокрутки) или за экран; карты и прокручиваемые таблицы — не в счёт
 CLIP_JS = """(root) => {
@@ -69,6 +73,7 @@ class Site:
         self.errors = []
         self.page.on("console", lambda m: m.type == "error" and not self._noise(m.text) and self.errors.append(m.text))
         self.page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
+        self.page.route(EXTERNAL, self._offline)
         self.page.route("**/config.js*", lambda r: r.fulfill(body=config, content_type="application/javascript"))
         if sess:
             self.page.add_init_script(f"localStorage.setItem({json.dumps(AUTH_KEY)}, {json.dumps(json.dumps(sess))})")
@@ -82,9 +87,24 @@ class Site:
             self.page.screenshot(path=str(ART / f"{name}-boot.png"))
         check(f"{name}: сайт загрузился", not err, err)
 
+    def _offline(self, route):
+        """Сайт в тестах — без интернета: шрифты Google пустые (остаются системные), тайлы карт прозрачные, геокодер отвечает
+        как настоящий. На медленной сети они держали загрузку страницы и клики (28.09). Любой другой запрос наружу — ошибка:
+        значит, сайт полез куда-то, чего тесты не знают (а в России часть адресов режут)."""
+        u = urllib.parse.urlsplit(route.request.url)
+        if u.hostname == "fonts.googleapis.com":
+            return route.fulfill(body="", content_type="text/css")
+        if u.hostname in ("tile.openstreetmap.org", "server.arcgisonline.com"):
+            return route.fulfill(body=TILE, content_type="image/png")
+        if u.hostname == "nominatim.openstreetmap.org" and u.path == "/reverse":
+            status, body = stub.reverse(urllib.parse.parse_qs(u.query))
+            return route.fulfill(status=status, json=body, headers={"Access-Control-Allow-Origin": "*"})
+        self.errors.append(f"сайт полез в интернет: {route.request.url[:120]}")
+        route.abort()
+
     @staticmethod
     def _noise(text):
-        # тайлы карт и шрифты из интернета могут не догрузиться — это не ошибка сайта
+        # тайлы и шрифты подменены (_offline); «net::ERR» — от нарочно мёртвого адреса в проверке двух путей к базе
         return any(s in text for s in ("tile", "openstreetmap", "arcgisonline", "fonts.g", "ERR_INTERNET", "net::ERR"))
 
     def js(self, code, arg=None):
@@ -110,6 +130,9 @@ class Site:
         check(f"{label} — ничего не вылезает", not clipped, clipped)
 
     def close(self):
+        away = [e for e in self.errors if e.startswith("сайт полез в интернет")]
+        if away:   # и там, где консоль не проверяем (два пути к базе, гость и даты)
+            check(f"{self.name}: сайт не ходит в интернет мимо известных адресов", False, away[:3])
         self.ctx.close()
 
 

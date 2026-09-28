@@ -13,6 +13,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { hasLocationHint, locate, looksLikeAddress, parseLocation } from "../_shared/geo.ts";
 import { matchPlace, reversePlace } from "../_shared/place.ts";
 import { greetLine } from "../_shared/greetings.ts";
+import { TELEGRAM_API } from "../_shared/hosts.ts";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
@@ -27,7 +28,7 @@ type Any = any;
 
 // ---------- Telegram ----------
 const tg = (method: string, body: Record<string, unknown>) =>
-  fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
+  fetch(`${TELEGRAM_API}/bot${TOKEN}/${method}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   }).then((r) => r.json()).catch(() => ({ ok: false }));
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));

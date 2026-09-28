@@ -1,12 +1,12 @@
 """Проверка разбора постов ботом на локальном стенде: время, компания, баня, УУ, ответы только на отметку.
 
-До Telegram локально ничего не доходит (токен фейковый) — проверяем черновик, который бот сохраняет в bot_sessions.
+Telegram на стенде — заглушка tests/stub.py (отвечает как настоящий, без интернета); проверяем черновик в bot_sessions и базу.
 Перед запуском: supabase start && supabase db reset && supabase functions serve --env-file supabase/functions/.env
 Запуск: python3 tests/test_bot.py
 """
 import json, re, time
 from concurrent.futures import ThreadPoolExecutor
-from local import API, KEY, WEBHOOK_SECRET, check, req, sql
+from local import API, KEY, WEBHOOK_SECRET, check, now, req, sql
 
 CHAT, ME = -1001234567890, 900
 sql("delete from bot_sessions")
@@ -17,7 +17,7 @@ sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 901,
 
 def post(text, mid, who=ME, chat=CHAT, chat_type="supergroup"):
     ents = [{"type": "mention", "offset": m.start(), "length": len(m.group())} for m in re.finditer(r"@\w+", text)]
-    update = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": chat, "type": chat_type},
+    update = {"update_id": mid, "message": {"message_id": mid, "date": now(), "chat": {"id": chat, "type": chat_type},
               "from": {"id": who, "is_bot": False, "first_name": "Alexey"}, "text": text, "entities": ents}}
     s, _ = req("POST", "/functions/v1/tg-bot", update, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
     assert s == 200, s
@@ -26,9 +26,10 @@ def post(text, mid, who=ME, chat=CHAT, chat_type="supergroup"):
 
 
 def card(data, who=ME, chat=CHAT, chat_type="supergroup", cid="c"):
-    """Кнопка на карточке черновика. Локально Telegram не отвечает, у черновика нет id карточки — жмём «на неё же» (без message_id)."""
+    """Кнопка на карточке черновика — той, которую бот прислал (её номер бот запомнил в черновике)."""
+    st = json.loads(sql(f"select state from bot_sessions where tg_id = {who}") or "null") or {}
     upd = {"update_id": 3000, "callback_query": {"id": cid, "from": {"id": who, "is_bot": False, "first_name": "X"}, "data": data,
-           "message": {"chat": {"id": chat, "type": chat_type}, "text": "карточка"}}}
+           "message": {"message_id": st.get("card"), "chat": {"id": chat, "type": chat_type}, "text": "карточка"}}}
     s, _ = req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
     assert s == 200, s
 
@@ -213,7 +214,7 @@ check("«🙋 Один» — компания выбрана", state().get("comp
 check("«один» прямо в посте — бот не переспрашивает", case("@eblsu_bot Василевские 2ч один", 81).get("companyOk") is True)
 def mention(text, name, mid, uid=777777):
     sql("delete from bot_sessions")
-    upd = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
+    upd = {"update_id": mid, "message": {"message_id": mid, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
            "from": {"id": ME, "is_bot": False, "first_name": "Alexey"}, "text": text,
            "entities": [{"type": "mention", "offset": 0, "length": 10},
                         {"type": "text_mention", "offset": text.index(name), "length": len(name), "user": {"id": uid, "is_bot": False, "first_name": "X"}}]}}
@@ -277,7 +278,7 @@ vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, so
 sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick in ('Леха', 'Ден')")
 sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text, geo_msg) values ({vid}, {CHAT}, 4241, {CARD}, 5, 'Ушло в Комиссию ✅', {CARD})")
 def reply_card(text, mid, who=ME):
-    upd = {"update_id": 5000 + mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
+    upd = {"update_id": 5000 + mid, "message": {"message_id": mid, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
            "from": {"id": who, "is_bot": False, "first_name": "X"}, "text": text,
            "reply_to_message": {"message_id": CARD, "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": CHAT, "type": "supergroup"}, "text": "карточка"}}}
     req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
@@ -315,7 +316,18 @@ check("поход этой недели на проверке — итоги ж�
 sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
 check("решили — ждать нечего", dry()["waiting"]["visits"] == 0, dry()["waiting"])
 sql(f"delete from visits where id = {vid}")
-import urllib.request
+import pathlib, stub, urllib.error, urllib.request
+# wasm для картинки функция берёт с npm-CDN — на стенде из заглушки (тот же файл из кэша npm), на бою с jsDelivr
+wr = (pathlib.Path(__file__).resolve().parent.parent / "supabase/functions/week-results/index.ts").read_text()
+ver = re.search(r'"npm:@resvg/resvg-wasm@([\d.]+)"', wr)[1]
+check("wasm для картинки — той же версии, что библиотека resvg в import", f"/@resvg/resvg-wasm@{ver}/index_bg.wasm" in wr, ver)
+try:
+    cdn = urllib.request.urlopen(urllib.request.Request(f"https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@{ver}/index_bg.wasm", method="HEAD"), timeout=8)
+    local_wasm = stub.npm_file(f"@resvg/resvg-wasm@{ver}/index_bg.wasm") or b""
+    check("[сеть] боевой адрес wasm на jsDelivr отвечает, файл того же размера, что у заглушки",
+          cdn.status == 200 and int(cdn.headers.get("Content-Length") or -1) == len(local_wasm), (cdn.headers.get("Content-Length"), len(local_wasm)))
+except (urllib.error.URLError, OSError) as e:
+    print(f"  – пропущено [сеть]: jsDelivr сейчас недоступен ({getattr(e, 'code', None) or getattr(e, 'reason', None) or e})")
 png = urllib.request.urlopen(urllib.request.Request(f"{API}/functions/v1/week-results?render=", headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"}), timeout=120).read()
 check("картинка итогов — PNG 1080×1350", png[:8] == b"\x89PNG\r\n\x1a\n" and int.from_bytes(png[16:20], "big") == 1080 and int.from_bytes(png[20:24], "big") == 1350, len(png))
 
