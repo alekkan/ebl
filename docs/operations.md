@@ -157,6 +157,13 @@ curl -X POST https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/recompute
   пользователей Supabase Auth обнуляются — участники войдут заново. Полный круг проверяет `tests/test_backend.py`.
 - Ручная копия средствами Supabase: `supabase db dump --linked -f backup.sql` (схема) и `supabase db dump --linked --data-only -f data.sql`.
 
+## Фото из походов
+
+Файлы — в бакете `ebl-photos` в Яндексе, устройство — [photos.md](photos.md). Разовая настройка (владелец облака):
+`scripts/setup-photos-bucket.sh` — бакет, сервисный аккаунт с доступом только к нему и ключ в секреты Supabase.
+Застряли фото (`select count(*) from visit_photos where visit_id is not null and not ready`) — `photos?sync=all`
+покажет ошибки; после 5 попыток строка остаётся с `ready = false`, сбросить: `update visit_photos set tries = 0 where id = …`.
+
 ## Локальный стенд
 
 ```bash

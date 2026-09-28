@@ -8,6 +8,7 @@
 // после захода отмечает бота и пишет «долгая». Сам бот ничего не спрашивает — чат не захламляется.
 // В личке с ботом работает то же самое, только без отметки.
 // «@eblany текст» в группе — бот отвечает на сообщение отметками всех участников чата (позвать всех).
+// Фото из поста (и из альбома, и досланные ответом на карточку) прикрепляются к походу — docs/photos.md.
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -78,7 +79,8 @@ const STASH_TTL = 3 * 864e5;  // пост, отложенный до подтв�
 // ответы на карточку словами: «один» — без компании, «да» на «всё верно?» — то же, что «✅ В Комиссию»
 const ALONE = /^(один|одна|одни|сам|сама|никого|без никого|соло)[!.]*$/iu;
 const CONFIRM = /^(да|ага|угу|верно|всё верно|все верно|всё так|все так|ок|окей|ok|отправляй|отправь|в комиссию|го|\+|👍)[!.]*$/iu;
-const clearState = (tgId: number) => sb.from("bot_sessions").delete().eq("tg_id", tgId);
+// черновик выбросили — его фото тоже (отправленный черновик забирают удалением строки напрямую, фото уходят в поход)
+const clearState = (tgId: number) => Promise.all([sb.from("bot_sessions").delete().eq("tg_id", tgId), dropDraftPhotos(tgId)]);
 
 // ---------- разбор свободного текста ----------
 const STOP = new Set(("был была были было сходил сходила сходили зашел зашли зашёл пошли парился парились попарились " +
@@ -350,6 +352,7 @@ async function renderCard(st: Any, lg: Any) {
     `👥 ${nicks.length ? `${esc(nicks.join(", "))} — поход запишется всем, отдельно отмечать не нужно` : "один"}`,
   ];
   if (st.geo) lines.push("📍 точка на карте есть");
+  if (st.photos) lines.push(`📷 ${st.photos} фото — приложу к походу`);
   // тип не размечен (или баня новая) — спрашиваем: от него зависит +1 за общественную (п. 4); ответ необязательный
   const askType = st.newBath || (st.bathId && !st.bathType);
   if (askType && st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
@@ -370,6 +373,7 @@ async function renderCard(st: Any, lg: Any) {
 async function showCard(st: Any, lg: Any, tgId: number) {
   if ((st.bathId || st.newBath) && st.dup === undefined) st.dup = await alreadyMarked(st);
   if ((st.bathId || st.newBath) && (st.companyOk === false || st.picking) && !st.suggest) st.suggest = await companySuggestions(st, lg);
+  if (st.hasPhotos) st.photos = await draftPhotos(tgId, st.source);
   const { text, kb } = await renderCard(st, lg);
   st.hint = null;   // подсказка — только к этому ответу
   if (st.card) await edit(st.chat, st.card, text, kb);
@@ -405,6 +409,12 @@ async function startDraft(msg: Any, me: Any, lg: Any, note?: string) {
   };
   st.geo = await pointFromMessage(msg);
   if (note) st.hint = note;
+  await dropDraftPhotos(msg.from.id);   // новый пост — новый черновик: фото прошлого, неотправленного, не нужны
+  if (msg.photo) {
+    st.hasPhotos = !!(await addPhoto(msg, me.id, { draft: msg.message_id }));
+    // остальные фото альбома идут отдельными сообщениями следом — даём им лечь, чтобы карточка показала все
+    if (msg.media_group_id) await sleep(2000);
+  }
   await resolveBath(st);
   await showCard(st, lg, msg.from.id);
 }
@@ -437,6 +447,23 @@ async function placeFor(p: { lat: number; lng: number }, have: Any = {}) {
 // ответ на карточку — дополняем черновик
 async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
   const text: string = (msg.text ?? msg.caption ?? "").trim();
+  if (msg.photo) {
+    const id = await addPhoto(msg, me.id, { draft: st.source });
+    if (id) st.hasPhotos = true;
+    if (isPhotoOnly(text)) {
+      // альбом — пачка сообщений: карточку перерисовывает последнее фото пачки и по свежему черновику
+      if (msg.media_group_id) {
+        await sleep(1500);
+        const { data: last } = await sb.from("visit_photos").select("id").eq("tg_from", msg.from.id).eq("draft_msg", st.source)
+          .is("visit_id", null).order("id", { ascending: false }).limit(1).maybeSingle();
+        const fresh = await getState(msg.from.id);
+        if (!id || last?.id !== id || fresh?.source !== st.source) return;
+        st = { ...fresh, hasPhotos: true };
+      }
+      st.hint = "📷 Фото приложу к походу — на сайте они будут в карточке бани.";
+      return showCard(st, lg, msg.from.id);
+    }
+  }
   const hasBath = !!(st.bathId || st.newBath);
   const needsCompany = st.companyOk === false || !!st.picking;
   const dupOpen = !!(st.dup && !st.dupOk);
@@ -526,6 +553,9 @@ async function submit(st: Any, lg: Any, tgId: number) {
     await sb.from("visits").delete().eq("id", visit.id);
     return submitFailed(st, lg, tgId, `Не получилось записать компанию: ${pErr.message}`);
   }
+  // фото черновика (и досланные альбомом) — в поход
+  const photos = st.hasPhotos ? ((await sb.from("visit_photos").update({ visit_id: visit.id, draft_msg: null })
+    .eq("tg_from", tgId).eq("draft_msg", st.source).is("visit_id", null).select("id")).data?.length ?? 0) : 0;
   if (st.geo && st.bathId) await setBathPoint(st.bathId, st.geo, lg.players.find((p: Any) => p.id === st.authorId)?.is_commission);
   // тип бани со слов автора — только если он не был размечен; ошибся — Комиссия поправит в карточке бани
   if (st.bathId && st.type) await sb.from("baths").update({ type: st.type }).eq("id", st.bathId).is("type", null);
@@ -533,6 +563,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
 
   const nicks = (st.company ?? []).map((id: string) => lg.players.find((p: Any) => p.id === id)?.nick).filter(Boolean);
   const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
+    + photoLine(photos)
     + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "")
     + ((st.bathType || st.type) === "spa" ? `\n${SPA_JOKE}` : "")
     + repeatLine(await sameDayRepeat(visit.id));
@@ -634,6 +665,7 @@ async function summaryOf(visitId: number): Promise<string | null> {
   // экспресс — время не указывали: бот ставит час и ещё не спрашивал про долгую
   const dur = v.source === "bot" && v.duration_min === 60 && !v.long_asked_at ? null : v.duration_min;
   return `🧖 <b>${esc(vv.baths?.name)}</b>${vv.baths?.status === "pending" ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(dur)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
+    + photoLine(await photoCount(visitId))
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
     + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "")
     + repeatLine(await sameDayRepeat(visitId));
@@ -1019,6 +1051,100 @@ async function trackMembers(msg: Any) {
   if (msg.left_chat_member && !msg.left_chat_member.is_bot) await sb.from("chat_members").delete().eq("chat_id", chat).eq("tg_id", msg.left_chat_member.id);
 }
 
+// ---------- фото ----------
+// Бот только записывает, какое фото к какому походу (visit_photos); файл в бакет Яндекса перекачивает функция photos.
+// Telegram хранит фото в нескольких размерах и уже без метаданных (GPS): берём самый большой до 1600 px и превью от 320 px.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function photoOf(msg: Any) {
+  const side = (s: Any) => Math.max(s.width, s.height);
+  const sizes = [...(msg.photo ?? [])].sort((a: Any, b: Any) => side(a) - side(b));
+  if (!sizes.length) return null;
+  const big = [...sizes].reverse().find((s: Any) => side(s) <= 1600) ?? sizes[0];
+  const small = sizes.find((s: Any) => side(s) >= 320) ?? big;
+  return { tg_file_id: big.file_id, tg_unique_id: big.file_unique_id, tg_thumb_id: small.file_id, w: big.width, h: big.height };
+}
+// фото — в поход или в черновик (draft — номер поста, с которого он начался); то же фото второй раз не кладём
+async function addPhoto(msg: Any, playerId: string, to: { visitId?: number | null; draft?: number | null }): Promise<number | null> {
+  const p = photoOf(msg);
+  if (!p) return null;
+  const { data } = await sb.from("visit_photos").upsert({
+    ...p, visit_id: to.visitId ?? null, draft_msg: to.visitId ? null : to.draft ?? null, added_by: playerId, source: "bot",
+    tg_from: msg.from.id, tg_album: msg.media_group_id ?? null,
+  }, { onConflict: "tg_unique_id", ignoreDuplicates: true }).select("id").maybeSingle();
+  return data?.id ?? null;
+}
+const photoLine = (n: number) => (n ? `\n📷 ${n} фото` : "");
+const photoCount = async (visitId: number) =>
+  (await sb.from("visit_photos").select("id", { count: "exact", head: true }).eq("visit_id", visitId).eq("hidden", false)).count ?? 0;
+const draftPhotos = async (tgId: number, draft: number) =>
+  (await sb.from("visit_photos").select("id", { count: "exact", head: true }).eq("tg_from", tgId).eq("draft_msg", draft).is("visit_id", null)).count ?? 0;
+function dropDraftPhotos(tgId: number) { return sb.from("visit_photos").delete().eq("tg_from", tgId).is("visit_id", null); }
+
+// альбом — пачка отдельных сообщений почти одновременно: карточку правим один раз, последним фото пачки
+async function lastOfBurst(id: number | null, visitId: number) {
+  if (!id) return false;
+  await sleep(1500);
+  const { data } = await sb.from("visit_photos").select("id").eq("visit_id", visitId).order("id", { ascending: false }).limit(1).maybeSingle();
+  return data?.id === id;
+}
+
+// фото альбома без подписи. Подпись с отметкой бота — у соседнего фото того же отправителя: оно уже в походе или черновике.
+// Сообщения альбома приходят вперемешку — ждём соседа пару секунд; не нашёлся — фото не нам, ничего не храним.
+async function albumPhoto(msg: Any) {
+  for (let i = 0; i < 3; i++) {
+    const { data: sib } = await sb.from("visit_photos").select("visit_id, draft_msg, added_by")
+      .eq("tg_album", msg.media_group_id).eq("tg_from", msg.from.id).limit(1).maybeSingle();
+    if (sib) {
+      const id = await addPhoto(msg, sib.added_by, { visitId: sib.visit_id, draft: sib.draft_msg });
+      if (sib.visit_id && await lastOfBurst(id, sib.visit_id)) await refreshVisit(sib.visit_id);
+      return;
+    }
+    await sleep(1500);
+  }
+}
+
+// фото ответом на карточку похода — в этот поход. Класть фото может только тот, кто был в походе
+async function photoToVisit(msg: Any, visitId: number, me: Any) {
+  const { data: vp } = await sb.from("visit_players").select("player_id").eq("visit_id", visitId).eq("player_id", me.id).maybeSingle();
+  if (!vp) return react(msg.chat.id, msg.message_id, "🤔");
+  const id = await addPhoto(msg, me.id, { visitId });
+  await react(msg.chat.id, msg.message_id, "👍");
+  if (await lastOfBurst(id, visitId)) await refreshVisit(visitId);
+}
+
+// последний свой поход за сутки (кроме отклонённых)
+async function recentVisit(playerId: string) {
+  const { data } = await sb.from("visit_players").select("visit_id, visits!inner(entered_at, status, baths(name))").eq("player_id", playerId)
+    .neq("visits.status", "rejected").gte("visits.entered_at", new Date(Date.now() - 24 * 3600e3).toISOString());
+  const v = (data ?? []).sort((a: Any, b: Any) => String(b.visits.entered_at).localeCompare(String(a.visits.entered_at)))[0] as Any;
+  return v ? { id: v.visit_id as number, bath: v.visits.baths?.name as string } : null;
+}
+
+// фото в личку или «@бот» с фото без бани в подписи — к своему последнему походу за сутки.
+// В группе — только 👍 и строка в карточке похода; в личке — одно подтверждение на пачку
+async function photoToRecent(msg: Any, me: Any) {
+  const priv = msg.chat.type === "private";
+  const v = await recentVisit(me.id);
+  if (!v) {
+    // альбом — пачка сообщений: на каждое фото отвечать текстом — спам, хватит реакции
+    if (msg.media_group_id && !msg.caption) return react(msg.chat.id, msg.message_id, "🤔");
+    return send(msg.chat.id, "Не нашёл твоего похода за последние сутки — фото приложи к посту, когда отмечаешь баню.", undefined, priv ? undefined : msg.message_id);
+  }
+  const id = await addPhoto(msg, me.id, { visitId: v.id });
+  await react(msg.chat.id, msg.message_id, "👍");
+  if (!(await lastOfBurst(id, v.id))) return;
+  await refreshVisit(v.id);
+  if (priv) await send(msg.chat.id, `📷 Приложил к походу в «${esc(v.bath)}». Фото в нём: ${await photoCount(v.id)}.`);
+}
+
+// подпись к фото — только «фото», «вот», отметка бота: значит, бани в ней нет и это фото к уже отмеченному походу
+const PHOTO_FILLER = new Set(("фото фотка фотки фоточки фоточка фотографии фотографию фотография фотос фоты пикчи " +
+  "вот держи лови ещё еще немного пару пара к с из в бани баньки бане походу похода сегодня").split(" "));
+function isPhotoOnly(text: string) {
+  const t = norm(text.replace(new RegExp(`@${BOT}|/banya(@\\w+)?`, "gi"), " "));
+  return t.split(/[^\p{L}\p{N}]+/u).filter((w) => w && !PHOTO_FILLER.has(w)).length === 0;
+}
+
 // ---------- клички ----------
 // в личке с ботом: «клички» — список (всем участникам); «кличка Мамонтов = Ден», «убери кличку Мамонтов» — Комиссия
 async function aliasCommand(chat: number, text: string, me: Any) {
@@ -1078,6 +1204,11 @@ async function onMessage(msg: Any) {
     if (post) {
       const acc = await whoIs(tgId);
       if (!acc?.players) return;
+      // фото ответом на карточку — в этот поход (с подписью «долгая» — и долгая тоже)
+      if (msg.photo && post.card_msg === replyTo) {
+        await photoToVisit(msg, post.visit_id, acc.players);
+        if (!isLongClaim(text)) return;
+      }
       const geoish = !!(msg.location || msg.venue) || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text);
       // «долгая» ответом на карточку похода — долгая этого похода; ссылка, адрес, геопозиция — точка бани
       if (post.geo_msg === replyTo && post.bath_id && geoish) return geoAnswer(msg, post, acc.players);
@@ -1104,6 +1235,7 @@ async function onMessage(msg: Any) {
       await setState(tgId, { stash: {
         chat: { id: chat, type: msg.chat.type, username: msg.chat.username ?? null }, message_id: msg.message_id, date: msg.date, from: { id: tgId },
         text: msg.text, caption: msg.caption, entities: msg.entities, caption_entities: msg.caption_entities, location: msg.location, venue: msg.venue,
+        photo: msg.photo,
       } });
       await claimNotice(acc.id);   // заявка старая и Комиссии о ней не писали — пишем сейчас (о той же заявке второй раз не пишет)
       return send(chat, `Заявка «это ${esc(acc.claimed_nick)}» ждёт Комиссию. Пост запомнил: как подтвердят ник, вернусь с карточкой похода.`,
@@ -1123,6 +1255,8 @@ async function onMessage(msg: Any) {
   // «долгая» / «долгая была» — в личке боту или с отметкой в чате: это про свой последний поход, а не новая баня
   // (в личке с открытым черновиком — это ответ на черновик: continueDraft поймёт «долгая» как время)
   if (isLongClaim(text) && (isPrivate || mentionsBot(msg)) && !(replyToCard && st)) return claimLong(msg, me);
+  // фото в личку или с одной отметкой бота, без бани в подписи, — к своему последнему походу за сутки
+  if (msg.photo && (isPrivate || mentionsBot(msg)) && !(replyToCard && st) && isPhotoOnly(text)) return photoToRecent(msg, me);
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
 
   const lg = await league();
@@ -1188,8 +1322,13 @@ async function onCallback(cq: Any) {
   const lg = await league();
   if (data === "x") { await clearState(tgId); return edit(st.chat, st.card, "Черновик отменён."); }
   if (data === "dx") {
+    // поход уже есть — фото из этого поста прикладываем к нему
+    const moved = st.hasPhotos && st.dup?.id ? ((await sb.from("visit_photos").update({ visit_id: st.dup.id, draft_msg: null })
+      .eq("tg_from", tgId).eq("draft_msg", st.source).is("visit_id", null).select("id")).data?.length ?? 0) : 0;
     await clearState(tgId);
-    return edit(st.chat, st.card, st.dup?.mine ? "👌 Ок, второй раз не отмечаю." : `👌 Ок — поход у тебя уже есть в посте <b>${esc(st.dup?.by)}</b>.`);
+    if (moved) await refreshVisit(st.dup.id);
+    const tail = moved ? `\n📷 ${moved} фото приложил к нему.` : "";
+    return edit(st.chat, st.card, (st.dup?.mine ? "👌 Ок, второй раз не отмечаю." : `👌 Ок — поход у тебя уже есть в посте <b>${esc(st.dup?.by)}</b>.`) + tail);
   }
   if (data === "do") st.dupOk = true;
   else if (data.startsWith("cp:") && lg.players.some((p: Any) => p.id === data.slice(3))) {
@@ -1271,7 +1410,9 @@ Deno.serve(async (req) => {
     || m.reply_to_message?.from?.username?.toLowerCase() === BOT || EBLANY.test(text);
   const maybeAnswer = m && (m.location || m.venue || /https?:\/\//.test(text) || looksLikeAddress(text));
   if (!addressed) {
-    if (maybeAnswer) { try { await onMessage(m); } catch (e) { console.error("tg-bot", e); } }
+    // фото альбома без подписи: подпись с отметкой бота могла быть у соседнего фото — возьмём, только если так и есть
+    if (m?.photo && m.media_group_id && !text && m.from && !m.from.is_bot) { try { await albumPhoto(m); } catch (e) { console.error("tg-bot", e); } }
+    else if (maybeAnswer) { try { await onMessage(m); } catch (e) { console.error("tg-bot", e); } }
     return new Response("ok");
   }
   await sb.from("bot_log").insert({ kind: m ? `message:${m.chat?.type}` : update.callback_query ? "callback" : "other",

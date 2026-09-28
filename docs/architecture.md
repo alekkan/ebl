@@ -42,6 +42,7 @@ Leaflet.markercluster 1.5.3, Leaflet.heat 0.2.0, supabase-js 2.117.2. С CDN и�
 | `bot_sessions`, `bot_posts`, `bot_notifications`, `claim_notices` | черновики и отложенные посты бота, связь похода с постом, карточкой и вопросами бота, сообщения Комиссии о походах и заявках «это я» | только функции |
 | `bot_log` | тип адресованных боту сообщений и ошибки обработки (без текста) | только функции |
 | `chat_members` | кого бот знает в чате (номер аккаунта Telegram и имя) — для общего сбора «@eblany» | только функции |
+| `visit_photos` | фото походов: поход, кто добавил, ключ файла в бакете `ebl-photos` (Яндекс), размеры, готово ли, скрыто ли; фото черновика бота — без похода ([photos.md](photos.md)) | участники лиги (готовые, не скрытые) |
 
 Представление `bath_counts` — походы по баням, годам и никам (остаток + засчитанный журнал), без дат и компаний.
 Оно работает с правами владельца: журнал закрыт, а эти агрегаты (как в старой таблице) открыты для карты и тепловой карты.
@@ -80,6 +81,7 @@ Edge-функции работают с service role и сами проверя�
 | `TELEGRAM_BOT_TOKEN` | токен @eblsu_bot — подпись входа, Bot API. Вписывает владелец сам, в чат не присылать |
 | `TELEGRAM_WEBHOOK_SECRET` | секрет вебхука бота (заголовок `X-Telegram-Bot-Api-Secret-Token`) |
 | `SITE_URL` | адрес сайта для ссылок в сообщениях бота (`https://ebl.su/`) |
+| `PHOTOS_S3_KEY_ID`, `PHOTOS_S3_SECRET` | ключ к бакету `ebl-photos` (только он) — функция `photos`; кладёт `scripts/setup-photos-bucket.sh` |
 | `ALLOWED_ORIGINS` | (необязательно) CORS для `tg-login`/`bath-location`; по умолчанию ebl.su, alekkan.github.io, localhost |
 | `TELEGRAM_API_URL`, `NOMINATIM_URL`, `NPM_CDN_URL` | **на бою не задавать.** Только на локальном стенде — адреса заглушки тестов (`.env.example`, `tests/stub.py`); без них функции ходят в настоящие Telegram, Nominatim и jsDelivr (`_shared/hosts.ts`) |
 
@@ -93,11 +95,12 @@ Edge-функции работают с service role и сами проверя�
 | `ebl-daily-recompute` | 00:05 МСК ежедневно | `recompute`: закрытая в воскресенье неделя получает очки за места |
 | `ebl-weekly-avatars` | понедельник 04:00 МСК | `sync-avatars` |
 | `ebl-nightly-backup` | 03:30 МСК ежедневно | `backup`: копия базы и аватарок в Яндекс, хранится 30 дней |
+| `ebl-photos-sync` | каждые 10 минут | `photos?sync=all`: докачать фото, которые не перекачались сразу (до 5 попыток), — только если такие есть; выметает фото брошенных черновиков |
 | `ebl-week-results` | каждые 5 минут | `week-results`: с 23:00 воскресенья до конца среды постит итоги закрытой недели, когда нет походов на проверке, новых бань на согласовании; черновики в боте не ждём (`week_posts` — какие недели уже объявлены) |
 
 Триггеры `visits_announce_verdict` (смена статуса похода → `tg-bot?verdict=<id>`), `visits_notify_site` (новый поход с сайта →
 `tg-bot?new=<id>`), `visits_changed` / `visit_players_changed` (поправили баню, время, длительность или компанию →
-`tg-bot?refresh=<id>`) и `player_accounts_notify` (заявка «это я» и её подтверждение) берут адрес функций из `settings.functions_url`, чат лиги для решений по походам с сайта — `settings.league_chat`.
+`tg-bot?refresh=<id>`), `player_accounts_notify` (заявка «это я» и её подтверждение) и `visit_photos_sync` (фото попало в поход → `photos?sync=<id>`) берут адрес функций из `settings.functions_url`, чат лиги для решений по походам с сайта — `settings.league_chat`.
 
 Расписания лежат в миграциях с зашитым адресом боевого проекта. На локальном стенде их стоит снять, а `functions_url` переключить на локальный:
 `select cron.unschedule(jobname) from cron.job;` — иначе локальная база будет дёргать боевые функции.
