@@ -646,6 +646,12 @@
       L.tileLayer(SAT_URL, { maxZoom: 18, attribution: "Снимки &copy; Esri, Maxar, Earthstar Geographics" }),
       L.tileLayer(SAT_LABELS, { maxZoom: 18, pane: "overlayPane" }),
     ]);
+    // leaflet-heat дорисовывает кадр и тогда, когда вкладку «Жар» уже скрыли (холст 0×0) — getImageData падает; такой кадр пропускаем
+    if (!L.HeatLayer.prototype._eblGuard) {
+      const redraw = L.HeatLayer.prototype._redraw;
+      L.HeatLayer.prototype._redraw = function () { if (this._canvas?.width && this._canvas?.height) return redraw.call(this); this._frame = null; };
+      L.HeatLayer.prototype._eblGuard = true;
+    }
     heat = L.heatLayer([], { radius: 14, blur: 18, max: 1, minOpacity: 0.2, gradient: GRAD.light }).addTo(heatMap);
     heatMap.on("zoomend", tuneHeat);
     setHeatStyle(heatStyle);

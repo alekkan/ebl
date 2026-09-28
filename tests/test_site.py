@@ -237,7 +237,8 @@ with sync_playwright() as pw:
         s.close()
 
         print("Даты в карточках")
-        open_shurik = "() => [...document.querySelectorAll('#standings tbody tr')].find((tr) => tr.innerText.includes('Шурик')).click()"
+        # ждём строку таблицы, а не надеемся, что она уже нарисована
+        open_shurik = "async () => { for (let i = 0; i < 50; i++) { const tr = [...document.querySelectorAll('#standings tbody tr')].find((x) => x.innerText.includes('Шурик')); if (tr) { tr.click(); return true; } await new Promise((r) => setTimeout(r, 100)); } return false; }"
         first_row = "() => document.querySelector('#playerBody .blist button')?.innerText || ''"
         s = Site(browser, url, sess=shurik, name="member-dates")
         s.view("table"); s.js(open_shurik)
