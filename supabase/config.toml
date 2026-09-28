@@ -434,3 +434,6 @@ verify_jwt = false
 
 [functions.backup]
 verify_jwt = false
+
+[functions.photos]
+verify_jwt = false
