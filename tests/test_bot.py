@@ -372,21 +372,35 @@ sql("delete from bot_sessions")
 
 print("«@eblany» — позвать всех")
 sql(f"delete from chat_members where chat_id = {CHAT}")
-sql(f"delete from bot_log where kind = 'eblany'")
-sql(f"insert into chat_members (chat_id, tg_id) values ({CHAT}, {ME}), ({CHAT}, 901), ({CHAT}, 902), ({CHAT}, 908)")
+sql(f"delete from rollcalls where chat_id = {CHAT}")
+sql(f"insert into chat_members (chat_id, tg_id) values ({CHAT}, {ME}), ({CHAT}, 901), ({CHAT}, 902), ({CHAT}, 908), ({CHAT}, 910)")
 sql("delete from bot_sessions")
-calls = lambda: sql(f"select count(*) from bot_log where kind = 'eblany' and detail = '{CHAT}'")
+calls = lambda: sql(f"select count(*) from rollcalls where chat_id = {CHAT}")
 from local import TELEGRAM
 seen = len(TELEGRAM.calls)
 check("«@eblany …» — бот зовёт всех, а не заводит черновик похода", post("@eblany погнали в Сандуны к 19", 70) is None and calls() == "1")
 sent = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]
 txt = sent[0].get("text", "") if sent else ""
-check("ответ на сообщение: «Ебланы, общий сбор!», автор и текст", len(sent) == 1 and (sent[0].get("reply_parameters") or {}).get("message_id") == 70
-      and "Ебланы, общий сбор!" in txt and "Леха: погнали в Сандуны к 19" in txt, sent)
+check("ответ на сообщение: «Ебланы, общий сбор!» и ссылка на него, текст автора не повторяем",
+      len(sent) == 1 and (sent[0].get("reply_parameters") or {}).get("message_id") == 70 and "Ебланы, общий сбор!" in txt
+      and 'href="https://t.me/c/1234567890/70"' in txt and "погнали" not in txt, sent)
 check("отметки: ник лиги у привязанных, имя из Telegram у остальных; автора не отмечает",
       '<a href="tg://user?id=901">Ден</a>' in txt and '<a href="tg://user?id=908">Участник908</a>' in txt and "id=900" not in txt, txt)
 check("вышедшего из чата не отмечает и забывает", "id=902" not in txt and sql(f"select count(*) from chat_members where chat_id = {CHAT} and tg_id = 902") == "0")
 check("имя из Telegram запомнено — второй раз не спрашивает", sql(f"select name from chat_members where chat_id = {CHAT} and tg_id = 908") == "Участник908")
+check("Telegram попросил подождать — отметка всё равно есть, «участник» вместо имени (не человечек)",
+      '<a href="tg://user?id=910">участник</a>' in txt and "🧖" not in txt, txt)
+check("сообщение сбора запомнено — его можно поправить", sql(f"select cardinality(msgs) from rollcalls where chat_id = {CHAT}") == "1")
+def edited(name):
+    for _ in range(30):
+        if any(m == "editMessageText" and name in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]): return True
+        time.sleep(0.5)
+    return False
+check("имя узнали фоном — бот поправил своё сообщение, без нового", edited("Участник910")
+      and sql(f"select name from chat_members where chat_id = {CHAT} and tg_id = 910") == "Участник910"
+      and len([1 for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]) == 1)
+rc = sql(f"select id from rollcalls where chat_id = {CHAT}")
+check("?rollfix=<id> — поправить вручную (безопасно повторять)", req("POST", f"/functions/v1/tg-bot?rollfix={rc}", {})[1] == {"fixed": True})
 check("с отметкой бота — тоже сбор, не пост про баню", post("@eblsu_bot @eblany Василевские с Деном", 71, who=901) is None)
 check("второй сбор в течение 10 минут — не зовёт (спам)", calls() == "1")
 check("в личке «@eblany» ничего не зовёт", post("@eblany", 72, chat=ME, chat_type="private") is None and calls() == "1")
@@ -400,7 +414,7 @@ check("вошёл в чат — бот его запомнил (ботов не 
 service(74, left_chat_member={"id": 906, "is_bot": False, "first_name": "Новенький"})
 check("вышел из чата — забыт", sql(f"select count(*) from chat_members where chat_id = {CHAT} and tg_id = 906") == "0")
 sql(f"delete from chat_members where chat_id = {CHAT}")
-sql("delete from bot_log where kind = 'eblany'")
+sql(f"delete from rollcalls where chat_id = {CHAT}")
 
 print("Фото из походов")
 # фото кладёт бот, файлы перекачивает функция photos: из Telegram (заглушка) в бакет Яндекса (заглушка, TELEGRAM.s3)

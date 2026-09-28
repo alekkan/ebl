@@ -995,52 +995,96 @@ async function claimLong(msg: Any, me: Any) {
 }
 
 // ---------- «@eblany» — позвать всех ----------
-// Кто угодно в группе пишет «@eblany» и текст (можно и с отметкой бота) — бот отвечает на это сообщение отметками всех, кого знает
-// в чате (chat_members), кроме автора. Сообщение участника бот не правит: чужие сообщения в группах Telegram не даёт править никому.
+// Кто угодно в группе пишет «@eblany» и текст (можно и с отметкой бота) — бот отвечает на это сообщение: «📣 Ебланы, общий сбор!»,
+// ссылка на него и отметки всех, кого знает в чате (chat_members), кроме автора. Текст автора не повторяем — он в ответе выше.
+// Сообщение участника бот не правит: чужие сообщения в группах Telegram не даёт править никому.
 // Не чаще раза в 10 минут на чат — чаще это спам (отметку видят даже те, у кого чат без звука).
+// Имена тех, у кого Telegram не привязан к нику, бот спрашивает у Telegram (getChatMember) и запоминает. Telegram на частые
+// вопросы отвечает «подожди» (429) — тогда отправляем сразу, а имена дозаполняем фоном и правим своё сообщение (rollcalls):
+// отметки уже дошли, правка повторно никого не будит.
 const EBLANY = /(^|[^\p{L}\p{N}_@])@eblany(?![\p{L}\p{N}_])/iu;
 const ROLLCALL_GAP = 10 * 60e3;
 const ROLLCALL_CHUNK = 50;   // отметок в одном сообщении; больше — следующим сообщением
-async function rollCall(msg: Any) {
-  const chat = msg.chat.id;
-  const { data: recent } = await sb.from("bot_log").select("id").eq("kind", "eblany").eq("detail", String(chat))
-    .gte("at", new Date(Date.now() - ROLLCALL_GAP).toISOString()).limit(1);
-  if (recent?.length) return react(chat, msg.message_id, "🥱");
-  await sb.from("bot_log").insert({ kind: "eblany", detail: String(chat) });
+const NO_NAME = "участник";  // имя ещё не узнали — отметка всё равно дойдёт
+
+// имя участника чата у Telegram: строка — имя, false — его в чате нет (вышел, бот), null — не ответил.
+// patient — ждём, сколько Telegram просит (до 5 с за раз), и спрашиваем снова; иначе одна попытка
+async function memberName(chat: number, id: number, patient: boolean): Promise<string | false | null> {
+  for (let i = 0; i < (patient ? 4 : 1); i++) {
+    const r = await tg("getChatMember", { chat_id: chat, user_id: id });
+    if (r.ok) return ["left", "kicked"].includes(r.result?.status) || r.result?.user?.is_bot ? false : r.result?.user?.first_name ?? null;
+    if (r.error_code !== 429) {
+      await sb.from("bot_log").insert({ kind: "error", detail: `getChatMember: ${r.error_code ?? "нет ответа"} ${r.description ?? ""}`.slice(0, 300) });
+      return null;
+    }
+    if (patient) await sleep(Math.min(r.parameters?.retry_after ?? 1, 5) * 1000);
+  }
+  return null;
+}
+
+// текст сбора по частям (по ROLLCALL_CHUNK отметок); missing — сколько имён ещё не узнали
+async function rollCallParts(rc: Any, patient: boolean): Promise<{ parts: string[]; missing: number }> {
   const lg = await league();
-  // у кого Telegram привязан к нику лиги — отмечаем ником
-  const nickOf = new Map<number, string>();
+  const nickOf = new Map<number, string>();   // у кого Telegram привязан к нику лиги — отмечаем ником
   for (const a of lg.accounts) {
     const nick = lg.players.find((p: Any) => p.id === a.player_id)?.nick;
     if (a.tg_id && nick) nickOf.set(Number(a.tg_id), nick);
   }
-  const { data: known } = await sb.from("chat_members").select("tg_id, name").eq("chat_id", chat);
+  const { data: known } = await sb.from("chat_members").select("tg_id, name").eq("chat_id", rc.chat_id).order("added_at");
   const links: string[] = [];
+  let missing = 0;
+  const until = Date.now() + 100e3;   // фоновое дозаполнение — не дольше 100 с, остальное в следующий раз
   for (const m of known ?? []) {
     const id = Number(m.tg_id);
-    if (id === msg.from.id) continue;
-    let name = nickOf.get(id) ?? m.name;
-    if (!name) {
-      // имени ещё нет — спрашиваем у Telegram; заодно узнаём, что человек уже вышел из чата
-      const r = await tg("getChatMember", { chat_id: chat, user_id: id });
-      const status = r.result?.status, u = r.result?.user;
-      if (r.ok && (["left", "kicked"].includes(status) || u?.is_bot)) {
-        await sb.from("chat_members").delete().eq("chat_id", chat).eq("tg_id", id);
-        continue;
-      }
-      name = u?.first_name ?? null;
-      if (name) await sb.from("chat_members").update({ name }).eq("chat_id", chat).eq("tg_id", id);
+    if (id === Number(rc.author_tg)) continue;
+    let name: string | false | null = nickOf.get(id) ?? m.name;
+    if (!name && Date.now() < until) {
+      name = await memberName(rc.chat_id, id, patient);
+      if (name === false) { await sb.from("chat_members").delete().eq("chat_id", rc.chat_id).eq("tg_id", id); continue; }
+      if (name) await sb.from("chat_members").update({ name }).eq("chat_id", rc.chat_id).eq("tg_id", id);
+      if (patient) await sleep(300);   // не частим — иначе Telegram снова попросит подождать
     }
-    links.push(`<a href="tg://user?id=${id}">${esc(name ?? "🧖")}</a>`);
+    if (!name) missing++;
+    links.push(`<a href="tg://user?id=${id}">${esc(name || NO_NAME)}</a>`);
   }
-  if (!links.length) return send(chat, "Некого звать: я пока не знаю участников этого чата.", undefined, msg.message_id);
-  const author = nickOf.get(msg.from.id) ?? msg.from.first_name ?? "Кто-то";
-  const said = (msg.text ?? msg.caption ?? "").replace(new RegExp(`@eblany|@${BOT}`, "gi"), " ").replace(/\s+/g, " ").trim().slice(0, 300);
-  const head = `📣 <b>Ебланы, общий сбор!</b>\n${said ? `${esc(author)}: ${esc(said)}` : `зовёт ${esc(author)}`}`;
-  const parts = chunk(links, ROLLCALL_CHUNK);
-  for (let i = 0; i < parts.length; i++) {
-    await send(chat, `${i === 0 ? `${head}\n\n` : ""}${parts[i].join(", ")}`, undefined, msg.message_id);
+  const link = postLink({ id: rc.chat_id, username: rc.chat_username }, rc.reply_to);
+  const head = `📣 <b>Ебланы, общий сбор!</b>${link ? ` <a href="${link}">→ к сообщению</a>` : ""}`;
+  return { parts: chunk(links, ROLLCALL_CHUNK).map((p, i) => `${i === 0 ? `${head}\n\n` : ""}${p.join(", ")}`), missing };
+}
+
+async function rollCall(msg: Any) {
+  const chat = msg.chat.id;
+  const { data: recent } = await sb.from("rollcalls").select("id").eq("chat_id", chat)
+    .gte("at", new Date(Date.now() - ROLLCALL_GAP).toISOString()).limit(1);
+  if (recent?.length) return react(chat, msg.message_id, "🥱");
+  const { data: rc } = await sb.from("rollcalls")
+    .insert({ chat_id: chat, chat_username: msg.chat.username ?? null, reply_to: msg.message_id, author_tg: msg.from.id }).select().single();
+  if (!rc) return;
+  const { parts, missing } = await rollCallParts(rc, false);
+  if (!parts.length) return send(chat, "Некого звать: я пока не знаю участников этого чата.", undefined, msg.message_id);
+  const msgs: number[] = [];
+  for (const text of parts) {
+    const r = await send(chat, text, undefined, msg.message_id);
+    if (r.ok) msgs.push(r.result.message_id);
   }
+  await sb.from("rollcalls").update({ msgs }).eq("id", rc.id);
+  // не все имена узнали — дозаполняем фоном и правим сообщение, вебхук при этом отвечает сразу
+  if (missing) later(rollFix(rc.id));
+}
+
+// поправить свой сбор: имена, которые узнали позже (зовёт сам сбор фоном; ?rollfix=<id> — вручную, безопасно повторять)
+async function rollFix(id: number): Promise<boolean> {
+  const { data: rc } = await sb.from("rollcalls").select("*").eq("id", id).maybeSingle();
+  if (!rc?.msgs?.length) return false;
+  const { parts } = await rollCallParts(rc, true);
+  for (let i = 0; i < Math.min(parts.length, rc.msgs.length); i++) await edit(rc.chat_id, rc.msgs[i], parts[i]);
+  return true;
+}
+// фоновая работа после ответа вебхуку (в Supabase Edge — EdgeRuntime.waitUntil)
+function later(p: Promise<unknown>) {
+  const rt = (globalThis as Any).EdgeRuntime;
+  const safe = p.catch((e) => console.error("tg-bot later", e));
+  if (rt?.waitUntil) rt.waitUntil(safe);
 }
 
 // кто вошёл в чат и вышел — чтобы «@eblany» звал тех, кто сейчас в чате (номер и имя, больше ничего)
@@ -1371,6 +1415,10 @@ Deno.serve(async (req) => {
   if (url.searchParams.get("refresh")) {
     await new Promise((r) => setTimeout(r, 1500));
     return new Response(JSON.stringify({ refreshed: await refreshVisit(Number(url.searchParams.get("refresh"))) }), { headers: { "Content-Type": "application/json" } });
+  }
+  // поправить общий сбор (имена, узнанные позже) — безопасно повторять: бот только пересобирает свой же ответ
+  if (url.searchParams.get("rollfix")) {
+    return new Response(JSON.stringify({ fixed: await rollFix(Number(url.searchParams.get("rollfix"))) }), { headers: { "Content-Type": "application/json" } });
   }
   // заявка «это я» и её подтверждение — зовёт триггер на player_accounts; оба вызова идемпотентны
   const uuid = (k: string) => /^[0-9a-f-]{36}$/i.test(url.searchParams.get(k) ?? "") ? url.searchParams.get(k)! : null;
