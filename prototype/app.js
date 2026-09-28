@@ -12,6 +12,8 @@
   const PREC_LABEL = { city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
   const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€", JPY: "¥", AED: "د.إ" };
   const curSign = (c) => CUR_SIGN[c] || c;
+  // будни/выходной и «до HH:MM» у цены — оба поля необязательные, показываем только то, что указано
+  const schedLabel = (p) => [p.is_weekend == null ? "" : p.is_weekend ? "вых" : "будни", p.before_time ? `до ${p.before_time.slice(0, 5)}` : ""].filter(Boolean).join(", ");
   const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -31,6 +33,7 @@
   let visits = data.visits;
   const reviews = data.reviews;
   const prices = data.prices;
+  const beerPrices = data.beerPrices;
   const standings = data.standings;
   const players = data.players?.length ? data.players : standings.map((s) => s.name);
   const baths = data.baths;
@@ -365,6 +368,8 @@
     const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
     const pv = prices[id] || [];   // по возрастанию price_date — последняя цена в конце
     const lastP = pv[pv.length - 1], olderP = pv.slice(0, -1).reverse();
+    const bv = beerPrices[id] || [];
+    const lastBeer = bv[bv.length - 1], olderBeer = bv.slice(0, -1).reverse();
     const rv = reviews[id] || [];
     // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); в средней — последняя оценка каждого
     const lastRate = new Map();
@@ -416,18 +421,27 @@
         </div>
         <section>
           <h3>Цена</h3>
-          ${lastP ? `<p class="hint" style="margin:0"><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` / ${lastP.duration_min} мин` : ""} <small>— ${dayLabel(lastP.price_date)}</small></p>
-            ${olderP.length ? `<p class="hint" style="margin:6px 0 0">Раньше: ${olderP.map((p) => `${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` / ${p.duration_min} мин` : ""} (${dayLabel(p.price_date)})`).join(" · ")}</p>` : ""}`
+          ${lastP ? `<p class="hint" style="margin:0"><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` / ${lastP.duration_min} мин` : ""}${schedLabel(lastP) ? ` · ${schedLabel(lastP)}` : ""} <small>— ${dayLabel(lastP.price_date)}</small></p>
+            ${olderP.length ? `<p class="hint" style="margin:6px 0 0">Раньше: ${olderP.map((p) => `${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` / ${p.duration_min} мин` : ""}${schedLabel(p) ? ` · ${schedLabel(p)}` : ""} (${dayLabel(p.price_date)})`).join(" · ")}</p>` : ""}`
             : `<p class="hint" style="margin:0">Цену пока никто не указал.</p>`}
+          ${lastBeer ? `<p class="hint" style="margin:6px 0 0">🍺 <b>${fmt(lastBeer.price)} ${curSign(lastBeer.currency)}</b> <small>— ${dayLabel(lastBeer.price_date)}</small></p>
+            ${olderBeer.length ? `<p class="hint" style="margin:6px 0 0">Раньше: ${olderBeer.map((p) => `${fmt(p.price)} ${curSign(p.currency)} (${dayLabel(p.price_date)})`).join(" · ")}</p>` : ""}` : ""}
           ${member ? `<form class="prform" id="prForm">
             <div class="row">
               <input class="inp" id="prPrice" type="number" min="1" step="1" placeholder="Сколько стоит, ₽" required>
               <button class="btn solid" type="submit">Добавить</button>
             </div>
-            <button type="button" class="linkbtn" id="prMore">ещё: валюта · время →</button>
+            <input class="inp" id="prBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽ (если есть)">
+            <button type="button" class="linkbtn" id="prMore">ещё: время · будни/выходной · валюта →</button>
             <div class="row" id="prExtra" hidden>
-              <input class="inp" id="prCurrency" placeholder="Валюта (по умолчанию ₽)">
               <input class="inp" id="prDur" type="number" min="1" placeholder="Время, мин">
+              <div class="seg" id="prWeekend" role="radiogroup" aria-label="Будни или выходной">
+                <button type="button" data-w="" aria-pressed="true">Любой день</button>
+                <button type="button" data-w="0" aria-pressed="false">Будни</button>
+                <button type="button" data-w="1" aria-pressed="false">Выходной</button>
+              </div>
+              <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка до <input class="inp" id="prBefore" type="time" style="flex:0 0 auto"></label>
+              <input class="inp" id="prCurrency" placeholder="Валюта (по умолчанию ₽)">
             </div>
           </form>` : ""}
         </section>
@@ -471,17 +485,26 @@
     });
     $("#dVisit", d).onclick = () => openVisit({ bathId: id });
     $("#prMore", d)?.addEventListener("click", () => { $("#prMore", d).hidden = true; $("#prExtra", d).hidden = false; });
+    $$("#prWeekend button", d).forEach((b) => b.addEventListener("click", () => $$("#prWeekend button", d).forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
     $("#prForm", d)?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const price = +$("#prPrice", d).value; if (!price || price <= 0) return;
       const currency = $("#prCurrency", d).value.trim() || null;
       const durationMin = +$("#prDur", d).value || null;
+      const wVal = $("#prWeekend [aria-pressed=true]", d)?.dataset.w;
+      const isWeekend = wVal === "" || wVal == null ? null : wVal === "1";
+      const beforeTime = $("#prBefore", d).value || null;
+      const beerPrice = +$("#prBeer", d).value || null;
       try {
-        const pid = await D.submitBathPrice(id, price, currency, durationMin);
-        if (pid) {
-          (prices[id] ||= []).push({ id: pid, price, currency: (currency || "RUB").toUpperCase(), duration_min: durationMin, price_date: new Date().toISOString().slice(0, 10) });
-          toast("Цена добавлена — спасибо"); openBath(id);
-        } else toast("Такая же цена уже есть — не дублирую");
+        const pid = await D.submitBathPrice(id, price, currency, durationMin, isWeekend, beforeTime);
+        if (pid) (prices[id] ||= []).push({ id: pid, price, currency: (currency || "RUB").toUpperCase(), duration_min: durationMin,
+          is_weekend: isWeekend, before_time: beforeTime, price_date: new Date().toISOString().slice(0, 10) });
+        if (beerPrice > 0) {
+          const bid = await D.submitBeerPrice(id, beerPrice, currency);
+          if (bid) (beerPrices[id] ||= []).push({ id: bid, price: beerPrice, currency: (currency || "RUB").toUpperCase(), price_date: new Date().toISOString().slice(0, 10) });
+        }
+        if (pid || beerPrice > 0) { toast("Цена добавлена — спасибо"); openBath(id); }
+        else toast("Такая же цена уже есть — не дублирую");
       } catch (err) { toast("Не сохранилось: " + err.message); }
     });
     $$("[data-player]", d).forEach((x) => (x.onclick = () => openPlayer(x.dataset.player)));
@@ -879,6 +902,8 @@
     $("#vPlayer").disabled = D.live;
     $("#vDate").value = mskNow();
     setDur(120);
+    $("#vPrMore").hidden = false; $("#vPrExtra").hidden = true;
+    $$("#vPrWeekend button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.w === "")));
     picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0; pickedType = null;
     if (pickMarker) { pickMarker.remove(); pickMarker = null; }
     $("#nbGeoState").textContent = "Или кликни на карте. Точку можно перетащить.";
@@ -904,6 +929,8 @@
     $$("#vDurChips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === m)));
   }
   $("#vDurChips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { setDur(+b.dataset.m); calc(); } });
+  $("#vPrMore").addEventListener("click", () => { $("#vPrMore").hidden = true; $("#vPrExtra").hidden = false; });
+  $$("#vPrWeekend button").forEach((b) => b.addEventListener("click", () => $$("#vPrWeekend button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
 
   function renderComp() {
     const me = $("#vPlayer").value;
@@ -1106,6 +1133,25 @@
     vf.dataset.busy = "1"; $("#vSubmit span").textContent = "Отправляю…";
     try {
       const saved = await D.submitVisit(payload);
+      const priceVal = +$("#vPrice").value;
+      if (priceVal > 0) {
+        const wVal = $("#vPrWeekend [aria-pressed=true]").dataset.w;
+        const isWeekend = wVal ? wVal === "1" : null;
+        const beforeTime = $("#vPrBefore").value || null, currency = $("#vPrCurrency").value.trim() || null, durationMin = +$("#vPrDur").value || null;
+        try {
+          const pid = await D.submitBathPrice(payload.bathId, priceVal, currency, durationMin, isWeekend, beforeTime);
+          if (pid) (prices[payload.bathId] ||= []).push({ id: pid, price: priceVal, currency: (currency || "RUB").toUpperCase(), duration_min: durationMin,
+            is_weekend: isWeekend, before_time: beforeTime, price_date: new Date().toISOString().slice(0, 10) });
+        } catch { /* поход важнее цены — если она не сохранилась, поход всё равно засчитан, отдельно не сообщаем */ }
+      }
+      const beerVal = +$("#vPrBeer").value;
+      if (beerVal > 0) {
+        const currency = $("#vPrCurrency").value.trim() || null;
+        try {
+          const bid = await D.submitBeerPrice(payload.bathId, beerVal, currency);
+          if (bid) (beerPrices[payload.bathId] ||= []).push({ id: bid, price: beerVal, currency: (currency || "RUB").toUpperCase(), price_date: new Date().toISOString().slice(0, 10) });
+        } catch { /* поход важнее цены пива */ }
+      }
       if (payload.createdBath) { const nb = payload.createdBath; hydrate(nb); baths.push(nb); byId.set(nb.id, nb); }
       if (payload.bathType && D.live) { const pb = byId.get(payload.bathId); if (pb && !pb.type) { pb.type = payload.bathType; pb.t = payload.bathType; } }
       if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur,

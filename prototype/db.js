@@ -59,7 +59,7 @@ window.EBLData = (() => {
     }
     const newBaths = store.get("newBaths", []);
     return {
-      baths: [...baths, ...newBaths], standings, reviews: store.get("reviews", {}), prices: store.get("prices", {}), visits: store.get("visits", []),
+      baths: [...baths, ...newBaths], standings, reviews: store.get("reviews", {}), prices: store.get("prices", {}), beerPrices: store.get("beerPrices", {}), visits: store.get("visits", []),
       players: standings.map((s) => s.name), me: null,
       commission: ["Витёк", "Леха"],   // в витрине — как в scripts/seed.py
     };
@@ -95,12 +95,13 @@ window.EBLData = (() => {
   }
 
   async function loadLive() {
-    const [baths, counts, standings, reviews, prices, players, me] = await Promise.all([
+    const [baths, counts, standings, reviews, prices, beerPrices, players, me] = await Promise.all([
       all("baths", "id, name, type, country, region, lat, lng, precision, status, created_by", (q) => q.neq("status", "rejected")),
       all("bath_counts", "bath_id, year, nick, n", null, ["bath_id", "year", "nick"]),
       all("standings", "*", null, ["nick"]),
       all("reviews", "id, bath_id, rating, text, created_at, player_id, players(nick)", null, ["id"]),
-      all("bath_prices", "id, bath_id, price, currency, duration_min, price_date", null, ["bath_id", "price_date"]),
+      all("bath_prices", "id, bath_id, price, currency, duration_min, is_weekend, before_time, price_date", null, ["bath_id", "price_date"]),
+      all("bath_beer_prices", "id, bath_id, price, currency, price_date", null, ["bath_id", "price_date"]),
       all("players", "id, nick, is_commission, photo_url"),
       whoami(),
     ]);
@@ -119,13 +120,15 @@ window.EBLData = (() => {
     }
     const pr = {};
     for (const p of prices) (pr[p.bath_id] ||= []).push(p);   // price_date по возрастанию — свежая в конце
+    const bpr = {};
+    for (const p of beerPrices) (bpr[p.bath_id] ||= []).push(p);
     const playersById = Object.fromEntries(players.map((p) => [p.id, p.nick]));
     const visits = me?.playerId ? await loadVisits(playersById) : [];
     return {
       baths,
       standings: standings.map((s) => ({ name: s.nick, total: +s.total, baths: s.baths, u: s.u, uu: s.uu, long: s.long, k: s.k, pub: s.pub, reg: s.reg,
         weekPts: s.week_pts, weekBaths: s.week_baths, updatedAt: s.updated_at })),
-      reviews: rv, prices: pr, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
+      reviews: rv, prices: pr, beerPrices: bpr, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
       photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, viaApi(p.photo_url)])),
     };
@@ -165,16 +168,32 @@ window.EBLData = (() => {
     },
 
     // если цена не изменилась с прошлой записи (та же валюта и время) — сервер новую строку не пишет и возвращает null
-    async submitBathPrice(bathId, price, currency, durationMin) {
+    async submitBathPrice(bathId, price, currency, durationMin, isWeekend, beforeTime) {
       if (!live) {
         const last = (cache.prices[bathId] || [])[cache.prices[bathId]?.length - 1];
         const curr = (currency || "RUB").toUpperCase();
-        if (last && last.currency === curr && (last.duration_min || null) === (durationMin || null) && +last.price === +price) return null;
-        const rec = { id: Date.now(), bath_id: bathId, price, currency: curr, duration_min: durationMin || null, price_date: new Date().toISOString().slice(0, 10) };
+        if (last && last.currency === curr && (last.duration_min || null) === (durationMin || null)
+          && (last.is_weekend ?? null) === (isWeekend ?? null) && (last.before_time || null) === (beforeTime || null) && +last.price === +price) return null;
+        const rec = { id: Date.now(), bath_id: bathId, price, currency: curr, duration_min: durationMin || null,
+          is_weekend: isWeekend ?? null, before_time: beforeTime || null, price_date: new Date().toISOString().slice(0, 10) };
         cache.prices[bathId] = [...(cache.prices[bathId] || []), rec];
         store.set("prices", cache.prices); return rec.id;
       }
-      return check(await sb.rpc("submit_bath_price", { p_bath_id: bathId, p_price: price, p_currency: currency || null, p_duration_min: durationMin || null }));
+      return check(await sb.rpc("submit_bath_price", { p_bath_id: bathId, p_price: price, p_currency: currency || null, p_duration_min: durationMin || null,
+        p_is_weekend: isWeekend ?? null, p_before_time: beforeTime || null }));
+    },
+
+    // цена пива — проще: только цена и валюта, без времени и будни/выходной
+    async submitBeerPrice(bathId, price, currency) {
+      if (!live) {
+        const last = (cache.beerPrices[bathId] || [])[cache.beerPrices[bathId]?.length - 1];
+        const curr = (currency || "RUB").toUpperCase();
+        if (last && last.currency === curr && +last.price === +price) return null;
+        const rec = { id: Date.now(), bath_id: bathId, price, currency: curr, price_date: new Date().toISOString().slice(0, 10) };
+        cache.beerPrices[bathId] = [...(cache.beerPrices[bathId] || []), rec];
+        store.set("beerPrices", cache.beerPrices); return rec.id;
+      }
+      return check(await sb.rpc("submit_beer_price", { p_bath_id: bathId, p_price: price, p_currency: currency || null }));
     },
 
     // поход: v = { bathId | newBath, bathType (тип не размеченной бани со слов автора), date (МСК), dur, companions, lines, total, player, week }
