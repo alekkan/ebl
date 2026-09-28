@@ -373,10 +373,20 @@ sql("delete from bot_sessions")
 print("«@eblany» — позвать всех")
 sql(f"delete from chat_members where chat_id = {CHAT}")
 sql(f"delete from bot_log where kind = 'eblany'")
-sql(f"insert into chat_members (chat_id, tg_id) values ({CHAT}, {ME}), ({CHAT}, 901), ({CHAT}, 902)")
+sql(f"insert into chat_members (chat_id, tg_id) values ({CHAT}, {ME}), ({CHAT}, 901), ({CHAT}, 902), ({CHAT}, 908)")
 sql("delete from bot_sessions")
 calls = lambda: sql(f"select count(*) from bot_log where kind = 'eblany' and detail = '{CHAT}'")
+from local import TELEGRAM
+seen = len(TELEGRAM.calls)
 check("«@eblany …» — бот зовёт всех, а не заводит черновик похода", post("@eblany погнали в Сандуны к 19", 70) is None and calls() == "1")
+sent = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]
+txt = sent[0].get("text", "") if sent else ""
+check("ответ на сообщение: «Ебланы, общий сбор!», автор и текст", len(sent) == 1 and (sent[0].get("reply_parameters") or {}).get("message_id") == 70
+      and "Ебланы, общий сбор!" in txt and "Леха: погнали в Сандуны к 19" in txt, sent)
+check("отметки: ник лиги у привязанных, имя из Telegram у остальных; автора не отмечает",
+      '<a href="tg://user?id=901">Ден</a>' in txt and '<a href="tg://user?id=908">Участник908</a>' in txt and "id=900" not in txt, txt)
+check("вышедшего из чата не отмечает и забывает", "id=902" not in txt and sql(f"select count(*) from chat_members where chat_id = {CHAT} and tg_id = 902") == "0")
+check("имя из Telegram запомнено — второй раз не спрашивает", sql(f"select name from chat_members where chat_id = {CHAT} and tg_id = 908") == "Участник908")
 check("с отметкой бота — тоже сбор, не пост про баню", post("@eblsu_bot @eblany Василевские с Деном", 71, who=901) is None)
 check("второй сбор в течение 10 минут — не зовёт (спам)", calls() == "1")
 check("в личке «@eblany» ничего не зовёт", post("@eblany", 72, chat=ME, chat_type="private") is None and calls() == "1")
@@ -395,4 +405,5 @@ sql("delete from bot_log where kind = 'eblany'")
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)
+check("?diag показывает, видит ли бот все сообщения группы", diag.get("reads_all") is True, diag)
 print("Готово.")
