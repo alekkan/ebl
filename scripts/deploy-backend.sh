@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 . scripts/_guard.sh
 REF=yeerkfdgmhcmvdqzaoio
 supabase db push --linked --yes
-for f in ${*:-tg-login tg-bot recompute bath-location sync-avatars week-results}; do
+for f in ${*:-tg-login tg-bot recompute bath-location sync-avatars week-results backup}; do
   supabase functions deploy "$f" --project-ref "$REF" --no-verify-jwt
 done
 curl -s -X POST "https://$REF.supabase.co/functions/v1/recompute"; echo
