@@ -216,7 +216,7 @@ function parseCompany(text: string, entities: Any[], lg: Any, authorId: string) 
 
 // что осталось от поста после времени, компании, отметок и служебных слов — это и есть баня (регистр сохраняем)
 function bathQuery(text: string, durSpan: string | null, used: Set<string>) {
-  let t = text.replace(/https?:\/\/\S+/g, " ").replace(/-?\d{1,3}\.\d{3,}/g, " ").replace(/@\w+/g, " ").replace(/\/banya(@\w+)?/gi, " ");
+  let t = text.replace(/https?:\/\/\S+/g, " ").replace(/-?\d{1,3}\.\d{3,}/g, " ").replace(/@\w+/g, " ").replace(/\/banya(@\w+)?/gi, " ").replace(/#бан(я|ька)/giu, " ");
   if (durSpan) t = t.replace(durSpan, " ");
   return t.split(/[^\p{L}\p{N}-]+/u)
     .filter((w) => { const n = norm(w); return n.length > 1 && !STOP.has(n) && !used.has(n) && !/^\d+$/.test(n); })
@@ -330,15 +330,10 @@ async function renderCard(st: Any, lg: Any) {
     return { text, kb: [[btn("👌 Не отмечаю", "dx"), btn("➕ Это другой поход", "do")]] };
   }
   const known = st.companyOk !== false;   // старые черновики (до выбора компании) — как раньше
-  if (!known || st.picking) {
-    const name = (id: string) => lg.players.find((p: Any) => p.id === id)?.nick;
-    const ids = [...new Set([...(st.company ?? []), ...(st.suggest ?? [])])].filter(name).slice(0, 9);
-    const rows: Any[][] = chunk(ids.map((id) => btn(`${(st.company ?? []).includes(id) ? "✓ " : ""}${name(id)}`, `cp:${id}`)), 3);
-    // одно незнакомое имя и один выбранный кнопкой человек — предлагаем запомнить кличку
-    if (st.unknown?.length === 1 && st.picked?.length === 1 && name(st.picked[0])) {
-      rows.push([btn(`💾 «${st.unknown[0]}» — это ${name(st.picked[0])}, запомнить`.slice(0, 60), "al")]);
-    }
-    rows.push((st.company ?? []).length ? [btn("👌 Готово", "cd")] : [btn("🙋 Один", "c1")]);
+  if (!known) {
+    // никого ещё не выбрали: кнопки с никами и «Один». Нажатие на ник — сразу выбор (карточка «всё верно?» с этими же кнопками)
+    const rows = companyButtons(st, lg, 9);
+    rows.push([btn("🙋 Один", "c1")]);
     rows.push([btn("✖️ Отмена", "x")]);
     const text = `${who}, кто был в бане?\n\n🧖 <b>${esc(st.bathName)}</b>\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "—"}`
       + (st.unknown?.length ? `\n❓ Не знаю, кто это: ${esc(st.unknown.join(", "))} — выбери кнопкой` : "")
@@ -359,15 +354,29 @@ async function renderCard(st: Any, lg: Any) {
   else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
   if ((st.bathType || st.type) === "spa") lines.push(SPA_JOKE);
   if (st.hint) lines.push(`\n${st.hint}`);
-  if (st.awaiting === "company") lines.push("\nКто был? Ответь на это сообщение: ники через запятую или @username, «один» — если один.");
+  if (st.awaiting === "company") lines.push("\nКто был? Отметь кнопками или ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nДолгая или экспресс? По регламенту важно только, была ли дольше 2,5 часа.");
+  // компанию выбирали кнопками (или правят) — кнопки с никами остаются: добавить или убрать ещё кого-то, без «Готово»
+  const pick = st.picking || (st.picked ?? []).length ? companyButtons(st, lg, 6) : [];
   const kb: Any[][] = st.awaiting === "dur"
     ? [[btn("⚡ Экспресс — до 2,5 ч", "d:120")], [btn("🔥 Долгая — больше 2,5 ч", "d:180")], [btn("Ещё паримся", "d:0")]]
-    : [...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
+    : [...pick, ...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
       // экспресс или долгая — выбор виден прямо на кнопках (галочка), как у типа бани
       [btn(`${st.dur == null || st.dur <= LONG ? "✓ " : ""}⚡ Экспресс`, "d:120"), btn(`${st.dur != null && st.dur > LONG ? "✓ " : ""}🔥 Долгая`, "d:180")],
-      [btn("✅ В Комиссию", "send")], [btn("🏠 Баня", "eb"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
+      [btn("✅ В Комиссию", "send")], pick.length ? [btn("🏠 Баня", "eb")] : [btn("🏠 Баня", "eb"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
   return { text: `${who}, всё верно?\n\n${lines.join("\n")}`, kb };
+}
+
+// кнопки с никами (✓ — уже в компании): выбранные и подсказанные; одно незнакомое имя и один выбранный кнопкой —
+// предлагаем запомнить кличку
+function companyButtons(st: Any, lg: Any, max: number): Any[][] {
+  const name = (id: string) => lg.players.find((p: Any) => p.id === id)?.nick;
+  const ids = [...new Set([...(st.company ?? []), ...(st.suggest ?? [])])].filter(name).slice(0, max);
+  const rows: Any[][] = chunk(ids.map((id) => btn(`${(st.company ?? []).includes(id) ? "✓ " : ""}${name(id)}`, `cp:${id}`)), 3);
+  if (st.unknown?.length === 1 && st.picked?.length === 1 && name(st.picked[0])) {
+    rows.push([btn(`💾 «${st.unknown[0]}» — это ${name(st.picked[0])}, запомнить`.slice(0, 60), "al")]);
+  }
+  return rows;
 }
 
 async function showCard(st: Any, lg: Any, tgId: number) {
@@ -972,7 +981,7 @@ const LONG_FILLER = new Set(("была был было были будет бу�
   "планирую собираюсь сидим сидеть сидим паримся надолго " +
   "получилась вышла кстати сегодня баня баньку парились парился посидели сидели вроде точно ура ну да").split(" "));
 function isLongClaim(text: string) {
-  const t = norm(text.replace(new RegExp(`@${BOT}|/banya(@\\w+)?`, "gi"), " "));
+  const t = norm(text.replace(CALL, " "));
   if (!/долг(ая|ий|ую|ой|о|ие)(?![\p{L}])/u.test(t)) return false;
   // кроме слов про долгую и связок — ничего: иначе это новый пост про баню («Сандуны долгая с Деном»)
   return t.split(/[^\p{L}\p{N}]+/u).filter((w) => w && !/^долг/.test(w) && !LONG_FILLER.has(w)).length === 0;
@@ -1185,7 +1194,7 @@ async function photoToRecent(msg: Any, me: Any) {
 const PHOTO_FILLER = new Set(("фото фотка фотки фоточки фоточка фотографии фотографию фотография фотос фоты пикчи " +
   "вот держи лови ещё еще немного пару пара к с из в бани баньки бане походу похода сегодня").split(" "));
 function isPhotoOnly(text: string) {
-  const t = norm(text.replace(new RegExp(`@${BOT}|/banya(@\\w+)?`, "gi"), " "));
+  const t = norm(text.replace(CALL, " "));
   return t.split(/[^\p{L}\p{N}]+/u).filter((w) => w && !PHOTO_FILLER.has(w)).length === 0;
 }
 
@@ -1220,10 +1229,15 @@ const mentionsBot = (msg: Any) => {
   const text: string = msg.text ?? msg.caption ?? "";
   const ents = msg.entities ?? msg.caption_entities ?? [];
   return ents.some((e: Any) => (e.type === "mention" && text.substr(e.offset + 1, e.length - 1).toLowerCase() === BOT)
-    || (e.type === "bot_command" && /^\/banya/i.test(text.substr(e.offset, e.length))));
+    || (e.type === "bot_command" && /^\/banya/i.test(text.substr(e.offset, e.length)))
+    // «#баня» — то же, что отметить бота: в подписи к фото Telegram не подсказывает ники, а хэштег набирается руками
+    || (e.type === "hashtag" && HASHTAG.test(text.substr(e.offset, e.length))));
 };
+const HASHTAG = /^#бан(я|ька)$/iu;
+const CALL = new RegExp(`@${BOT}|/banya(@\\w+)?|#бан(я|ька)(?![\\p{L}\\p{N}_])`, "giu");   // всё, чем зовут бота — из текста убираем
 
-const HOWTO = `Отмечайте походы прямо здесь — отметьте меня и напишите как есть:\n<i>@${BOT} Сандуны 3ч с Деном</i>\n\n`
+const HOWTO = `Отмечайте походы прямо здесь — отметьте меня (или начните с #баня) и напишите как есть:\n<i>@${BOT} Сандуны 3ч с Деном</i>\n`
+  + `<i>#баня Сандуны 3ч с Деном</i> — удобно в подписи к фото, там Telegram не подсказывает ники\n\n`
   + "Не хватит чего-то — переспрошу. Отмечайте сразу, как зашли. Долгая (больше 2,5 ч) — отметьте меня или напишите в личку «долгая», можно сразу, в течение 8 часов. "
   + `Поход уйдёт в Комиссию, после решения на посте появится 👍 или 💩.\nТаблица и карта: ${SITE}`;
 
@@ -1274,7 +1288,7 @@ async function onMessage(msg: Any) {
   const me = acc?.players as Any;
   if (!me) {
     // ник ещё ждёт Комиссию — пост про баню запоминаем (он адресован боту), после подтверждения он станет карточкой похода
-    const aboutBath = text.replace(new RegExp(`@${BOT}|/banya(@\\w+)?`, "gi"), "").trim().length > 2 && !/^\/|^(start|привет|хай|hi|hello)$/iu.test(text);
+    const aboutBath = text.replace(CALL, "").trim().length > 2 && !/^\/|^(start|привет|хай|hi|hello)$/iu.test(text);
     if (acc?.claimed_nick && aboutBath) {
       await setState(tgId, { stash: {
         chat: { id: chat, type: msg.chat.type, username: msg.chat.username ?? null }, message_id: msg.message_id, date: msg.date, from: { id: tgId },
