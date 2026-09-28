@@ -149,6 +149,13 @@ with sync_playwright() as pw:
     before = set(sql("select coalesce(string_agg(id::text, ','), '') from visits").split(",")) - {""}
 
     try:
+        print("Без Cloudflare")
+        # в России провайдеры режут Cloudflare: без VPN сайт висел на заставке (28.09) — из браузера к нему ни одного запроса
+        html, cfg = (ROOT / "prototype" / "index.html").read_text(), (ROOT / "prototype" / "config.js").read_text()
+        check("страница не тянет библиотеки с cdnjs / jsDelivr / unpkg (они за Cloudflare) — всё из prototype/vendor",
+              not any(h in html for h in ("cdnjs.cloudflare.com", "cdn.jsdelivr.net", "unpkg.com")))
+        check("API сайта — через шлюз в Яндексе, а не напрямую *.supabase.co", "supabase.co" not in cfg.split("supabaseUrl:")[1].split("\n")[0])
+
         print("Гость")
         s = Site(browser, url, name="guest")
         check("сайт загрузился, кнопка «Войти» на месте", s.js("() => document.getElementById('meBtn').innerText.includes('Войти')"))

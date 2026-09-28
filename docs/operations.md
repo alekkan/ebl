@@ -95,6 +95,12 @@ GitHub больше суток не выпускал сертификат, а Cl
   `www.ebl.su` — только перенаправление. Выкладывает `scripts/deploy.sh`.
 - **HTTPS** — сертификат Let's Encrypt `ebl-su` в Certificate Manager на `ebl.su` и `www.ebl.su`, продлевается сам;
   http → https Яндекс перенаправляет сам. Проверить: `yc certificate-manager certificate list`.
+- **API для браузера — шлюз `ebl-api`** (Yandex API Gateway, домен `d5dnnk74ilrgsf0r6t22.628pfjdx.apigw.yandexcloud.net`,
+  он же `supabaseUrl` в `prototype/config.js`). Прокси ко всему Supabase: REST, Auth, Storage (фото), функции. Зачем: Supabase
+  стоит за Cloudflare, а его в России режут мобильные и домашние провайдеры — без VPN сайт висел на «Грею парилку…» (28.09).
+  Бот, pg_cron и функции ходят в Supabase напрямую — это сервер, их не режут. Спецификация — `infra/api-gateway.yaml`,
+  обновить: `yc serverless api-gateway update --name ebl-api --spec infra/api-gateway.yaml`. Ключ сессии в браузере оставлен
+  прежним (`authKey` в `config.js`) — при смене адреса никого не разлогинило. Деньги — первые 100 тыс. запросов в месяц бесплатно.
 - **Деньги** — около 45 ₽ в месяц, почти всё — DNS-зона (0,0592 ₽/час); хранение, запросы и трафик сайта в бесплатных лимитах.
   Первые 60 дней — стартовый грант (с 27.09.2026, то есть **до ~26.11.2026**). ⚠️ **До конца гранта** — консоль → «Биллинг» →
   «Перейти на платную версию», иначе после гранта Яндекс остановит ресурсы и сайт ляжет.
