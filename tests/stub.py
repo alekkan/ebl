@@ -66,7 +66,13 @@ class Telegram:
             if method == "getFile":
                 return 400, {"ok": False, "error_code": 400, "description": "Bad Request: invalid file_id"}
             if method == "getMe":
-                return 200, {"ok": True, "result": {"id": int(self.token.split(":")[0]), "is_bot": True, "first_name": "ЕБЛ", "username": "eblsu_bot"}}
+                return 200, {"ok": True, "result": {"id": int(self.token.split(":")[0]), "is_bot": True, "first_name": "ЕБЛ", "username": "eblsu_bot",
+                                                   "can_read_all_group_messages": True}}
+            if method == "getChatMember":
+                # 902 — вышел из чата (так тесты проверяют, что бот его забывает); остальные — участники
+                uid = int(params.get("user_id") or 0)
+                return 200, {"ok": True, "result": {"status": "left" if uid == 902 else "member",
+                                                   "user": {"id": uid, "is_bot": False, "first_name": f"Участник{uid}"}}}
             if method == "getWebhookInfo":
                 return 200, {"ok": True, "result": {"url": "", "has_custom_certificate": False, "pending_update_count": 0}}
             return 200, {"ok": True, "result": True}
