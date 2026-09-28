@@ -370,6 +370,28 @@ check("подтвердили на сайте — отложенный пост 
 sql(f"delete from player_accounts where tg_id in ({NEW1}, {NEW2}, {NEW3})")
 sql("delete from bot_sessions")
 
+print("«@eblany» — позвать всех")
+sql(f"delete from chat_members where chat_id = {CHAT}")
+sql(f"delete from bot_log where kind = 'eblany'")
+sql(f"insert into chat_members (chat_id, tg_id) values ({CHAT}, {ME}), ({CHAT}, 901), ({CHAT}, 902)")
+sql("delete from bot_sessions")
+calls = lambda: sql(f"select count(*) from bot_log where kind = 'eblany' and detail = '{CHAT}'")
+check("«@eblany …» — бот зовёт всех, а не заводит черновик похода", post("@eblany погнали в Сандуны к 19", 70) is None and calls() == "1")
+check("с отметкой бота — тоже сбор, не пост про баню", post("@eblsu_bot @eblany Василевские с Деном", 71, who=901) is None)
+check("второй сбор в течение 10 минут — не зовёт (спам)", calls() == "1")
+check("в личке «@eblany» ничего не зовёт", post("@eblany", 72, chat=ME, chat_type="private") is None and calls() == "1")
+def service(mid, **extra):
+    upd = {"update_id": mid, "message": {"message_id": mid, "date": int(time.time()), "chat": {"id": CHAT, "type": "supergroup"},
+           "from": {"id": 901, "is_bot": False, "first_name": "Ден"}, **extra}}
+    assert req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})[0] == 200
+service(73, new_chat_members=[{"id": 906, "is_bot": False, "first_name": "Новенький"}, {"id": 907, "is_bot": True, "first_name": "Бот"}])
+check("вошёл в чат — бот его запомнил (ботов не запоминает)",
+      sql(f"select string_agg(tg_id || ':' || coalesce(name, ''), ',' order by tg_id) from chat_members where chat_id = {CHAT} and tg_id > 902") == "906:Новенький")
+service(74, left_chat_member={"id": 906, "is_bot": False, "first_name": "Новенький"})
+check("вышел из чата — забыт", sql(f"select count(*) from chat_members where chat_id = {CHAT} and tg_id = 906") == "0")
+sql(f"delete from chat_members where chat_id = {CHAT}")
+sql("delete from bot_log where kind = 'eblany'")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)
