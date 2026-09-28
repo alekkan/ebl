@@ -396,7 +396,7 @@ def service(mid, **extra):
     assert req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})[0] == 200
 service(73, new_chat_members=[{"id": 906, "is_bot": False, "first_name": "Новенький"}, {"id": 907, "is_bot": True, "first_name": "Бот"}])
 check("вошёл в чат — бот его запомнил (ботов не запоминает)",
-      sql(f"select string_agg(tg_id || ':' || coalesce(name, ''), ',' order by tg_id) from chat_members where chat_id = {CHAT} and tg_id > 902") == "906:Новенький")
+      sql(f"select string_agg(tg_id || ':' || coalesce(name, ''), ',' order by tg_id) from chat_members where chat_id = {CHAT} and tg_id in (906, 907)") == "906:Новенький")
 service(74, left_chat_member={"id": 906, "is_bot": False, "first_name": "Новенький"})
 check("вышел из чата — забыт", sql(f"select count(*) from chat_members where chat_id = {CHAT} and tg_id = 906") == "0")
 sql(f"delete from chat_members where chat_id = {CHAT}")
