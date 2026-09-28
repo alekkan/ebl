@@ -79,6 +79,11 @@
   Затем перерегистрировать вебхук (выше).
 - Диагностика: `curl -s "https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/tg-bot?diag=1"`.
 
+**Общий сбор «@eblany»** зовёт тех, кто в `chat_members` (номер аккаунта и имя). Список ОУД (38 человек) залит 28.09 из
+Telegram Web скриптом `scripts/seed-chat-members.sh <файл> --prod` (файл с номерами в репозиторий не кладём), дальше бот
+пополняет его сам по входам и выходам. Сбор ушёл с «участник» вместо имени — бот поправит сам; вручную:
+`curl -X POST 'https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/tg-bot?rollfix=<id>'` (`id` — из `rollcalls`).
+
 ## Домен ebl.su
 
 Сайт живёт в Yandex Cloud: облако `cloud-cumulus-511`, каталог `ebl` (владелец — Леха). Переезд с GitHub Pages — 27.09.2026:
