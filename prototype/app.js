@@ -428,8 +428,8 @@
             ${olderBeer.length ? `<p class="hint" style="margin:6px 0 0">Раньше: ${olderBeer.map((p) => `${fmt(p.price)} ${curSign(p.currency)} (${dayLabel(p.price_date)})`).join(" · ")}</p>` : ""}` : ""}
           ${member ? `<form class="prform" id="prForm">
             <div class="row">
-              <input class="inp" id="prPrice" type="number" min="1" step="1" placeholder="🧹 Цена входа, ₽" required>
-              <input class="inp" id="prBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽ (если есть)">
+              <input class="inp" id="prPrice" type="number" min="1" step="1" placeholder="♨️ Цена входа, ₽" required>
+              <input class="inp" id="prBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽">
             </div>
             <button class="btn solid" type="submit" style="justify-self:start">Добавить</button>
             <button type="button" class="linkbtn" id="prMore">ещё: продолжительность сеанса · будни/выходной · валюта →</button>
@@ -440,7 +440,7 @@
                 <button type="button" data-w="0" aria-pressed="false">Будни</button>
                 <button type="button" data-w="1" aria-pressed="false">Выходной</button>
               </div>
-              <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка по времени до <input class="inp" id="prBefore" type="time" style="flex:0 0 auto"></label>
+              <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка до <input class="inp" id="prBefore" type="time" style="flex:0 0 auto"></label>
               <input class="inp" id="prCurrency" placeholder="Валюта (по умолчанию ₽)">
             </div>
           </form>` : ""}
