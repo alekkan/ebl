@@ -52,9 +52,19 @@ const postLink = (chat: Any, msg: number) =>
 
 // по регламенту важно одно: долгий поход (больше 150 минут) или обычный
 const TYPE_RU: Record<string, string> = { public: "Общественная", spa: "Хуитнес", private: "Частная" };
-// пасхалка лиги: к хуитнесам у Комиссии отношение особое
-const SPA_JOKE = "🏋️ Хуитнес… Комиссия такое не одобряет, но рассмотрит 🧐";
 const TYPE_BTN: Record<string, string> = { public: "🏛 Общественная", spa: "🏋️ Хуитнес", private: "🪵 Частная" };
+// пасхалки лиги: реакция на дорогой вход и на хуитнесы — вторым сообщением после «Ушло в Комиссию», не в самой карточке
+const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+const RICH_JOKES = ["Хуя себе пижон 🤑", "Наши люди в такие бани не ходят"];
+const SPA_JOKES = ["Бля, заебали хуитнесы 😩", "Может нахуй хуитнесы заблочим? 🤔"];
+// на настоящих данных бани, а не на догадке из этого конкретного поста: свежую баню или свежедогаданный тип этот
+// самый пост и делает «правдой» (см. запись типа/цены ниже), шутка про это — как будто мы уже давно знали
+function jokesFor(st: Any, confirmedPrice: number | null): string[] {
+  const jokes: string[] = [];
+  if (confirmedPrice != null && confirmedPrice > 5500) jokes.push(pick(RICH_JOKES));
+  if (st.bathType === "spa") jokes.push(pick(SPA_JOKES));
+  return jokes;
+}
 // время не указали — считаем экспресс (до 2,5 ч), через 2,5 часа спросим, не была ли долгая
 const durLabel = (m: number | null) => (m != null && m > 150 ? "🔥 долгая, больше 2,5 ч" : "⚡ экспресс, до 2,5 ч");
 
@@ -257,6 +267,50 @@ function typeFromText(text: string): string | null {
   return null;
 }
 
+// цена входа и пиво словами в посте — только с явным маркером валюты (₽/руб/р. или доллар/евро/иена кодом либо
+// значком), иначе слишком легко перепутать с чем угодно (длительность, номер дома); показываем Комиссии как
+// догадку, в bath_prices не пишем — это не подтверждённая цена, а подсказка «со слов автора» (как и тип бани).
+// Валюту берём из того же совпадения, что и цену/пиво, а не отдельным поиском по всему тексту — иначе значок
+// валюты в другом месте посте (например, у чужого прайса, если его процитировали) мог бы приписаться к цене.
+const CUR_MARK = "(?:₽|руб\\p{L}*|р\\.|\\$|€|¥|USD|EUR|JPY|AED|GBP|CNY)";
+const CUR_SIGN: Record<string, string> = { "$": "USD", "€": "EUR", "¥": "JPY" };
+function curCode(mark: string): string | null {
+  if (CUR_SIGN[mark]) return CUR_SIGN[mark];
+  return /^(руб\p{L}*|р\.|₽)$/iu.test(mark) ? null : mark.toUpperCase();
+}
+const curLabel = (code: string | null) => code ?? "₽";
+const BEER_RE = new RegExp(`пив\\p{L}*[^\\d₽$€¥]{0,20}(\\d{2,5})\\s*(${CUR_MARK})?(?![\\p{L}\\p{N}])`, "iu");
+function beerFromText(text: string): { price: number; currency: string | null } | null {
+  const m = BEER_RE.exec(text);
+  return m ? { price: Number(m[1]), currency: m[2] ? curCode(m[2]) : null } : null;
+}
+function priceFromText(text: string, hadBeer: boolean): { price: number; currency: string | null } | null {
+  const t = hadBeer ? text.replace(BEER_RE, " ") : text;
+  const m = new RegExp(`(\\d{2,5})\\s*(${CUR_MARK})(?![\\p{L}\\p{N}])`, "iu").exec(t);
+  return m ? { price: Number(m[1]), currency: curCode(m[2]) } : null;
+}
+// будни/выходной словами — только подсказка для кнопок в карточке (как догадка типа бани), окончательный выбор — кнопкой;
+// «скидка до 18:00» — только рядом со словом «скидка», иначе легко перепутать с временем захода/окончания
+const WEEKEND_RE = /(?:^|[^\p{L}])выходн\p{L}*(?![\p{L}])/iu;
+const WEEKDAY_RE = /(?:^|[^\p{L}])будн\p{L}*(?![\p{L}])/iu;
+function scheduleFromText(text: string): string | null {
+  if (WEEKEND_RE.test(text)) return "weekend";
+  if (WEEKDAY_RE.test(text)) return "weekday";
+  return null;
+}
+const BEFORE_RE = /скидк\p{L}*[^\d]{0,15}до\s*(\d{1,2})[:.](\d{2})/iu;
+function beforeTimeFromText(text: string): string | null {
+  const m = BEFORE_RE.exec(text);
+  return m ? `${m[1].padStart(2, "0")}:${m[2]}` : null;
+}
+const SCHED_RU: Record<string, string> = { weekday: "будни", weekend: "выходной", any: "любой день" };
+function schedLabel(st: Any): string {
+  const parts: string[] = [];
+  if (st.priceWeekend) parts.push(SCHED_RU[st.priceWeekend]);
+  if (st.priceBefore) parts.push(`скидка до ${st.priceBefore}`);
+  return parts.length ? ` · ${parts.join(", ")}` : "";
+}
+
 // ---------- черновик и карточка ----------
 // ---------- компания ----------
 // Раньше без компании в посте карточка молча писала «👥 один» — её не замечали, и попутчики терялись (Alex B с Деном, 27.09).
@@ -352,7 +406,10 @@ async function renderCard(st: Any, lg: Any) {
   const askType = st.newBath || (st.bathId && !st.bathType);
   if (askType && st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
   else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
-  if ((st.bathType || st.type) === "spa") lines.push(SPA_JOKE);
+  const askSched = st.price != null;
+  if (st.price) lines.push(`💰 ${st.price} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
+  if (st.beerPrice) lines.push(`🍺 ${st.beerPrice} ${curLabel(st.currency)} — со слов автора`);
+  if (askSched && st.currency == null && st.priceBefore == null) lines.push("Валюта не ₽ или скидка до какого часа — ответом на карточку.");
   if (st.hint) lines.push(`\n${st.hint}`);
   if (st.awaiting === "company") lines.push("\nКто был? Отметь кнопками или ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nДолгая или экспресс? По регламенту важно только, была ли дольше 2,5 часа.");
@@ -361,6 +418,8 @@ async function renderCard(st: Any, lg: Any) {
   const kb: Any[][] = st.awaiting === "dur"
     ? [[btn("⚡ Экспресс — до 2,5 ч", "d:120")], [btn("🔥 Долгая — больше 2,5 ч", "d:180")], [btn("Ещё паримся", "d:0")]]
     : [...pick, ...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
+      // будни/выходной у цены — необязательная кнопка, как и тип бани; валюту и «скидку до» кнопкой не спрашиваем — только текстом
+      ...(askSched ? [Object.entries(SCHED_RU).map(([s, l]) => btn(`${st.priceWeekend === s ? "✓ " : ""}${l}`, `pw:${s}`))] : []),
       // экспресс или долгая — выбор виден прямо на кнопках (галочка), как у типа бани
       [btn(`${st.dur == null || st.dur <= LONG ? "✓ " : ""}⚡ Экспресс`, "d:120"), btn(`${st.dur != null && st.dur > LONG ? "✓ " : ""}🔥 Долгая`, "d:180")],
       [btn("✅ В Комиссию", "send")], pick.length ? [btn("🏠 Баня", "eb")] : [btn("🏠 Баня", "eb"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
@@ -416,6 +475,13 @@ async function startDraft(msg: Any, me: Any, lg: Any, note?: string) {
     companyOk: comp.ids.length > 0 || ALONE_IN_POST.test(text), unknown: comp.unknown,
     ultra: ULTRA.test(text), type: typeFromText(text), query: bathQuery(text.replace(/\/banya(@\w+)?/i, " "), d?.span ?? null, comp.used),
   };
+  const beer = beerFromText(text);
+  const price = priceFromText(text, beer != null);
+  st.beerPrice = beer?.price ?? null;
+  st.price = price?.price ?? null;
+  st.currency = price?.currency ?? beer?.currency ?? null;
+  st.priceWeekend = scheduleFromText(text);
+  st.priceBefore = beforeTimeFromText(text);
   st.geo = await pointFromMessage(msg);
   if (note) st.hint = note;
   await dropDraftPhotos(msg.from.id);   // новый пост — новый черновик: фото прошлого, неотправленного, не нужны
@@ -514,6 +580,16 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       if (d && d.dur >= 60) { st.dur = d.dur; st.start = d.start ?? st.start; if (st.awaiting === "dur") st.awaiting = null; }
       const c = parseCompany(text, msg.entities ?? [], lg, me.id);
       if (c.ids.length) { st.company = [...new Set([...(st.company ?? []), ...c.ids])]; st.companyOk = true; st.picking = false; }
+      // цену и пиво могли дописать словами позже, не в исходном посте
+      if (st.beerPrice == null || st.price == null) {
+        const beer = st.beerPrice == null ? beerFromText(text) : null;
+        const price = st.price == null ? priceFromText(text, beer != null) : null;
+        if (beer) st.beerPrice = beer.price;
+        if (price) st.price = price.price;
+        if (st.currency == null) st.currency = price?.currency ?? beer?.currency ?? null;
+      }
+      if (st.priceWeekend == null) st.priceWeekend = scheduleFromText(text);
+      if (st.priceBefore == null) st.priceBefore = beforeTimeFromText(text);
     }
   }
   // ответ ничего не поменял — без подсказки карточка осталась бы прежней, и казалось бы, что бот молчит
@@ -574,7 +650,8 @@ async function submit(st: Any, lg: Any, tgId: number) {
   const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
     + photoLine(photos)
     + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "")
-    + ((st.bathType || st.type) === "spa" ? `\n${SPA_JOKE}` : "")
+    + (st.price ? `\n💰 ${st.price} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора` : "")
+    + (st.beerPrice ? `\n🍺 ${st.beerPrice} ${curLabel(st.currency)} — со слов автора` : "")
     + repeatLine(await sameDayRepeat(visit.id));
   // статус «ушло в Комиссию» — всегда; персональное приветствие (если есть) — строкой ниже, а не вместо
   const greeting = greetLine(st.authorNick);
@@ -586,6 +663,11 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (!(await refreshCard(visit.id)) && st.card) await edit(st.chat, st.card, cardText);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
+  // пасхалки — отдельным сообщением, не в самой карточке (её потом ещё правят решением Комиссии); на настоящей
+  // цене бани (последняя запись в bath_prices), а не на догадке из этого поста — у новой бани цены ещё нет
+  const { data: cp } = await sb.from("bath_prices").select("price").eq("bath_id", bathId).order("price_date", { ascending: false }).limit(1).maybeSingle();
+  const jokes = jokesFor(st, cp?.price ?? null);
+  if (jokes.length) await send(st.chat, jokes.join("\n"), undefined, st.chatType === "private" ? undefined : st.source);
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}`;
@@ -676,7 +758,6 @@ async function summaryOf(visitId: number): Promise<string | null> {
   return `🧖 <b>${esc(vv.baths?.name)}</b>${vv.baths?.status === "pending" ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(dur)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
     + photoLine(await photoCount(visitId))
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
-    + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "")
     + repeatLine(await sameDayRepeat(visitId));
 }
 async function refreshVisit(visitId: number): Promise<boolean> {
@@ -729,7 +810,6 @@ async function siteVisit(visitId: number): Promise<boolean> {
   const company = (vv.visit_players ?? []).map((x: Any) => x.players?.nick).filter((n: string) => n && n !== author);
   const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
-    + (vv.baths?.type === "spa" ? `\n${SPA_JOKE}` : "")
     + repeatLine(await sameDayRepeat(visitId));
   if (chat) {
     const greeting = greetLine(author);
@@ -740,6 +820,7 @@ async function siteVisit(visitId: number): Promise<boolean> {
       await sb.from("bot_posts").update({ source_msg: r.result.message_id, card_msg: r.result.message_id, card_text: cardText }).eq("visit_id", visitId);
       await react(chat, r.result.message_id, "👀");
     }
+    if (vv.baths?.type === "spa") await send(chat, pick(SPA_JOKES));
   }
   const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n${summary}`;
   const lg = await league();
@@ -1410,6 +1491,8 @@ async function onCallback(cq: Any) {
     st.bathId = null; st.newBath = null; st.newBathId = null; st.bathName = null; st.bathType = null; st.type = null; bathChanged(st); await resolveBath(st);
   } else if (data.startsWith("t:") && TYPE_RU[data.slice(2)]) {
     st.type = data.slice(2);
+  } else if (data.startsWith("pw:") && SCHED_RU[data.slice(3)]) {
+    st.priceWeekend = data.slice(3);
   } else if (data === "ed") st.awaiting = "dur";
   else if (data === "ec") { st.picking = true; st.awaiting = "company"; }
   else if (data.startsWith("d:")) { const m = Number(data.slice(2)); st.dur = m || null; st.start = null; st.awaiting = null; }

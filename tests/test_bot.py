@@ -63,6 +63,16 @@ st = case("@eblsu_bot сегодня в Дружбе с 19 до 22", 8)
 check("«с 19 до 22» — три часа, заход в 19:00", st["dur"] == 180 and st.get("start") == 19 * 60, st)
 st = case("@eblsu_bot частная баня у Пингвина уу", 9)
 check("«частная» — это тип, а не часть названия", st.get("type") == "private" and "частн" not in (st.get("query") or "").lower(), st)
+st = case("@eblsu_bot Сандуны 2ч, вход 600₽, пиво 150 руб", 14)
+check("цена и пиво со слов автора — с явным рублёвым маркером", st.get("price") == 600 and st.get("beerPrice") == 150, st)
+st = case("@eblsu_bot Сандуны 2ч, было человек 12", 15)
+check("число без рублёвого маркера — цену не разбираем", st.get("price") is None and st.get("beerPrice") is None, st)
+st = case("@eblsu_bot Сандуны 2ч, вход 40$", 16)
+check("валюта значком — не рубль", st.get("price") == 40 and st.get("currency") == "USD", st)
+st = case("@eblsu_bot Сандуны 2ч, вход 500₽ по выходным, скидка до 18:00", 17)
+check("будни/выходной и «скидка до» словами в посте", st.get("price") == 500 and st.get("priceWeekend") == "weekend" and st.get("priceBefore") == "18:00", st)
+st = case("@eblsu_bot Сандуны 2ч, вход 500₽ до 18:00", 18)
+check("«до 18:00» без слова «скидка» — не разбираем как скидку", st.get("price") == 500 and st.get("priceBefore") is None, st)
 st = case("@eblsu_bot Сандуны с Витьком, Королём, Пашкой и Серёгой", 10)
 check("«Витьком», «Королём», «Пашкой», «Серёгой» — падежи ников", nicks(st["company"]) == {"Витёк", "Король", "Пашок", "Серёга"}, st)
 sql("delete from bot_sessions")
@@ -230,6 +240,45 @@ check("и можно отметить ещё кого-то — кнопки с �
 card("send", cid="n2")
 check("один человек отмечен — «В Комиссию» сразу отправляет", sql(f"select count(*) from bot_sessions where tg_id = {ME}") == "0")
 sql("delete from visits where id = (select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot')")
+
+print("Цена, пиво и пасхалки")
+sql("delete from bot_sessions")
+sql("update baths set type = null where name = 'Amalienbad'")   # предыдущий прогон мог уже разметить тип со слов автора
+before = mine()
+seen = len(TELEGRAM.calls)
+st = post("Amalienbad 2ч один, хуитнес", 187, chat=ME, chat_type="private")
+check("однозначная баня, тип со слов автора — цены пока нет", st.get("bathName") == "Amalienbad" and st.get("type") == "spa"
+      and st.get("companyOk") is True and st.get("price") is None, st)
+st = post("вход 6000₽, пиво 300₽", 188, chat=ME, chat_type="private")
+check("цена и пиво дописаны следующим сообщением в личке — как и время/компания словами", st.get("price") == 6000 and st.get("beerPrice") == 300, st)
+post("да", 189, chat=ME, chat_type="private")
+check("поход ушёл в Комиссию", mine() - before == 1)
+sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
+check("цена и пиво — в сводке «со слов автора»",
+      any("💰 6000 ₽ — со слов автора" in t for t in sent) and any("🍺 300 ₽ — со слов автора" in t for t in sent), sent)
+check("новая баня — тип и цена из этого же поста не подтверждены, пасхалок ещё нет",
+      not any(("пижон" in t or "Наши люди" in t or "заебали хуитнесы" in t or "заблочим" in t) for t in sent), sent)
+sql("delete from visits where id = (select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot')")
+
+sql("delete from bot_sessions")
+sql("insert into bath_prices (bath_id, price, currency, created_by) select id, 6000, 'RUB', (select id from players where nick = 'Леха') from baths where name = 'Dublinger'")
+before = mine()
+seen = len(TELEGRAM.calls)
+case("@eblsu_bot Dublinger 2ч один", 190)
+card("send", cid="j2")
+check("поход по уже известной дорогой хуитнес-бане ушёл в Комиссию", mine() - before == 1)
+sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
+check("баня уже хуитнес и уже дороже 5500 (по настоящей цене, не по этому посту) — обе пасхалки вторым сообщением",
+      any(("пижон" in t or "Наши люди" in t) for t in sent) and any(("заебали хуитнесы" in t or "заблочим" in t) for t in sent)
+      and not any(("пижон" in t or "Наши люди" in t or "заебали хуитнесы" in t or "заблочим" in t) and "со слов автора" in t for t in sent), sent)
+sql("delete from visits where id = (select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot')")
+sql("delete from bath_prices where bath_id = (select id from baths where name = 'Dublinger')")
+
+sql("delete from bot_sessions")
+case("@eblsu_bot Сандуны 2ч, вход 500₽", 191)
+card("pw:weekday", cid="pw1")
+check("кнопка «Будни» у цены — выбор сохранён в черновике", json.loads(sql(f"select state from bot_sessions where tg_id = {ME}")).get("priceWeekend") == "weekday")
+sql("delete from bot_sessions")
 
 print("«#баня» — вместо отметки бота")
 st = case("#баня Василевские 2ч с Деном", 85)
