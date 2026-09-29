@@ -441,7 +441,7 @@
                 <button type="button" data-w="1" aria-pressed="false">Выходной</button>
               </div>
               <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка до <input class="inp" id="prBefore" type="time" style="flex:0 0 auto"></label>
-              <input class="inp" id="prCurrency" placeholder="Валюта (по умолчанию ₽)">
+              <input class="inp" id="prCurrency" placeholder="Валюта — код (USD, EUR…), по умолчанию ₽">
             </div>
           </form>` : ""}
         </section>
