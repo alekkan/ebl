@@ -343,8 +343,8 @@
 
         <div class="field">
           <span class="lab">Цена <span class="hint">— необязательно, но остальным пригодится</span></span>
-          <input class="inp" id="vPrice" type="number" min="1" step="1" placeholder="🧹 Цена входа, ₽">
-          <input class="inp" id="vPrBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽ (если есть)">
+          <input class="inp" id="vPrice" type="number" min="1" step="1" placeholder="♨️ Цена входа, ₽">
+          <input class="inp" id="vPrBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽">
           <button type="button" class="linkbtn" id="vPrMore">ещё: продолжительность сеанса · будни/выходной · валюта →</button>
           <div class="grid2" id="vPrExtra" hidden style="margin-top:4px">
             <input class="inp" id="vPrDur" type="number" min="1" placeholder="Продолжительность сеанса, мин">
@@ -353,8 +353,8 @@
               <button type="button" data-w="0" aria-pressed="false">Будни</button>
               <button type="button" data-w="1" aria-pressed="false">Выходной</button>
             </div>
-            <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка по времени до <input class="inp" id="vPrBefore" type="time" style="flex:0 0 auto"></label>
-            <input class="inp" id="vPrCurrency" placeholder="Валюта (по умолчанию ₽)">
+            <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка до <input class="inp" id="vPrBefore" type="time" style="flex:0 0 auto"></label>
+            <input class="inp" id="vPrCurrency" placeholder="Валюта — код (USD, EUR…), по умолчанию ₽">
           </div>
         </div>
 
