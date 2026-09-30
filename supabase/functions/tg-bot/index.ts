@@ -13,7 +13,7 @@
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { hasLocationHint, locate, looksLikeAddress, parseLocation } from "../_shared/geo.ts";
-import { matchPlace, reversePlace } from "../_shared/place.ts";
+import { placeByPoint } from "../_shared/place.ts";
 import { greetLine } from "../_shared/greetings.ts";
 import { TELEGRAM_API } from "../_shared/hosts.ts";
 
@@ -595,11 +595,34 @@ async function setBathPoint(bathId: number, p: { lat: number; lng: number }, byC
   return true;
 }
 
-// страна и регион по точке — в написании Комиссии («Кировская обл»); уже заполненное не трогаем
-async function placeFor(p: { lat: number; lng: number }, have: Any = {}) {
-  const { data: known } = await sb.from("bath_places").select("country, region, n").limit(5000);
-  const pl = matchPlace(await reversePlace(p.lat, p.lng), known ?? []);
-  return { ...(!have?.country && pl.country ? { country: pl.country } : {}), ...(!have?.region && pl.region ? { region: pl.region } : {}) };
+// страна и регион по точке — в написании Комиссии («Кировская обл»); уже заполненное не трогаем (см. _shared/place.ts)
+const placeFor = (p: { lat: number; lng: number }, have: Any = {}) => placeByPoint(sb, p, have);
+
+// Дозаполнить страну и регион у бань с точной точкой, где их тогда не узнали (геокодер не ответил): раз в ночь
+// (pg_cron ebl-fill-places) и вручную — ?fillplaces=dry показывает, что проставится, ничего не записывая; &id=<баня> — одну.
+// Примерные точки (город/область из таблицы Комиссии) не трогаем: регион у старых бань — решение Комиссии.
+async function fillPlaces(dry: boolean, id?: number) {
+  let q = sb.from("baths").select("id, name, lat, lng, country, region").neq("status", "rejected")
+    .eq("precision", "exact").not("lat", "is", null).or("country.is.null,region.is.null");
+  if (id) q = q.eq("id", id);
+  const { data: rows } = await q.order("id").limit(20);
+  const out: Any[] = [];
+  for (const b of rows ?? []) {
+    const place = await placeFor({ lat: b.lat, lng: b.lng }, b);
+    if (Object.keys(place).length) {
+      out.push({ id: b.id, name: b.name, ...place });
+      if (!dry) {
+        await sb.from("baths").update(place).eq("id", b.id);
+        // регион появился — пометка «не определён» у Комиссии больше не нужна: обновляем её уведомления по этой бане
+        const { data: vs } = await sb.from("bot_notifications").select("visit_id, visits!inner(bath_id)").eq("visits.bath_id", b.id);
+        for (const vid of new Set((vs ?? []).map((x: Any) => x.visit_id as number))) await refreshVisit(vid);
+      }
+    }
+    await sleep(1100);   // геокодер OpenStreetMap — не чаще раза в секунду
+  }
+  // регион или страна появились — очки за новый регион/страну (п. 14) пересчитываем сразу
+  if (!dry && out.length) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+  return { dry, filled: out, left: (rows ?? []).length - out.length };
 }
 
 // ответ на карточку — дополняем черновик
@@ -755,7 +778,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (jokes.length) await send(st.chat, jokes.join("\n"), undefined, st.chatType === "private" ? undefined : st.source);
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
-  const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}`;
+  const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}` + await placeNote(bathId);
   for (const c of commission) {
     const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visit.id}`), btn("❌ Отклонить", `no:${visit.id}`)]]);
     if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visit.id, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
@@ -845,14 +868,22 @@ async function summaryOf(visitId: number): Promise<string | null> {
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
     + repeatLine(await sameDayRepeat(visitId));
 }
+// у бани нет страны или региона — Комиссии пометка в уведомлении: бонус за новый регион/страну (п. 14) без них не считается.
+// Висит, пока их нет: ночная дозаливка (fillPlaces) их проставит и уведомление обновится — пометка уйдёт. В чат не пишем.
+const PLACE_NOTE = "\n\n🌍 Регион бани пока не определён — бонус за новый регион и страну посчитается, когда он появится.";
+async function placeNote(bathId: number | null | undefined): Promise<string> {
+  if (!bathId) return "";
+  const { data: b } = await sb.from("baths").select("country, region").eq("id", bathId).maybeSingle();
+  return b && (!b.country || !b.region) ? PLACE_NOTE : "";
+}
 async function refreshVisit(visitId: number): Promise<boolean> {
   const { data: v } = await sb.from("visits")
-    .select("status, source, tg_link, reject_reason, author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)").eq("id", visitId).maybeSingle();
+    .select("status, source, tg_link, reject_reason, bath_id, author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)").eq("id", visitId).maybeSingle();
   const summary = v ? await summaryOf(visitId) : null;
   if (!v || !summary) return false;
   const vv = v as Any, author = esc(vv.author?.nick);
   const note = (v.source === "site" ? `🔔 Поход с сайта от <b>${author}</b>` : `🔔 Поход от <b>${author}</b>${v.tg_link ? ` · <a href="${v.tg_link}">пост</a>` : ""}`)
-    + `\n\n${summary}`;
+    + `\n\n${summary}` + await placeNote(vv.bath_id);
   const decided = v.status === "ok" || v.status === "rejected";
   const verdict = decided ? `\n\n${v.status === "ok" ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
     + (v.status !== "ok" && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "") : "";
@@ -907,7 +938,7 @@ async function siteVisit(visitId: number): Promise<boolean> {
     }
     if (vv.baths?.type === "spa") await send(chat, pick(SPA_JOKES));
   }
-  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n${summary}`;
+  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n${summary}` + await placeNote(v.bath_id);
   const lg = await league();
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   for (const c of commission) {
@@ -1638,6 +1669,9 @@ Deno.serve(async (req) => {
     await new Promise((r) => setTimeout(r, 1500));
     return new Response(JSON.stringify({ refreshed: await refreshVisit(Number(url.searchParams.get("refresh"))) }), { headers: { "Content-Type": "application/json" } });
   }
+  // дозаполнить страну и регион у бань с точной точкой (dry — только показать)
+  const fp = url.searchParams.get("fillplaces");
+  if (fp) return new Response(JSON.stringify(await fillPlaces(fp === "dry", Number(url.searchParams.get("id")) || undefined)), { headers: { "Content-Type": "application/json" } });
   // поправить общий сбор (имена, узнанные позже) — безопасно повторять: бот только пересобирает свой же ответ
   if (url.searchParams.get("rollfix")) {
     return new Response(JSON.stringify({ fixed: await rollFix(Number(url.searchParams.get("rollfix"))) }), { headers: { "Content-Type": "application/json" } });
