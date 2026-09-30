@@ -443,14 +443,14 @@ async function renderCard(st: Any, lg: Any) {
   if (priceStep === "sched") lines.push("💰 Цена входа — будни, выходной, скидка до часа или одна на все дни?");
   else if (priceStep === "before") lines.push("💰 Скидка — до какого часа?");
   else if (priceStep === "currency") lines.push(`💰 Цена входа${schedLabel(st)} — в какой валюте?`);
-  else if (st.awaitPriceFor === "price") lines.push("💰 Цена входа? Ответь на эту карточку цифрой.");
+  else if (st.awaitPriceFor === "price") lines.push(priceAskLine(st, "💰 Цена входа"));
   else if (st.priceFromHistory) {
     const list = (st.knownPrices ?? []).map((p: Any) => `${p.price} ${curLabel(p.currency)}${priceDimLabel(p)}`).join(" / ");
     lines.push(`💰 ${list} — как в прошлый раз, ✏️ можно поменять`);
   }
   else if (st.price) lines.push(`💰 ${st.price} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
   else lines.push("💰 Цена входа? Кнопкой ниже.");
-  if (st.awaitPriceFor === "beer") lines.push("🍺 Цена пива? Ответь на эту карточку цифрой.");
+  if (st.awaitPriceFor === "beer") lines.push(priceAskLine(st, "🍺 Цена пива"));
   else if (st.beerFromHistory) {
     const list = (st.knownBeerPrices ?? []).map((p: Any) => `${p.price} ${curLabel(p.currency)}`).join(" / ");
     lines.push(`🍺 ${list} — как в прошлый раз, ✏️ можно поменять`);
@@ -530,9 +530,48 @@ async function showCard(st: Any, lg: Any, tgId: number) {
   await setState(tgId, st);
 }
 
+// ---------- цифра цены: в личке у автора ----------
+// Кнопки мастера цены — правки карточки; а цифру (вход, пиво) спрашиваем у автора в личке, чтобы не грузить чат.
+// Писать первым бот может тем, кто разрешил (вход на сайте просит это разрешение) или сам ему писал; не вышло —
+// спрашиваем в чате ответом на карточку («личка закрыта — спрашиваю тут») и после ответа этот вопрос удаляем.
+// Черновик и так в личке — цифру просим строкой в карточке.
+async function askPrice(st: Any, what: "price" | "beer") {
+  st.awaitPriceFor = what;
+  st.priceInDm = false;
+  if (st.chatType === "private") return;
+  const q = what === "price" ? `сколько стоил вход в «${esc(st.bathName ?? "баню")}»${esc(schedLabel(st))}?` : `сколько стоило пиво в «${esc(st.bathName ?? "бане")}»?`;
+  const dm = await send(st.author, `${what === "price" ? "💰" : "🍺"} ${q[0].toUpperCase()}${q.slice(1)} Напиши цифру — поставлю в карточку поста в чате.`);
+  if (dm.ok) { st.priceInDm = true; return; }
+  await dropPriceAsk(st, false);
+  const g = await tg("sendMessage", {
+    chat_id: st.chat, text: `Личка закрыта — спрашиваю тут: ${q} Ответь цифрой.`, parse_mode: "HTML",
+    reply_markup: { force_reply: true, selective: true }, reply_parameters: { message_id: st.card, allow_sending_without_reply: true },
+  });
+  if (g.ok) st.awaitPriceMsg = g.result.message_id;
+}
+// вопрос о цене закрыт: убираем его из чата (если спрашивали там)
+async function dropPriceAsk(st: Any, clear = true) {
+  if (st?.awaitPriceMsg && st.chatType !== "private") await tg("deleteMessage", { chat_id: st.chat, message_id: st.awaitPriceMsg });
+  st.awaitPriceMsg = null;
+  if (clear) { st.awaitPriceFor = null; st.priceInDm = false; }
+}
+function priceAskLine(st: Any, label: string) {
+  if (st.chatType === "private") return `${label}? Напиши цифру.`;
+  return st.priceInDm ? `${label} — спросил в личке, ответь там цифрой.` : `${label} — ответь цифрой на вопрос ниже.`;
+}
+// цифра пришла в личку, а черновик — в чате: ставим её в черновик и правим карточку там
+async function priceFromDm(msg: Any, st: Any, lg: Any) {
+  const n = Number((msg.text ?? "").trim());
+  if (st.awaitPriceFor === "price") st.price = n; else st.beerPrice = n;
+  await dropPriceAsk(st);
+  await react(msg.chat.id, msg.message_id, "👍");
+  return showCard(st, lg, msg.from.id);
+}
+
 // черновик закрыли, не отправив: в группе карточку удаляем совсем — «Черновик отменён.» оставался в чате мусором (30.09);
 // в личке (и если удалить не вышло: Telegram даёт боту удалять свои сообщения 48 часов) — правим карточку этой строкой
 async function dropCard(st: Any, text: string) {
+  await dropPriceAsk(st);
   if (!st?.card) return;
   if (st.chatType !== "private" && (await tg("deleteMessage", { chat_id: st.chat, message_id: st.card })).ok) return;
   return edit(st.chat, st.card, text);
@@ -706,8 +745,8 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       // ответ на явный вопрос о цене — просто цифра; бот знает, чего именно ждёт (awaitPriceFor — после шагов
       // будни/скидка/валюта или кнопки «Пиво»), иначе это другая цифра взамен «как в прошлый раз»
       if (/^\d{2,5}$/.test(text)) {
-        if (st.awaitPriceFor === "price" && st.price == null) { st.price = Number(text); st.awaitPriceFor = null; st.awaitPriceMsg = null; }
-        else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = Number(text); st.awaitPriceFor = null; st.awaitPriceMsg = null; }
+        if (st.awaitPriceFor === "price" && st.price == null) { st.price = Number(text); await dropPriceAsk(st); }
+        else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = Number(text); await dropPriceAsk(st); }
       }
       if (st.priceWeekend == null) st.priceWeekend = scheduleFromText(text);
       if (st.priceBefore == null) st.priceBefore = beforeTimeFromText(text);
@@ -728,6 +767,7 @@ async function submitFailed(st: Any, lg: Any, tgId: number, why: string) {
 }
 
 async function submit(st: Any, lg: Any, tgId: number) {
+  await dropPriceAsk(st);   // вопрос о цене в чате (личка была закрыта) больше не нужен
   // newBathId — баня, заведённая прошлой неудачной попыткой: повтор не плодит вторую такую же
   let bathId = st.bathId ?? st.newBathId;
   if (!bathId) {
@@ -1545,6 +1585,8 @@ async function onMessage(msg: Any) {
   // фото в личку или с одной отметкой бота, без бани в подписи, — к своему последнему походу за сутки
   if (msg.photo && (isPrivate || mentionsBot(msg)) && !(replyToCard && st) && isPhotoOnly(text)) return photoToRecent(msg, me);
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
+  // цифра цены в личку — ответ на вопрос из черновика в чате (askPrice)
+  if (isPrivate && st?.priceInDm && st.awaitPriceFor && st.chat !== chat && /^\d{2,6}$/.test(text)) return priceFromDm(msg, st, await league());
 
   const lg = await league();
   if (replyToCard && !mentionsBot(msg)) return continueDraft(msg, st, me, lg);
@@ -1650,7 +1692,7 @@ async function onCallback(cq: Any) {
     st.price = null; st.currency = null; st.priceFromHistory = false; st.priceWeekend = null; st.priceBefore = null;
     st.priceStep = "sched";
   } else if (data === "be" && st.beerFromHistory) {
-    st.beerPrice = null; st.beerFromHistory = false; st.awaitPriceFor = "beer";
+    st.beerPrice = null; st.beerFromHistory = false; await askPrice(st, "beer");
   } else if (data === "ap" && st.price == null) {
     st.priceStep = "sched";   // мастер цены: истории нет — спрашиваем будни/выходной/скидку/валюту по шагам
   } else if (data === "pkb" && st.priceStep === "sched") {
@@ -1663,9 +1705,9 @@ async function onCallback(cq: Any) {
   } else if (data.startsWith("pc:") && st.priceStep === "currency" && CUR_BTNS.some(([c]) => c === data.slice(3))) {
     st.currency = data.slice(3) === "RUB" ? null : data.slice(3);
     st.priceStep = null;
-    st.awaitPriceFor = "price";   // последний шаг мастера — цифру ответом на карточку (строка в ней), без нового сообщения
+    await askPrice(st, "price");   // последний шаг мастера — цифру спрашиваем в личке у автора (закрыта — в чате)
   } else if (data === "ab" && (st.price != null || st.priceFromHistory) && st.beerPrice == null) {
-    st.awaitPriceFor = "beer";
+    await askPrice(st, "beer");
   } else if (data === "ed") st.awaiting = "dur";
   else if (data === "ec") { st.picking = true; st.awaiting = "company"; }
   else if (data.startsWith("d:")) { const m = Number(data.slice(2)); st.dur = m || null; st.start = null; st.awaiting = null; }

@@ -275,7 +275,7 @@ card("pc:RUB", who=ME, chat=ME, chat_type="private", cid="pc1")
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessage"]
 edits = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "editMessageText"]
 check("после валюты — вопрос про цену строкой в карточке, без отдельного сообщения (30.09 — мусор в чате)",
-      not any("Сколько стоил" in t for t in sent) and any("💰 Цена входа? Ответь на эту карточку цифрой." in t for t in edits), (sent, edits))
+      not any("Сколько стоил" in t for t in sent) and any("💰 Цена входа? Напиши цифру." in t for t in edits), (sent, edits))
 st = post("6000", 188, chat=ME, chat_type="private")
 check("цифра принята как цена входа", st.get("price") == 6000 and st.get("awaitPriceFor") is None, st)
 data, _ = card_kb(who=ME)
@@ -285,7 +285,7 @@ card("ab", who=ME, chat=ME, chat_type="private", cid="ab1")
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessage"]
 edits = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "editMessageText"]
 check("кнопка «Пиво» — тоже строкой в карточке", not any("Сколько стоило" in t for t in sent)
-      and any("🍺 Цена пива? Ответь на эту карточку цифрой." in t for t in edits), (sent, edits))
+      and any("🍺 Цена пива? Напиши цифру." in t for t in edits), (sent, edits))
 post("300", 189, chat=ME, chat_type="private")
 seen = len(TELEGRAM.calls)
 post("да", 190, chat=ME, chat_type="private")
@@ -737,6 +737,49 @@ def geo_answer():
     return ""
 ga = geo_answer()
 check("геокодер через сервер базы (geo_reverse → geo_result) отвечает по координатам", ga.startswith("200|") and "Москва" in ga, ga)
+
+print("Цифра цены — в личке у автора, личка закрыта — в чате")
+pbath = sql("insert into baths (name, country, region, status) values ('Тестценабаня', 'Россия', 'Москва', 'ok') returning id").splitlines()[0]
+sql("delete from bot_sessions")
+case("@eblsu_bot Тестценабаня один", 93)
+for d in ("ap", "pw:any"):
+    card(d, cid=f"pd{d}")
+seen = len(TELEGRAM.calls)
+card("pc:RUB", cid="pdc")
+dm = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == ME]
+grp = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]
+check("черновик в чате: цифру цены бот спрашивает у автора в личке, в чат ничего нового",
+      len(dm) == 1 and "Сколько стоил вход" in dm[0].get("text", "") and not grp and state().get("priceInDm") is True, (dm, grp))
+seen = len(TELEGRAM.calls)
+post("1500", 94, chat=ME, chat_type="private")
+st = state()
+check("цифра в личке — цена в черновике, карточка в чате обновилась", st.get("price") == 1500 and not st.get("awaitPriceFor")
+      and any(m == "editMessageText" and int(p.get("chat_id") or 0) == CHAT and "1500" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]), st)
+sql("delete from bot_sessions")
+sql("delete from player_accounts where tg_id = 911")
+sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 911, 'closed_dm' from players where nick = 'Фил'")
+post("@eblsu_bot Тестценабаня один", 95, who=911)
+for d in ("ap", "pw:any"):
+    card(d, who=911, cid=f"pf{d}")
+seen = len(TELEGRAM.calls)
+card("pc:RUB", who=911, cid="pfc")
+st = state(911)
+grp = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]
+check("личка закрыта — спрашиваем в чате ответом на карточку: «Личка закрыта — спрашиваю тут»",
+      len(grp) == 1 and "Личка закрыта" in grp[0].get("text", "") and (grp[0].get("reply_parameters") or {}).get("message_id") == st.get("card")
+      and st.get("awaitPriceMsg") and not st.get("priceInDm"), (grp, st))
+qid = st.get("awaitPriceMsg")
+seen = len(TELEGRAM.calls)
+upd = {"update_id": 9600, "message": {"message_id": 96, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
+       "from": {"id": 911, "is_bot": False, "first_name": "Фил"}, "text": "800",
+       "reply_to_message": {"message_id": qid, "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": CHAT, "type": "supergroup"}, "text": "Личка закрыта"}}}
+req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+st = state(911)
+check("ответ цифрой в чате — цена в черновике, вопрос бота удалён (чат чистый)", st.get("price") == 800
+      and any(m == "deleteMessage" and int(p.get("message_id") or 0) == qid for m, p in TELEGRAM.calls[seen:]), st)
+sql("delete from bot_sessions")
+sql("delete from player_accounts where tg_id = 911")
+sql(f"delete from baths where id = {pbath}")
 
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
