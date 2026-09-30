@@ -700,12 +700,20 @@ known_b = sql("insert into baths (name, country, region, lat, lng, precision, st
 near_b = sql("insert into baths (name, lat, lng, precision, status) values ('Тест-рядом', 44.55, 40.6, 'exact', 'ok') returning id").splitlines()[0]
 far_b = sql("insert into baths (name, lat, lng, precision, status) values ('Тест-далеко', 46.5, 43.5, 'exact', 'ok') returning id").splitlines()[0]
 fill = lambda mode, b: req("GET", f"/functions/v1/tg-bot?fillplaces={mode}&id={b}")[1]
+pv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {near_b}, now() - interval '1 hour', 60, id, 'bot' from players where nick = 'Леха' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {pv}, id from players where nick = 'Леха'")
+sql(f"insert into bot_notifications (visit_id, chat_id, message_id, text) values ({pv}, {ME}, 1, 'старое')")
+req("POST", f"/functions/v1/tg-bot?refresh={pv}", {})
+note_text = lambda: sql(f"select text from bot_notifications where visit_id = {pv}")
+check("у бани нет региона — Комиссии в уведомлении пометка «регион пока не определён»", "Регион бани пока не определён" in note_text(), note_text())
 r = fill("dry", near_b)
 check("?fillplaces=dry — показывает страну и регион ближайшей бани (в 10 км), ничего не записывая",
       (r.get("filled") or [{}])[0].get("region") == "Тестовая обл" and (r.get("filled") or [{}])[0].get("country") == "Тестовия"
       and sql(f"select coalesce(region, '') from baths where id = {near_b}") == "", r)
 fill("1", near_b)
 check("?fillplaces=1 — записал", sql(f"select country || '/' || region from baths where id = {near_b}") == "Тестовия/Тестовая обл")
+check("регион появился — пометка у Комиссии ушла (уведомление обновилось само)", "Регион бани пока не определён" not in note_text(), note_text())
+sql(f"delete from visits where id = {pv}")
 r = fill("1", far_b)
 check("дальше 30 км от бань лиги — не выдумывает, оставляет пустым", r.get("filled") == [] and sql(f"select coalesce(region, '') from baths where id = {far_b}") == "", r)
 sql(f"delete from baths where id in ({known_b}, {near_b}, {far_b})")

@@ -611,7 +611,12 @@ async function fillPlaces(dry: boolean, id?: number) {
     const place = await placeFor({ lat: b.lat, lng: b.lng }, b);
     if (Object.keys(place).length) {
       out.push({ id: b.id, name: b.name, ...place });
-      if (!dry) await sb.from("baths").update(place).eq("id", b.id);
+      if (!dry) {
+        await sb.from("baths").update(place).eq("id", b.id);
+        // регион появился — пометка «не определён» у Комиссии больше не нужна: обновляем её уведомления по этой бане
+        const { data: vs } = await sb.from("bot_notifications").select("visit_id, visits!inner(bath_id)").eq("visits.bath_id", b.id);
+        for (const vid of new Set((vs ?? []).map((x: Any) => x.visit_id as number))) await refreshVisit(vid);
+      }
     }
     await sleep(1100);   // геокодер OpenStreetMap — не чаще раза в секунду
   }
@@ -773,7 +778,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (jokes.length) await send(st.chat, jokes.join("\n"), undefined, st.chatType === "private" ? undefined : st.source);
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
-  const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}`;
+  const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}` + await placeNote(bathId);
   for (const c of commission) {
     const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visit.id}`), btn("❌ Отклонить", `no:${visit.id}`)]]);
     if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visit.id, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
@@ -863,14 +868,22 @@ async function summaryOf(visitId: number): Promise<string | null> {
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
     + repeatLine(await sameDayRepeat(visitId));
 }
+// у бани нет страны или региона — Комиссии пометка в уведомлении: бонус за новый регион/страну (п. 14) без них не считается.
+// Висит, пока их нет: ночная дозаливка (fillPlaces) их проставит и уведомление обновится — пометка уйдёт. В чат не пишем.
+const PLACE_NOTE = "\n\n🌍 Регион бани пока не определён — бонус за новый регион и страну посчитается, когда он появится.";
+async function placeNote(bathId: number | null | undefined): Promise<string> {
+  if (!bathId) return "";
+  const { data: b } = await sb.from("baths").select("country, region").eq("id", bathId).maybeSingle();
+  return b && (!b.country || !b.region) ? PLACE_NOTE : "";
+}
 async function refreshVisit(visitId: number): Promise<boolean> {
   const { data: v } = await sb.from("visits")
-    .select("status, source, tg_link, reject_reason, author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)").eq("id", visitId).maybeSingle();
+    .select("status, source, tg_link, reject_reason, bath_id, author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)").eq("id", visitId).maybeSingle();
   const summary = v ? await summaryOf(visitId) : null;
   if (!v || !summary) return false;
   const vv = v as Any, author = esc(vv.author?.nick);
   const note = (v.source === "site" ? `🔔 Поход с сайта от <b>${author}</b>` : `🔔 Поход от <b>${author}</b>${v.tg_link ? ` · <a href="${v.tg_link}">пост</a>` : ""}`)
-    + `\n\n${summary}`;
+    + `\n\n${summary}` + await placeNote(vv.bath_id);
   const decided = v.status === "ok" || v.status === "rejected";
   const verdict = decided ? `\n\n${v.status === "ok" ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
     + (v.status !== "ok" && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "") : "";
@@ -925,7 +938,7 @@ async function siteVisit(visitId: number): Promise<boolean> {
     }
     if (vv.baths?.type === "spa") await send(chat, pick(SPA_JOKES));
   }
-  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n${summary}`;
+  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n${summary}` + await placeNote(v.bath_id);
   const lg = await league();
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   for (const c of commission) {
