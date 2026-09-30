@@ -693,30 +693,31 @@ check("удалили поход — строки фото удалены с н�
 sql("delete from player_accounts where tg_id = 909")
 sql("delete from bot_sessions")
 
-print("Страна и регион по точке — геокодер не ответил")
-# геокодер (заглушка) знает только пару точек из тестов, остальное — «Unable to geocode», как когда OpenStreetMap отказывает серверу;
-# тогда страна и регион — как у ближайшей бани лиги в радиусе 30 км (26–30.09 у новых бань они оставались пустыми)
+print("Страна и регион по точке — только по координатам")
+# геокодер (заглушка) знает точку Москвы из тестов, остальное — «Unable to geocode», как когда OpenStreetMap отказывает серверу;
+# по соседним баням страну и регион не угадываем (решение Лехи 30.09) — пусто и пометка Комиссии, ночью спросим снова
 known_b = sql("insert into baths (name, country, region, lat, lng, precision, status) values ('Тест-опорная', 'Тестовия', 'Тестовая обл', 44.5, 40.5, 'exact', 'ok') returning id").splitlines()[0]
 near_b = sql("insert into baths (name, lat, lng, precision, status) values ('Тест-рядом', 44.55, 40.6, 'exact', 'ok') returning id").splitlines()[0]
-far_b = sql("insert into baths (name, lat, lng, precision, status) values ('Тест-далеко', 46.5, 43.5, 'exact', 'ok') returning id").splitlines()[0]
+msk_b = sql("insert into baths (name, lat, lng, precision, status) values ('Тест-Москва', 55.7558, 37.6176, 'exact', 'ok') returning id").splitlines()[0]
 fill = lambda mode, b: req("GET", f"/functions/v1/tg-bot?fillplaces={mode}&id={b}")[1]
-pv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {near_b}, now() - interval '1 hour', 60, id, 'bot' from players where nick = 'Леха' returning id").splitlines()[0]
+pv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {msk_b}, now() - interval '1 hour', 60, id, 'bot' from players where nick = 'Леха' returning id").splitlines()[0]
 sql(f"insert into visit_players (visit_id, player_id) select {pv}, id from players where nick = 'Леха'")
 sql(f"insert into bot_notifications (visit_id, chat_id, message_id, text) values ({pv}, {ME}, 1, 'старое')")
 req("POST", f"/functions/v1/tg-bot?refresh={pv}", {})
 note_text = lambda: sql(f"select text from bot_notifications where visit_id = {pv}")
 check("у бани нет региона — Комиссии в уведомлении пометка «регион пока не определён»", "Регион бани пока не определён" in note_text(), note_text())
-r = fill("dry", near_b)
-check("?fillplaces=dry — показывает страну и регион ближайшей бани (в 10 км), ничего не записывая",
-      (r.get("filled") or [{}])[0].get("region") == "Тестовая обл" and (r.get("filled") or [{}])[0].get("country") == "Тестовия"
-      and sql(f"select coalesce(region, '') from baths where id = {near_b}") == "", r)
-fill("1", near_b)
-check("?fillplaces=1 — записал", sql(f"select country || '/' || region from baths where id = {near_b}") == "Тестовия/Тестовая обл")
+r = fill("dry", msk_b)
+check("?fillplaces=dry — страна и регион по координатам (геокодер), ничего не записывая",
+      (r.get("filled") or [{}])[0].get("country") == "Россия" and (r.get("filled") or [{}])[0].get("region") == "Москва"
+      and sql(f"select coalesce(region, '') from baths where id = {msk_b}") == "", r)
+fill("1", msk_b)
+check("?fillplaces=1 — записал", sql(f"select country || '/' || region from baths where id = {msk_b}") == "Россия/Москва")
 check("регион появился — пометка у Комиссии ушла (уведомление обновилось само)", "Регион бани пока не определён" not in note_text(), note_text())
+r = fill("1", near_b)
+check("геокодер не ответил — по соседней бане (в 10 км) регион не угадываем, оставляем пустым", r.get("filled") == []
+      and sql(f"select coalesce(region, '') || coalesce(country, '') from baths where id = {near_b}") == "", r)
 sql(f"delete from visits where id = {pv}")
-r = fill("1", far_b)
-check("дальше 30 км от бань лиги — не выдумывает, оставляет пустым", r.get("filled") == [] and sql(f"select coalesce(region, '') from baths where id = {far_b}") == "", r)
-sql(f"delete from baths where id in ({known_b}, {near_b}, {far_b})")
+sql(f"delete from baths where id in ({known_b}, {near_b}, {msk_b})")
 
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
