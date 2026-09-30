@@ -82,6 +82,18 @@ st = case("@eblsu_bot Сандуны 2ч с @lekha_tg и @den_tg", 13)
 check("автор, отметивший сам себя, в компанию не попадает", nicks(st["company"]) == {"Ден"}, st)
 sql("delete from bot_sessions")
 check("сообщения без отметки бота игнорируются", post("просто болтаем про Сандуны", 7) is None)
+tbath = sql("insert into baths (name, region, country, status) values ('поляна Тестгет, Поворот', 'Кабардино-Балкарская республика', 'Россия', 'ok') returning id").splitlines()[0]
+st = case("@eblsu_bot Гостиница Къуанч, Тестгет", 14)
+check("совпало одно слово из поста — баню сам не выбирает, показывает найденное (30.09 «Гостиница Къуанч, Чегет» стала «Поворотом»)",
+      not st.get("bathId") and any(c["id"] == int(tbath) for c in st.get("candidates") or []), st)
+st = case("@eblsu_bot поляна Тестгет", 15)
+check("все слова в названии — выбирает сразу", st.get("bathId") == int(tbath), st)
+card("eb")
+st = json.loads(sql(f"select state from bot_sessions where tg_id = {ME}"))
+check("«🏠 Баня» — выбрать заново: баня сброшена, в списке найденное (раньше тут же выбиралась та же)",
+      not st.get("bathId") and any(c["id"] == int(tbath) for c in st.get("candidates") or []), st)
+sql("delete from bot_sessions")
+sql(f"delete from baths where id = {tbath}")
 
 
 def press(data, who, mid=50):

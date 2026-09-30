@@ -260,7 +260,8 @@ async function findBaths(q: string) {
   const { data: counts } = await sb.from("bath_counts").select("bath_id, n").in("bath_id", data.map((b: Any) => b.id));
   const pop: Record<number, number> = {};
   for (const c of counts ?? []) pop[c.bath_id] = (pop[c.bath_id] ?? 0) + c.n;
-  return data.map((b: Any) => ({ ...b, visits: pop[b.id] ?? 0 }))
+  // full — в названии нашлись все слова запроса (а не одно из них: «Гостиница Къуанч, Чегет» ≠ «поляна Чегет, Поворот»)
+  return data.map((b: Any) => ({ ...b, visits: pop[b.id] ?? 0, full: score[b.id] === words.length }))
     .sort((a: Any, b: Any) => (score[b.id] - score[a.id]) || (b.visits - a.visits)).slice(0, 6);
 }
 
@@ -381,7 +382,7 @@ async function alreadyMarked(st: Any) {
 // цена — от бани: сменили баню — сбрасываем и подставленную по истории, и уже введённую, иначе после смены бани
 // осталась бы висеть цена совсем другого места
 const bathChanged = (st: Any) => {
-  st.dup = undefined; st.dupOk = false; st.suggest = undefined;
+  st.dup = undefined; st.dupOk = false; st.suggest = undefined; st.choosing = false;
   st.knownPrices = undefined; st.knownBeerPrices = undefined;
   st.price = null; st.currency = null; st.priceFromHistory = false; st.priceWeekend = null; st.priceBefore = null;
   st.beerPrice = null; st.beerFromHistory = false;
@@ -545,8 +546,9 @@ async function dropCard(st: Any, text: string) {
 async function resolveBath(st: Any) {
   if (!st.query) { st.candidates = []; return; }
   const found = await findBaths(st.query);
-  // одна уверенная находка без «УУ» — берём сразу; иначе уточняем
-  if (!st.ultra && found.length === 1) { st.bathId = found[0].id; st.bathName = found[0].name; st.bathType = found[0].type ?? null; st.candidates = []; return; }
+  // одна уверенная находка без «УУ» — берём сразу: в названии все слова из поста и баню не выбирают заново кнопкой «🏠 Баня»;
+  // иначе показываем найденное и «новая» (30.09 «Гостиница Къуанч, Чегет» сама стала «поляной Чегет, Поворот»)
+  if (!st.ultra && !st.choosing && found.length === 1 && found[0].full) { st.bathId = found[0].id; st.bathName = found[0].name; st.bathType = found[0].type ?? null; st.candidates = []; return; }
   if (st.ultra && !found.length) { st.newBath = st.query; st.bathName = st.query; st.candidates = []; return; }
   st.candidates = found.map((b: Any) => ({ id: b.id, name: b.name, region: b.region, type: b.type ?? null }));
 }
@@ -1592,7 +1594,9 @@ async function onCallback(cq: Any) {
   } else if (data === "nb") {
     st.newBath = st.query; st.bathName = st.query; st.bathId = null; st.newBathId = null; st.bathType = null; st.type = null; st.candidates = []; bathChanged(st);
   } else if (data === "eb") {
-    st.bathId = null; st.newBath = null; st.newBathId = null; st.bathName = null; st.bathType = null; st.type = null; bathChanged(st); await resolveBath(st);
+    // «🏠 Баня» — выбрать заново: список найденного и «новая», сами не выбираем (раньше тут же выбиралась та же баня — кнопка «не работала»)
+    st.bathId = null; st.newBath = null; st.newBathId = null; st.bathName = null; st.bathType = null; st.type = null; bathChanged(st);
+    st.choosing = true; await resolveBath(st);
   } else if (data.startsWith("t:") && TYPE_RU[data.slice(2)]) {
     st.type = data.slice(2);
   } else if (data.startsWith("pw:") && SCHED_RU[data.slice(3)]) {
