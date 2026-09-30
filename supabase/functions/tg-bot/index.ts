@@ -458,6 +458,14 @@ async function showCard(st: Any, lg: Any, tgId: number) {
   await setState(tgId, st);
 }
 
+// черновик закрыли, не отправив: в группе карточку удаляем совсем — «Черновик отменён.» оставался в чате мусором (30.09);
+// в личке (и если удалить не вышло: Telegram даёт боту удалять свои сообщения 48 часов) — правим карточку этой строкой
+async function dropCard(st: Any, text: string) {
+  if (!st?.card) return;
+  if (st.chatType !== "private" && (await tg("deleteMessage", { chat_id: st.chat, message_id: st.card })).ok) return;
+  return edit(st.chat, st.card, text);
+}
+
 async function resolveBath(st: Any) {
   if (!st.query) { st.candidates = []; return; }
   const found = await findBaths(st.query);
@@ -1400,7 +1408,12 @@ async function onMessage(msg: Any) {
     await clearState(tgId);
     return send(chat, `Привет, ${esc(me.nick)}! ${HOWTO}\n\nЗдесь, в личке, тоже можно — просто напиши, где парился.`);
   }
-  if (text === "/cancel" || text === `/cancel@${BOT}`) { await clearState(tgId); return send(chat, "Черновик отменён."); }
+  if (text === "/cancel" || text === `/cancel@${BOT}`) {
+    await clearState(tgId);
+    if (isPrivate) return send(chat, "Черновик отменён.");
+    if (st?.card && st.chat === chat) await dropCard(st, "Черновик отменён.");
+    return react(chat, msg.message_id, "👌");   // в группе — без нового сообщения
+  }
   if (isPrivate && /^(кличк|убери кличку|удали кличку)/iu.test(text)) return aliasCommand(chat, text, me);
   // «долгая» / «долгая была» — в личке боту или с отметкой в чате: это про свой последний поход, а не новая баня
   // (в личке с открытым черновиком — это ответ на черновик: continueDraft поймёт «долгая» как время)
@@ -1470,7 +1483,7 @@ async function onCallback(cq: Any) {
   if (data === "send") return sendDraft(cq, tgId);
   await answer(cq.id);
   const lg = await league();
-  if (data === "x") { await clearState(tgId); return edit(st.chat, st.card, "Черновик отменён."); }
+  if (data === "x") { await clearState(tgId); return dropCard(st, "Черновик отменён."); }
   if (data === "dx") {
     // поход уже есть — фото из этого поста прикладываем к нему
     const moved = st.hasPhotos && st.dup?.id ? ((await sb.from("visit_photos").update({ visit_id: st.dup.id, draft_msg: null })
@@ -1478,7 +1491,8 @@ async function onCallback(cq: Any) {
     await clearState(tgId);
     if (moved) await refreshVisit(st.dup.id);
     const tail = moved ? `\n📷 ${moved} фото приложил к нему.` : "";
-    return edit(st.chat, st.card, (st.dup?.mine ? "👌 Ок, второй раз не отмечаю." : `👌 Ок — поход у тебя уже есть в посте <b>${esc(st.dup?.by)}</b>.`) + tail);
+    if (st.chatType !== "private") await react(st.chat, st.source, "👌");   // в группе — только реакция на пост, карточку убираем
+    return dropCard(st, (st.dup?.mine ? "👌 Ок, второй раз не отмечаю." : `👌 Ок — поход у тебя уже есть в посте <b>${esc(st.dup?.by)}</b>.`) + tail);
   }
   if (data === "do") st.dupOk = true;
   else if (data.startsWith("cp:") && lg.players.some((p: Any) => p.id === data.slice(3))) {

@@ -328,8 +328,25 @@ sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from play
 st = case("@eblsu_bot Василевские 2ч", 83)
 check("Ден уже отметил Василевские с Лехой — бот говорит, что второй раз не нужно", (st.get("dup") or {}).get("by") == "Ден", st)
 check("и первым в подсказках попутчиков — Ден", (st.get("suggest") or [None])[0] == den, st.get("suggest"))
+from local import TELEGRAM
+tg_after = lambda n: TELEGRAM.calls[n:]
+cid, n0 = state().get("card"), len(TELEGRAM.calls)
 card("dx")
 check("«Не отмечаю» — черновик убран", sql(f"select count(*) from bot_sessions where tg_id = {ME}") == "0")
+check("в группе карточка удалена, а не переписана (мусор в чате)", any(m == "deleteMessage" and int(p.get("message_id") or 0) == cid for m, p in tg_after(n0))
+      and not any(m == "editMessageText" and int(p.get("message_id") or 0) == cid for m, p in tg_after(n0)), tg_after(n0))
+case("@eblsu_bot Сандуны 2ч один", 88)
+cid, n0 = state().get("card"), len(TELEGRAM.calls)
+card("x", cid="x1")
+check("«✖️ Отмена» в группе — карточку удаляет, «Черновик отменён.» в чат не пишет",
+      any(m == "deleteMessage" and int(p.get("message_id") or 0) == cid for m, p in tg_after(n0))
+      and not any("Черновик отменён" in str(p.get("text") or "") for m, p in tg_after(n0)), tg_after(n0))
+sql("delete from bot_sessions")
+post("Сандуны 2ч один", 89, chat=ME, chat_type="private")
+cid, n0 = state().get("card"), len(TELEGRAM.calls)
+card("x", chat=ME, chat_type="private", cid="x2")
+check("в личке отмена — строкой «Черновик отменён.» в карточке", any(m == "editMessageText" and int(p.get("message_id") or 0) == cid
+      and "Черновик отменён" in (p.get("text") or "") for m, p in tg_after(n0)), tg_after(n0))
 case("@eblsu_bot Василевские 2ч", 84)
 card("do")
 check("«Это другой поход» — продолжаем оформлять", state().get("dupOk") is True, state())
