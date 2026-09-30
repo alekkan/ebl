@@ -267,16 +267,19 @@ function typeFromText(text: string): string | null {
   return null;
 }
 
-// цена входа и пиво словами в посте — только с явным маркером валюты (₽/руб/р. или доллар/евро/иена кодом либо
-// значком), иначе слишком легко перепутать с чем угодно (длительность, номер дома); показываем Комиссии как
+// цена входа и пиво словами в посте — только с явным маркером валюты (₽/руб/р (с точкой или без) или доллар/евро/иена
+// кодом либо значком), иначе слишком легко перепутать с чем угодно (длительность, номер дома); показываем Комиссии как
 // догадку, в bath_prices не пишем — это не подтверждённая цена, а подсказка «со слов автора» (как и тип бани).
 // Валюту берём из того же совпадения, что и цену/пиво, а не отдельным поиском по всему тексту — иначе значок
 // валюты в другом месте посте (например, у чужого прайса, если его процитировали) мог бы приписаться к цене.
-const CUR_MARK = "(?:₽|руб\\p{L}*|р\\.|\\$|€|¥|USD|EUR|JPY|AED|GBP|CNY)";
+// Если цены в посте не было, бот спрашивает сам (renderCard) — сначала про вход, потом про пиво, по очереди;
+// необязательно, ответ ничем не блокирует «В Комиссию». Ответ можно дать просто цифрой без маркера (continueDraft),
+// раз это прямой ответ на явный вопрос — какой из двух, определяет то, что из price/beerPrice ещё не заполнено.
+const CUR_MARK = "(?:₽|руб\\p{L}*|р\\.?|\\$|€|¥|USD|EUR|JPY|AED|GBP|CNY)";
 const CUR_SIGN: Record<string, string> = { "$": "USD", "€": "EUR", "¥": "JPY" };
 function curCode(mark: string): string | null {
   if (CUR_SIGN[mark]) return CUR_SIGN[mark];
-  return /^(руб\p{L}*|р\.|₽)$/iu.test(mark) ? null : mark.toUpperCase();
+  return /^(руб\p{L}*|р\.?|₽)$/iu.test(mark) ? null : mark.toUpperCase();
 }
 const curLabel = (code: string | null) => code ?? "₽";
 const BEER_RE = new RegExp(`пив\\p{L}*[^\\d₽$€¥]{0,20}(\\d{2,5})\\s*(${CUR_MARK})?(?![\\p{L}\\p{N}])`, "iu");
@@ -407,8 +410,11 @@ async function renderCard(st: Any, lg: Any) {
   if (askType && st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
   else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
   const askSched = st.price != null;
+  // цены в посте не было — спрашиваем сами, сначала про вход, потом про пиво (необязательно, ответ ничем не блокирует «В Комиссию»)
   if (st.price) lines.push(`💰 ${st.price} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
+  else lines.push("💰 Цена входа? Ответь на это сообщение — можно просто цифрой, если знаешь.");
   if (st.beerPrice) lines.push(`🍺 ${st.beerPrice} ${curLabel(st.currency)} — со слов автора`);
+  else if (st.price != null) lines.push("🍺 Цена пива? Ответь на это сообщение — можно просто цифрой, если знаешь.");
   if (askSched && st.currency == null && st.priceBefore == null) lines.push("Валюта не ₽ или скидка до какого часа — ответом на карточку.");
   if (st.hint) lines.push(`\n${st.hint}`);
   if (st.awaiting === "company") lines.push("\nКто был? Отметь кнопками или ответь на это сообщение: ники через запятую или @username, «один» — если один.");
@@ -586,6 +592,11 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
         const price = st.price == null ? priceFromText(text, beer != null) : null;
         if (beer) st.beerPrice = beer.price;
         if (price) st.price = price.price;
+        // ответ на вопрос про цену — просто цифрой, без маркера валюты: сначала закрываем вход, потом пиво (спрашиваем по очереди)
+        else if (/^\d{2,5}$/.test(text)) {
+          if (st.price == null) st.price = Number(text);
+          else if (st.beerPrice == null) st.beerPrice = Number(text);
+        }
         if (st.currency == null) st.currency = price?.currency ?? beer?.currency ?? null;
       }
       if (st.priceWeekend == null) st.priceWeekend = scheduleFromText(text);

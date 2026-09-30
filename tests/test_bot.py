@@ -73,6 +73,8 @@ st = case("@eblsu_bot Сандуны 2ч, вход 500₽ по выходным,
 check("будни/выходной и «скидка до» словами в посте", st.get("price") == 500 and st.get("priceWeekend") == "weekend" and st.get("priceBefore") == "18:00", st)
 st = case("@eblsu_bot Сандуны 2ч, вход 500₽ до 18:00", 18)
 check("«до 18:00» без слова «скидка» — не разбираем как скидку", st.get("price") == 500 and st.get("priceBefore") is None, st)
+st = case("@eblsu_bot Сандуны 2ч, вход 500р", 19)
+check("«р» без точки — тоже рублёвый маркер", st.get("price") == 500 and st.get("currency") is None, st)
 st = case("@eblsu_bot Сандуны с Витьком, Королём, Пашкой и Серёгой", 10)
 check("«Витьком», «Королём», «Пашкой», «Серёгой» — падежи ников", nicks(st["company"]) == {"Витёк", "Король", "Пашок", "Серёга"}, st)
 sql("delete from bot_sessions")
@@ -278,6 +280,23 @@ sql("delete from bot_sessions")
 case("@eblsu_bot Сандуны 2ч, вход 500₽", 191)
 card("pw:weekday", cid="pw1")
 check("кнопка «Будни» у цены — выбор сохранён в черновике", json.loads(sql(f"select state from bot_sessions where tg_id = {ME}")).get("priceWeekend") == "weekday")
+sql("delete from bot_sessions")
+
+sql("delete from bot_sessions")
+seen = len(TELEGRAM.calls)
+st = post("Василевские 2ч один", 192, chat=ME, chat_type="private")
+sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
+data, _ = card_kb()
+check("цены в посте нет — бот спрашивает сам, кнопок будни/выходной ещё нет",
+      st.get("price") is None and any("Цена входа?" in t for t in sent) and not any(d and d.startswith("pw:") for d in data), sent)
+seen = len(TELEGRAM.calls)
+st = post("500", 193, chat=ME, chat_type="private")
+sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
+data, _ = card_kb()
+check("голая цифра в ответ (в личке, без явного маркера валюты) — принята как цена входа, появились кнопки будни/выходной и вопрос про пиво",
+      st.get("price") == 500 and any(d and d.startswith("pw:") for d in data) and any("Цена пива?" in t for t in sent), sent)
+st = post("150", 194, chat=ME, chat_type="private")
+check("следующая голая цифра — цена пива, а не входа (вопрос про вход уже закрыт)", st.get("price") == 500 and st.get("beerPrice") == 150, st)
 sql("delete from bot_sessions")
 
 print("«#баня» — вместо отметки бота")
