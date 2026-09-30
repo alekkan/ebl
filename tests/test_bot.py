@@ -716,6 +716,15 @@ check("регион появился — пометка у Комиссии уш
 r = fill("1", near_b)
 check("геокодер не ответил — по соседней бане (в 10 км) регион не угадываем, оставляем пустым", r.get("filled") == []
       and sql(f"select coalesce(region, '') || coalesce(country, '') from baths where id = {near_b}") == "", r)
+check("не ответил — следующая попытка через ~30 минут (очередь повторов)",
+      sql(f"select tries || ':' || (next_at between now() + interval '20 minutes' and now() + interval '30 minutes') from bath_place_tries where bath_id = {near_b}") == "1:true")
+# остальные бани без региона на стенде (хвосты прошлых тестов) — не сейчас, чтобы запуск по расписанию был быстрым
+sql(f"insert into bath_place_tries (bath_id, tries, next_at) select id, 1, now() + interval '1 day' from baths where precision = 'exact' "
+    f"and lat is not null and (country is null or region is null) and id <> {near_b} on conflict do nothing")
+r = req("GET", "/functions/v1/tg-bot?fillplaces=1")[1]
+check("по расписанию раньше срока баню не спрашивает", all(f.get("id") != int(near_b) for f in r.get("filled") or [])
+      and sql(f"select tries from bath_place_tries where bath_id = {near_b}") == "1", r)
+check("определилась — строка повторов удалена", sql(f"select count(*) from bath_place_tries where bath_id = {msk_b}") == "0")
 sql(f"delete from visits where id = {pv}")
 sql(f"delete from baths where id in ({known_b}, {near_b}, {msk_b})")
 

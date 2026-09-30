@@ -598,17 +598,29 @@ async function setBathPoint(bathId: number, p: { lat: number; lng: number }, byC
 // страна и регион по точке — в написании Комиссии («Кировская обл»); уже заполненное не трогаем (см. _shared/place.ts)
 const placeFor = (p: { lat: number; lng: number }, have: Any = {}) => placeByPoint(sb, p, have);
 
-// Дозаполнить страну и регион у бань с точной точкой, где их тогда не узнали (геокодер не ответил): раз в ночь
-// (pg_cron ebl-fill-places) и вручную — ?fillplaces=dry показывает, что проставится, ничего не записывая; &id=<баня> — одну.
+// Дозаполнить страну и регион у бань с точной точкой, где их тогда не узнали (геокодер не ответил): pg_cron
+// ebl-fill-places каждые 5 минут берёт тех, кого пора спросить (bath_place_tries: через 5 мин, 30 мин, 2 ч, 6 ч, дальше раз
+// в сутки), и вручную — ?fillplaces=dry показывает, что проставится, ничего не записывая; &id=<баня> — одну, без очереди.
 // Примерные точки (город/область из таблицы Комиссии) не трогаем: регион у старых бань — решение Комиссии.
 async function fillPlaces(dry: boolean, id?: number) {
   let q = sb.from("baths").select("id, name, lat, lng, country, region").neq("status", "rejected")
     .eq("precision", "exact").not("lat", "is", null).or("country.is.null,region.is.null");
   if (id) q = q.eq("id", id);
-  const { data: rows } = await q.order("id").limit(20);
+  const { data: all } = await q.order("id").limit(200);
+  // по расписанию — только те, кого пора спросить; вручную (dry или id) — все
+  const { data: tries } = await sb.from("bath_place_tries").select("bath_id, tries, next_at");
+  const tr = new Map((tries ?? []).map((t: Any) => [t.bath_id, t]));
+  const due = (b: Any) => dry || id || !tr.get(b.id) || new Date((tr.get(b.id) as Any).next_at).getTime() <= Date.now();
+  const rows = (all ?? []).filter(due).slice(0, id || dry ? 20 : 5);   // по расписанию — по 5 за раз: геокодер не чаще раза в секунду
   const out: Any[] = [];
-  for (const b of rows ?? []) {
+  for (const b of rows) {
     const place = await placeFor({ lat: b.lat, lng: b.lng }, b);
+    const done = !!(b.country || place.country) && !!(b.region || place.region);
+    if (!dry) {
+      const n = ((tr.get(b.id) as Any)?.tries ?? 0) + 1;
+      if (done) await sb.from("bath_place_tries").delete().eq("bath_id", b.id);
+      else await sb.from("bath_place_tries").upsert({ bath_id: b.id, tries: n, next_at: new Date(Date.now() + placeBackoff(n)).toISOString() });
+    }
     if (Object.keys(place).length) {
       out.push({ id: b.id, name: b.name, ...place });
       if (!dry) {
@@ -622,7 +634,12 @@ async function fillPlaces(dry: boolean, id?: number) {
   }
   // регион или страна появились — очки за новый регион/страну (п. 14) пересчитываем сразу
   if (!dry && out.length) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
-  return { dry, filled: out, left: (rows ?? []).length - out.length };
+  return { dry, filled: out, left: rows.length - out.length };
+}
+// через сколько спросить геокодер снова после n-й неудачной попытки по расписанию: первая — в ≤ 5 минут после точки,
+// дальше ~30 минут, ~2 часа, ~6 часов после неё и потом раз в сутки
+function placeBackoff(n: number) {
+  return [25 * 60e3, 90 * 60e3, 4 * 3600e3][n - 1] ?? 24 * 3600e3;
 }
 
 // ответ на карточку — дополняем черновик
@@ -869,7 +886,7 @@ async function summaryOf(visitId: number): Promise<string | null> {
     + repeatLine(await sameDayRepeat(visitId));
 }
 // у бани нет страны или региона — Комиссии пометка в уведомлении: бонус за новый регион/страну (п. 14) без них не считается.
-// Висит, пока их нет: ночная дозаливка (fillPlaces) их проставит и уведомление обновится — пометка уйдёт. В чат не пишем.
+// Висит, пока их нет: повторы геокодера (fillPlaces: 5 мин, 30 мин, 2 ч, 6 ч, дальше раз в сутки) их проставят и уведомление обновится — пометка уйдёт. В чат не пишем.
 const PLACE_NOTE = "\n\n🌍 Регион бани пока не определён — бонус за новый регион и страну посчитается, когда он появится.";
 async function placeNote(bathId: number | null | undefined): Promise<string> {
   if (!bathId) return "";

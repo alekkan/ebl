@@ -8,7 +8,7 @@ export type Place = { country: string | null; region: string | null };
 type Known = { country: string | null; region: string | null; n?: number };
 
 // Геокодер OpenStreetMap с облачных адресов Supabase иногда отказывает (429/403 или страница вместо JSON) — спрашиваем
-// ещё раз через пару секунд; не ответил и тогда — пусто: ночная дозаливка спросит снова, Комиссии висит пометка
+// ещё раз через пару секунд; не ответил и тогда — пусто: повторы по расписанию (fillPlaces), Комиссии висит пометка
 export async function reversePlace(lat: number, lng: number, tries = 3): Promise<Place> {
   const url = `${NOMINATIM}/reverse?` +
     new URLSearchParams({ lat: String(lat), lon: String(lng), format: "jsonv2", zoom: "5", "accept-language": "ru" });
