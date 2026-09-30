@@ -273,7 +273,9 @@ check("после будни/выходной — шаг валюты", any(d an
 seen = len(TELEGRAM.calls)
 card("pc:RUB", who=ME, chat=ME, chat_type="private", cid="pc1")
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessage"]
-check("после валюты — отдельным сообщением force_reply про цену", any("Сколько стоил вход?" in t for t in sent), sent)
+edits = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "editMessageText"]
+check("после валюты — вопрос про цену строкой в карточке, без отдельного сообщения (30.09 — мусор в чате)",
+      not any("Сколько стоил" in t for t in sent) and any("💰 Цена входа? Ответь на эту карточку цифрой." in t for t in edits), (sent, edits))
 st = post("6000", 188, chat=ME, chat_type="private")
 check("цифра принята как цена входа", st.get("price") == 6000 and st.get("awaitPriceFor") is None, st)
 data, _ = card_kb(who=ME)
@@ -281,7 +283,9 @@ check("после цены входа — кнопка «🍺 Пиво» (ист
 seen = len(TELEGRAM.calls)
 card("ab", who=ME, chat=ME, chat_type="private", cid="ab1")
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessage"]
-check("кнопка «Пиво» — тоже force_reply", any("Сколько стоило пиво?" in t for t in sent), sent)
+edits = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "editMessageText"]
+check("кнопка «Пиво» — тоже строкой в карточке", not any("Сколько стоило" in t for t in sent)
+      and any("🍺 Цена пива? Ответь на эту карточку цифрой." in t for t in edits), (sent, edits))
 post("300", 189, chat=ME, chat_type="private")
 seen = len(TELEGRAM.calls)
 post("да", 190, chat=ME, chat_type="private")
