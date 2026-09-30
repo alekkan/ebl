@@ -57,6 +57,9 @@ class Telegram:
                 return 401, {"ok": False, "error_code": 401, "description": "Unauthorized"}
             chat = params.get("chat_id")
             chat = int(chat) if str(chat or "").lstrip("-").isdigit() else chat
+            # 911 — закрыл личку боту: написать первым бот не может (так тесты проверяют запасной путь в чат)
+            if method == "sendMessage" and chat == 911:
+                return 403, {"ok": False, "error_code": 403, "description": "Forbidden: bot can't initiate conversation with a user"}
             if method in ("sendMessage", "sendPhoto", "sendLocation", "sendDocument", "copyMessage", "forwardMessage"):
                 self._next += 1
                 return 200, {"ok": True, "result": {"message_id": self._next, "date": int(time.time()), "chat": {"id": chat},
