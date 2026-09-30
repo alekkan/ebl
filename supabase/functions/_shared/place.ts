@@ -16,7 +16,7 @@ export async function reversePlace(lat: number, lng: number, tries = 3): Promise
     try {
       const r = await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } });
       const a = r.ok ? (await r.json())?.address : null;
-      if (a?.country) return { country: a.country ?? null, region: a.state ?? a.region ?? a.city ?? null };
+      if (a?.country) return fromAddress(a);
     } catch { /* сеть или не JSON — ещё раз */ }
     if (i + 1 < tries) await new Promise((res) => setTimeout(res, 2000));
   }
@@ -25,11 +25,31 @@ export async function reversePlace(lat: number, lng: number, tries = 3): Promise
 
 // deno-lint-ignore no-explicit-any
 type Sb = any;
+const fromAddress = (a: Record<string, string> | undefined): Place =>
+  ({ country: a?.country ?? null, region: a?.state ?? a?.region ?? a?.city ?? null });
+
+// тот же геокодер, но с сервера базы (pg_net): edge-функциям он не отвечает. Ставим запрос и ждём ответ до ~8 секунд
+async function reverseViaDb(sb: Sb, p: { lat: number; lng: number }): Promise<Place> {
+  const { data: id } = await sb.rpc("geo_reverse", { p_lat: p.lat, p_lng: p.lng });
+  if (id == null) return { country: null, region: null };
+  for (let i = 0; i < 16; i++) {
+    await new Promise((res) => setTimeout(res, 500));
+    const { data } = await sb.rpc("geo_result", { p_id: id });
+    const r = data?.[0];
+    if (!r) continue;   // ответа ещё нет
+    try { return r.status === 200 ? fromAddress(JSON.parse(r.content)?.address) : { country: null, region: null }; }
+    catch { return { country: null, region: null }; }
+  }
+  return { country: null, region: null };
+}
 // Страна и регион бани по точке — только по координатам, через геокодер (по соседним баням не угадываем — решение
 // Лехи, 30.09); название приводим к написанию Комиссии (matchPlace). Заполненное (have) не трогаем — только недостающее.
 export async function placeByPoint(sb: Sb, p: { lat: number; lng: number }, have: Partial<Place> = {}): Promise<Partial<Place>> {
   const { data: known } = await sb.from("bath_places").select("country, region, n").limit(5000);
-  const pl = matchPlace(await reversePlace(p.lat, p.lng), known ?? []);
+  // сначала напрямую (на стенде — заглушка), не ответил — через сервер базы, две попытки
+  let raw = await reversePlace(p.lat, p.lng, 1);
+  for (let i = 0; i < 2 && !raw.country; i++) raw = await reverseViaDb(sb, p);
+  const pl = matchPlace(raw, known ?? []);
   return { ...(!have?.country && pl.country ? { country: pl.country } : {}), ...(!have?.region && pl.region ? { region: pl.region } : {}) };
 }
 
