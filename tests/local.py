@@ -43,6 +43,10 @@ TELEGRAM = stub.start(BOT_TOKEN)
 if sql("select value #>> '{}' from settings where key = 'functions_url'") != LOCAL_FUNCTIONS:
     sql(f"""update settings set value = '"{LOCAL_FUNCTIONS}"' where key = 'functions_url'""")
 sql("select cron.unschedule(jobname) from cron.job")
+# геокодер, который база зовёт через pg_net (geo_reverse: функциям Supabase настоящий не отвечает), — та же заглушка
+_nom = stub.env_file().get("NOMINATIM_URL", "")
+if _nom:
+    sql(f"""insert into settings (key, value) values ('nominatim_url', '"{_nom}"') on conflict (key) do update set value = excluded.value""")
 # часы Docker после сна Mac могут отставать от компьютера, а tg-login не принимает данные входа «из будущего» больше чем
 # на 5 минут (похоже, поэтому 28.09 вход падал с 401). Время для тестовых данных берём у стенда: он же его и проверяет
 SKEW = float(sql("select extract(epoch from now())") or time.time()) - time.time()

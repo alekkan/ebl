@@ -727,6 +727,16 @@ check("по расписанию раньше срока баню не спра�
 check("определилась — строка повторов удалена", sql(f"select count(*) from bath_place_tries where bath_id = {msk_b}") == "0")
 sql(f"delete from visits where id = {pv}")
 sql(f"delete from baths where id in ({known_b}, {near_b}, {msk_b})")
+# функциям Supabase настоящий геокодер не отвечает (их адреса у него в блоке) — запасной путь через сервер базы (pg_net)
+gid = sql("select public.geo_reverse(55.7558, 37.6176)")
+def geo_answer():
+    for _ in range(30):
+        r = sql(f"select status || '|' || left(content, 400) from public.geo_result({gid})")
+        if r: return r
+        time.sleep(0.3)
+    return ""
+ga = geo_answer()
+check("геокодер через сервер базы (geo_reverse → geo_result) отвечает по координатам", ga.startswith("200|") and "Москва" in ga, ga)
 
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
