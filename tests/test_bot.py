@@ -693,6 +693,23 @@ check("удалили поход — строки фото удалены с н�
 sql("delete from player_accounts where tg_id = 909")
 sql("delete from bot_sessions")
 
+print("Страна и регион по точке — геокодер не ответил")
+# геокодер (заглушка) знает только пару точек из тестов, остальное — «Unable to geocode», как когда OpenStreetMap отказывает серверу;
+# тогда страна и регион — как у ближайшей бани лиги в радиусе 30 км (26–30.09 у новых бань они оставались пустыми)
+known_b = sql("insert into baths (name, country, region, lat, lng, precision, status) values ('Тест-опорная', 'Тестовия', 'Тестовая обл', 44.5, 40.5, 'exact', 'ok') returning id").splitlines()[0]
+near_b = sql("insert into baths (name, lat, lng, precision, status) values ('Тест-рядом', 44.55, 40.6, 'exact', 'ok') returning id").splitlines()[0]
+far_b = sql("insert into baths (name, lat, lng, precision, status) values ('Тест-далеко', 46.5, 43.5, 'exact', 'ok') returning id").splitlines()[0]
+fill = lambda mode, b: req("GET", f"/functions/v1/tg-bot?fillplaces={mode}&id={b}")[1]
+r = fill("dry", near_b)
+check("?fillplaces=dry — показывает страну и регион ближайшей бани (в 10 км), ничего не записывая",
+      (r.get("filled") or [{}])[0].get("region") == "Тестовая обл" and (r.get("filled") or [{}])[0].get("country") == "Тестовия"
+      and sql(f"select coalesce(region, '') from baths where id = {near_b}") == "", r)
+fill("1", near_b)
+check("?fillplaces=1 — записал", sql(f"select country || '/' || region from baths where id = {near_b}") == "Тестовия/Тестовая обл")
+r = fill("1", far_b)
+check("дальше 30 км от бань лиги — не выдумывает, оставляет пустым", r.get("filled") == [] and sql(f"select coalesce(region, '') from baths where id = {far_b}") == "", r)
+sql(f"delete from baths where id in ({known_b}, {near_b}, {far_b})")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)

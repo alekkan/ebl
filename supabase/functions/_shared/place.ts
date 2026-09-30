@@ -7,15 +7,35 @@ import { NOMINATIM } from "./hosts.ts";
 export type Place = { country: string | null; region: string | null };
 type Known = { country: string | null; region: string | null; n?: number };
 
-export async function reversePlace(lat: number, lng: number): Promise<Place> {
+// Геокодер OpenStreetMap с облачных адресов Supabase иногда отказывает (429/403 или страница вместо JSON) — спрашиваем
+// ещё раз через пару секунд; не ответил и тогда — пусто (placeByPoint возьмёт страну и регион ближайшей бани лиги)
+export async function reversePlace(lat: number, lng: number, tries = 2): Promise<Place> {
   const url = `${NOMINATIM}/reverse?` +
     new URLSearchParams({ lat: String(lat), lon: String(lng), format: "jsonv2", zoom: "5", "accept-language": "ru" });
-  try {
-    const a = (await (await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } })).json())?.address ?? {};
-    return { country: a.country ?? null, region: a.state ?? a.region ?? a.city ?? null };
-  } catch {
-    return { country: null, region: null };
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } });
+      const a = r.ok ? (await r.json())?.address : null;
+      if (a?.country) return { country: a.country ?? null, region: a.state ?? a.region ?? a.city ?? null };
+    } catch { /* сеть или не JSON — ещё раз */ }
+    if (i + 1 < tries) await new Promise((res) => setTimeout(res, 2000));
   }
+  return { country: null, region: null };
+}
+
+// deno-lint-ignore no-explicit-any
+type Sb = any;
+// Страна и регион бани по точке в написании Комиссии; заполненное (have) не трогаем — возвращаем только недостающее.
+// Геокодер не ответил — берём у ближайшей бани лиги в радиусе 30 км (nearest_place), там название уже «как у Комиссии».
+export async function placeByPoint(sb: Sb, p: { lat: number; lng: number }, have: Partial<Place> = {}): Promise<Partial<Place>> {
+  const { data: known } = await sb.from("bath_places").select("country, region, n").limit(5000);
+  let pl = matchPlace(await reversePlace(p.lat, p.lng), known ?? []);
+  if (!pl.country || !pl.region) {
+    const { data: near } = await sb.rpc("nearest_place", { p_lat: p.lat, p_lng: p.lng, p_km: 30 });
+    const n = near?.[0];
+    if (n && (!pl.country || regionKey(n.country) === regionKey(pl.country))) pl = { country: n.country, region: pl.region ?? n.region };
+  }
+  return { ...(!have?.country && pl.country ? { country: pl.country } : {}), ...(!have?.region && pl.region ? { region: pl.region } : {}) };
 }
 
 const stem = (s: string | null) => regionKey(s).split(/[\s-]/)[0].slice(0, 7);

@@ -13,7 +13,7 @@
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { hasLocationHint, locate, looksLikeAddress, parseLocation } from "../_shared/geo.ts";
-import { matchPlace, reversePlace } from "../_shared/place.ts";
+import { placeByPoint } from "../_shared/place.ts";
 import { greetLine } from "../_shared/greetings.ts";
 import { TELEGRAM_API } from "../_shared/hosts.ts";
 
@@ -595,11 +595,29 @@ async function setBathPoint(bathId: number, p: { lat: number; lng: number }, byC
   return true;
 }
 
-// страна и регион по точке — в написании Комиссии («Кировская обл»); уже заполненное не трогаем
-async function placeFor(p: { lat: number; lng: number }, have: Any = {}) {
-  const { data: known } = await sb.from("bath_places").select("country, region, n").limit(5000);
-  const pl = matchPlace(await reversePlace(p.lat, p.lng), known ?? []);
-  return { ...(!have?.country && pl.country ? { country: pl.country } : {}), ...(!have?.region && pl.region ? { region: pl.region } : {}) };
+// страна и регион по точке — в написании Комиссии («Кировская обл»); уже заполненное не трогаем (см. _shared/place.ts)
+const placeFor = (p: { lat: number; lng: number }, have: Any = {}) => placeByPoint(sb, p, have);
+
+// Дозаполнить страну и регион у бань с точной точкой, где их тогда не узнали (геокодер не ответил): раз в ночь
+// (pg_cron ebl-fill-places) и вручную — ?fillplaces=dry показывает, что проставится, ничего не записывая; &id=<баня> — одну.
+// Примерные точки (город/область из таблицы Комиссии) не трогаем: регион у старых бань — решение Комиссии.
+async function fillPlaces(dry: boolean, id?: number) {
+  let q = sb.from("baths").select("id, name, lat, lng, country, region").neq("status", "rejected")
+    .eq("precision", "exact").not("lat", "is", null).or("country.is.null,region.is.null");
+  if (id) q = q.eq("id", id);
+  const { data: rows } = await q.order("id").limit(20);
+  const out: Any[] = [];
+  for (const b of rows ?? []) {
+    const place = await placeFor({ lat: b.lat, lng: b.lng }, b);
+    if (Object.keys(place).length) {
+      out.push({ id: b.id, name: b.name, ...place });
+      if (!dry) await sb.from("baths").update(place).eq("id", b.id);
+    }
+    await sleep(1100);   // геокодер OpenStreetMap — не чаще раза в секунду
+  }
+  // регион или страна появились — очки за новый регион/страну (п. 14) пересчитываем сразу
+  if (!dry && out.length) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+  return { dry, filled: out, left: (rows ?? []).length - out.length };
 }
 
 // ответ на карточку — дополняем черновик
@@ -1638,6 +1656,9 @@ Deno.serve(async (req) => {
     await new Promise((r) => setTimeout(r, 1500));
     return new Response(JSON.stringify({ refreshed: await refreshVisit(Number(url.searchParams.get("refresh"))) }), { headers: { "Content-Type": "application/json" } });
   }
+  // дозаполнить страну и регион у бань с точной точкой (dry — только показать)
+  const fp = url.searchParams.get("fillplaces");
+  if (fp) return new Response(JSON.stringify(await fillPlaces(fp === "dry", Number(url.searchParams.get("id")) || undefined)), { headers: { "Content-Type": "application/json" } });
   // поправить общий сбор (имена, узнанные позже) — безопасно повторять: бот только пересобирает свой же ответ
   if (url.searchParams.get("rollfix")) {
     return new Response(JSON.stringify({ fixed: await rollFix(Number(url.searchParams.get("rollfix"))) }), { headers: { "Content-Type": "application/json" } });
