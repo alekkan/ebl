@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
   // deno-lint-ignore no-explicit-any
   if (b.precision === "exact" && b.lat != null && !(acc.players as any)?.is_commission) return fail(409, "Точная точка уже стоит — поменять её может Комиссия");
   // страну и регион не знали — берём по точке в написании Комиссии: без них не посчитать бонусы за регион и страну (п. 14)
-  // геокодер не ответил — как у ближайшей бани лиги (_shared/place.ts)
+  // только по координатам, через геокодер (_shared/place.ts); не ответил — пусто, ночью спросим снова
   const place = !b.country || !b.region ? await placeByPoint(sb, p, b) : {};
   const { error } = await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact", ...place }).eq("id", b.id);
   if (error) return fail(500, error.message);
