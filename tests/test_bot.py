@@ -396,6 +396,15 @@ def reply_card(text, mid, who=ME):
 reply_card("долгая была", 4300, who=901)
 check("«долгая была» ответом на карточку — долгая, строкой в карточке (ответ Дена)",
       int(sql(f"select duration_min from visits where id = {vid}")) > 150 and "Ден" in sql(f"select coalesce(long_note, '') from bot_posts where visit_id = {vid}"))
+sql(f"update visits set duration_min = 60 where id = {vid}")
+sql(f"update bot_posts set long_note = null where visit_id = {vid}")
+reply_card("Долгая - куда про нее писать?", 4302, who=901)
+check("«Долгая - куда про нее писать?» ответом на карточку — тоже долгая (30.09 Ден так написал, бот промолчал)",
+      int(sql(f"select duration_min from visits where id = {vid}")) > 150)
+sql(f"update visits set duration_min = 60 where id = {vid}")
+sql(f"update bot_posts set long_note = null where visit_id = {vid}")
+reply_card("нет, не долгая, экспресс", 4303, who=901)
+check("«нет, не долгая» ответом на карточку — не долгая", int(sql(f"select duration_min from visits where id = {vid}")) == 60)
 reply_card("https://yandex.ru/maps/?pt=37.6176,55.7558&z=16", 4301)
 check("ссылка ответом на ту же карточку — это про точку: вопрос закрыт", sql(f"select geo_msg is null from bot_posts where visit_id = {vid}") == "t")
 sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
@@ -576,8 +585,11 @@ check("«В Комиссию» — фото черновика ушли в по�
 cardmsg = sql(f"select card_msg from bot_posts where visit_id = {vid}")
 check("в карточке похода — «📷 3 фото»", "📷 3 фото" in sql(f"select card_text from bot_posts where visit_id = {vid}"))
 def wait_ready(n):
-    for _ in range(40):
+    for i in range(80):
         if n_photos(f"visit_id = {vid} and ready") == n: return True
+        # через 15 с — повтор, как у расписания ebl-photos-sync на бою: сразу после перезапуска supabase functions serve
+        # первая перекачка на стенде бывает неудачной (28.09 и 30.09 так падала выкладка)
+        if i == 30: req("POST", "/functions/v1/photos?sync=all", {})
         time.sleep(0.5)
     return False
 check("файлы перекачаны в бакет сами (триггер → функция photos)", wait_ready(3), sql(f"select string_agg(tries || '', ',') from visit_photos where visit_id = {vid}"))
