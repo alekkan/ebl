@@ -44,12 +44,6 @@ const send = (chat: number, text: string, kb?: Any[][], replyTo?: number) => tg(
 const edit = (chat: number, msg: number, text: string, kb?: Any[][]) => tg("editMessageText", {
   chat_id: chat, message_id: msg, text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: kb ?? [] },
 });
-// принудительный ответ — единственный способ у Telegram открыть тапом поле ввода (инлайн-кнопки этого не умеют);
-// осознанное исключение из «одна карточка» (как и с незнакомым участником) — только чтобы спросить цифру цены
-const ask = (chat: number, text: string, replyTo?: number) => tg("sendMessage", {
-  chat_id: chat, text, reply_markup: { force_reply: true, selective: true },
-  ...(replyTo ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } } : {}),
-});
 const react = (chat: number, msg: number, emoji: string) =>
   tg("setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] });
 const answer = (id: string, text?: string, alert = false) => tg("answerCallbackQuery", { callback_query_id: id, text, show_alert: alert });
@@ -442,20 +436,21 @@ async function renderCard(st: Any, lg: Any) {
   if (askType && st.type) lines.push(`🏷 ${TYPE_RU[st.type]}`);
   else if (askType) lines.push("🏷 Какая это баня? Выбери ниже — за общественную +1");
   // цену без истории спрашиваем по шагам кнопками (см. onCallback): будни/выходной/скидка до часа/одна цена →
-  // (скидка — до какого часа) → валюта → отдельным сообщением цифра. С историей — цена уже стоит, «✏️ Изменить» её сбрасывает и заводит тот же мастер
+  // (скидка — до какого часа) → валюта → цифра ответом на карточку. С историей — цена уже стоит, «✏️ Изменить» её сбрасывает и заводит тот же мастер.
+  // Цифру спрашиваем строкой в карточке, а не отдельным сообщением: «Сколько стоил вход?» в чате — мусор (30.09, 🤡 от Комиссии)
   const priceStep = st.priceStep;
   const askSched = st.price != null && st.priceWeekend == null && st.priceBefore == null;
   if (priceStep === "sched") lines.push("💰 Цена входа — будни, выходной, скидка до часа или одна на все дни?");
   else if (priceStep === "before") lines.push("💰 Скидка — до какого часа?");
   else if (priceStep === "currency") lines.push(`💰 Цена входа${schedLabel(st)} — в какой валюте?`);
-  else if (st.awaitPriceFor === "price") lines.push("💰 Цена входа? Напиши цифру в открывшемся сообщении.");
+  else if (st.awaitPriceFor === "price") lines.push("💰 Цена входа? Ответь на эту карточку цифрой.");
   else if (st.priceFromHistory) {
     const list = (st.knownPrices ?? []).map((p: Any) => `${p.price} ${curLabel(p.currency)}${priceDimLabel(p)}`).join(" / ");
     lines.push(`💰 ${list} — как в прошлый раз, ✏️ можно поменять`);
   }
   else if (st.price) lines.push(`💰 ${st.price} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
   else lines.push("💰 Цена входа? Кнопкой ниже.");
-  if (st.awaitPriceFor === "beer") lines.push("🍺 Цена пива? Напиши цифру в открывшемся сообщении.");
+  if (st.awaitPriceFor === "beer") lines.push("🍺 Цена пива? Ответь на эту карточку цифрой.");
   else if (st.beerFromHistory) {
     const list = (st.knownBeerPrices ?? []).map((p: Any) => `${p.price} ${curLabel(p.currency)}`).join(" / ");
     lines.push(`🍺 ${list} — как в прошлый раз, ✏️ можно поменять`);
@@ -479,7 +474,7 @@ async function renderCard(st: Any, lg: Any) {
     : [...pick, ...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
       // цена этой бани уже стоит по истории — кнопка только чтобы поменять, если в этот раз другая
       ...(st.priceFromHistory ? [[btn("✏️ Изменить цену входа", "pe")]] : []),
-      // истории нет — спрашиваем по шагам (будни/выходной/скидка/валюта), потом отдельным сообщением цифру
+      // истории нет — спрашиваем по шагам (будни/выходной/скидка/валюта), потом цифру ответом на карточку
       ...(st.price == null && !st.priceFromHistory ? [[btn("💰 Цена", "ap")]] : []),
       ...(st.beerFromHistory ? [[btn("✏️ Изменить цену пива", "be")]] : []),
       ...((st.price != null || st.priceFromHistory) && st.beerPrice == null && !st.beerFromHistory && st.awaitPriceFor !== "beer" ? [[btn("🍺 Пиво", "ab")]] : []),
@@ -1458,7 +1453,7 @@ async function onMessage(msg: Any) {
 
   const saved = await getState(tgId);
   const st = saved && !saved.stash && Date.now() - (saved.ts ?? 0) < DRAFT_TTL ? saved : null;   // отложенный пост — не черновик
-  // ответ на карточку или на отдельное сообщение с принудительным ответом (мастер цены/пива — ask())
+  // ответ на карточку (awaitPriceMsg — отдельный вопрос о цене у черновиков до 30.09, пока они живы)
   const replyToCard = st && st.chat === chat && (isPrivate || (replyTo && (replyTo === st.card || replyTo === st.awaitPriceMsg)));
   if (!isPrivate && !mentionsBot(msg) && !replyToCard) {
     await implicitAnswer(msg);   // вдруг это ответ на вопрос бота без «Ответить»
@@ -1607,9 +1602,7 @@ async function onCallback(cq: Any) {
     st.price = null; st.currency = null; st.priceFromHistory = false; st.priceWeekend = null; st.priceBefore = null;
     st.priceStep = "sched";
   } else if (data === "be" && st.beerFromHistory) {
-    st.beerPrice = null; st.beerFromHistory = false;
-    const r = await ask(st.chat, "Сколько стоило пиво? Напиши цифру.", st.card);
-    if (r.ok) { st.awaitPriceMsg = r.result.message_id; st.awaitPriceFor = "beer"; }
+    st.beerPrice = null; st.beerFromHistory = false; st.awaitPriceFor = "beer";
   } else if (data === "ap" && st.price == null) {
     st.priceStep = "sched";   // мастер цены: истории нет — спрашиваем будни/выходной/скидку/валюту по шагам
   } else if (data === "pkb" && st.priceStep === "sched") {
@@ -1622,12 +1615,9 @@ async function onCallback(cq: Any) {
   } else if (data.startsWith("pc:") && st.priceStep === "currency" && CUR_BTNS.some(([c]) => c === data.slice(3))) {
     st.currency = data.slice(3) === "RUB" ? null : data.slice(3);
     st.priceStep = null;
-    // последний шаг мастера — отдельным сообщением просим цифру (принудительный ответ — своё поле ввода открывается сразу)
-    const r = await ask(st.chat, "Сколько стоил вход? Напиши цифру.", st.card);
-    if (r.ok) { st.awaitPriceMsg = r.result.message_id; st.awaitPriceFor = "price"; }
+    st.awaitPriceFor = "price";   // последний шаг мастера — цифру ответом на карточку (строка в ней), без нового сообщения
   } else if (data === "ab" && (st.price != null || st.priceFromHistory) && st.beerPrice == null) {
-    const r = await ask(st.chat, "Сколько стоило пиво? Напиши цифру.", st.card);
-    if (r.ok) { st.awaitPriceMsg = r.result.message_id; st.awaitPriceFor = "beer"; }
+    st.awaitPriceFor = "beer";
   } else if (data === "ed") st.awaiting = "dur";
   else if (data === "ec") { st.picking = true; st.awaiting = "company"; }
   else if (data.startsWith("d:")) { const m = Number(data.slice(2)); st.dur = m || null; st.start = null; st.awaiting = null; }
