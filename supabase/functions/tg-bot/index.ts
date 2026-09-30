@@ -1046,10 +1046,10 @@ function withLongAnswer(text: string, line: string): string | null {
 }
 
 // ответ текстом на «Долгая была?» — кнопки удобнее, но «да»/«нет» тоже понимаем
-async function longAnswer(msg: Any, post: Any, me: Any) {
+async function longAnswer(msg: Any, post: Any, me: Any, claimed = false) {
   const text = (msg.text ?? "").trim();
   const living = await refreshable(post.visit_id);
-  if (isLongClaim(text) || /^(да|ага|угу|конечно|yes|\+)(?![\p{L}\p{N}])/iu.test(text)) {
+  if (claimed || isLongClaim(text) || /^(да|ага|угу|конечно|yes|\+)(?![\p{L}\p{N}])/iu.test(text)) {
     const res = await markLong(post.visit_id, me);
     if (res !== "ok") return send(msg.chat.id, longRefusal(res, null), undefined, msg.message_id);
     await react(msg.chat.id, msg.message_id, "🔥");
@@ -1085,6 +1085,14 @@ function isLongClaim(text: string) {
   if (!/долг(ая|ий|ую|ой|о|ие)(?![\p{L}])/u.test(t)) return false;
   // кроме слов про долгую и связок — ничего: иначе это новый пост про баню («Сандуны долгая с Деном»)
   return t.split(/[^\p{L}\p{N}]+/u).filter((w) => w && !/^долг/.test(w) && !LONG_FILLER.has(w)).length === 0;
+}
+// в ответе на карточку своего похода хватит слова «долгая»: «Долгая — куда про неё писать?» — это про долгую
+// (30.09 Ден так и написал, бот промолчал); «не долгая», «нет, не долгая» — нет
+const LONG_WORD = /(^|[^\p{L}])долг(ая|ий|ую|ой|о|ие)(?![\p{L}])/iu;
+const LONG_NOT = /(^|[^\p{L}])(не|нет|ни)[\s,]+(был[аио]?\s+)?долг/iu;
+function longInReply(text: string) {
+  const t = norm(text);
+  return LONG_WORD.test(t) && !LONG_NOT.test(t) && !/^\s*нет(?![\p{L}])/iu.test(t);
 }
 function longRefusal(res: string, since: number | null) {
   if (res === "late") return LONG_LATE;
@@ -1370,7 +1378,8 @@ async function onMessage(msg: Any) {
       const geoish = !!(msg.location || msg.venue) || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text);
       // «долгая» ответом на карточку похода — долгая этого похода; ссылка, адрес, геопозиция — точка бани
       if (post.geo_msg === replyTo && post.bath_id && geoish) return geoAnswer(msg, post, acc.players);
-      if (isLongClaim(text) || post.ask_msg === replyTo) return longAnswer(msg, post, acc.players);
+      const claimed = post.card_msg === replyTo && longInReply(text);
+      if (claimed || isLongClaim(text) || post.ask_msg === replyTo) return longAnswer(msg, post, acc.players, claimed);
       if (post.geo_msg === replyTo && post.bath_id) return geoAnswer(msg, post, acc.players);
       if (post.card_msg === replyTo) return;   // просто ответили на карточку — не нам
     }
