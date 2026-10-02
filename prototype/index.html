@@ -248,16 +248,28 @@
           <h1>Справочник бань</h1>
         </div>
       </div>
-      <p class="lead">Все бани лиги: тип, где, сколько походов и кто где был (жирным — кто был в 2026). Тип меняется прямо здесь — таблица пересчитается, а бот поправит свои сообщения в чате.</p>
+      <p class="lead">Все бани лиги: тип, где, сколько походов и кто где был (зелёным — кто был в 2026). Тип меняется прямо в строке — таблица пересчитается, а бот поправит свои сообщения в чате.</p>
       <div class="dir-tools">
         <input class="inp" id="dirQ" type="search" placeholder="Название, город или ник" aria-label="Поиск по бане, месту или нику">
+        <select class="sel" id="dirCountry" aria-label="Страна"><option value="">Все страны</option></select>
         <div class="seg" id="dirType" role="group" aria-label="Тип бани">
-          <button type="button" data-t="" aria-pressed="true">Все</button>
+          <button type="button" data-t="" aria-pressed="true">Все типы</button>
           <button type="button" data-t="public" aria-pressed="false">Общественные</button>
           <button type="button" data-t="spa" aria-pressed="false">Хуитнесы</button>
           <button type="button" data-t="private" aria-pressed="false">Частные</button>
           <button type="button" data-t="unknown" aria-pressed="false">Без типа</button>
         </div>
+        <div class="seg" id="dirSeason" role="group" aria-label="Походы в 2026">
+          <button type="button" data-s="" aria-pressed="true">Все</button>
+          <button type="button" data-s="yes" aria-pressed="false">Были в 2026</button>
+          <button type="button" data-s="no" aria-pressed="false">Не были в 2026</button>
+        </div>
+        <label class="dir-check"><input type="checkbox" id="dirNoRegion"> Без региона</label>
+        <select class="sel" id="dirSortSel" aria-label="Сортировка">
+          <option value="all:-1">Больше всего походов</option><option value="n26:-1">Больше походов в 2026</option>
+          <option value="name:1">По названию</option><option value="where:1">По месту</option><option value="type:1">По типу</option>
+          <option value="who:-1">Больше участников</option>
+        </select>
       </div>
       <p class="note" id="dirCount"></p>
       <div class="tablecard"><div class="tablewrap"><table id="dirTable" class="dir-table"></table></div></div>
