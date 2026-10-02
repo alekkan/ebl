@@ -96,6 +96,7 @@ const clearState = (tgId: number) => Promise.all([sb.from("bot_sessions").delete
 const STOP = new Set(("был была были было сходил сходила сходили зашел зашли зашёл пошли парился парились попарились " +
   "в во на с со и а у к по за из от до мы я ты он сегодня вчера утром днем днём вечером ночью час часа часов ч мин минут минуты " +
   "баня бане бани баню фото фотка отметка отметки уу ультра ультрауникальная ультрауникальную новая новую новой компанией один одни " +
+  "полундра здорово всем ребята пацаны братва " +   // приветствия лиги — не часть названия («Полундра! Легкий пар», 01.10)
   "частная частной частную общественная общественной общественную хуитнес хуитнесе фитнес фитнесе спа " +
   "мной мною нами вместе тоже ещё еще всё все").split(" "));
 // слова, по которым одним баню не опознать — в поиске «хотя бы одно слово» не участвуют
@@ -238,14 +239,15 @@ async function findBaths(q: string) {
   if (!words.length) return [];
   const cols = "id, name, region, country, type";
   let query = sb.from("baths").select(cols).neq("status", "rejected").limit(60);
-  for (const w of words) query = query.ilike("name", `%${w}%`);
+  // name_search — название в нижнем регистре и «ё» как «е» (слова запроса уже так приведены norm)
+  for (const w of words) query = query.ilike("name_search", `%${w}%`);
   let { data } = await query;
   let score: Record<number, number> = {};
   if (!data?.length) {
     // хотя бы одно отличительное слово из названия
     const found = new Map<number, Any>();
     for (const w of words.filter((w) => w.length > 2 && !GENERIC.has(w) && ![...GENERIC].some((g) => g.startsWith(w)))) {
-      const { data: part } = await sb.from("baths").select(cols).neq("status", "rejected").ilike("name", `%${w}%`).limit(40);
+      const { data: part } = await sb.from("baths").select(cols).neq("status", "rejected").ilike("name_search", `%${w}%`).limit(40);
       for (const b of part ?? []) { found.set(b.id, b); score[b.id] = (score[b.id] ?? 0) + 1; }
     }
     data = [...found.values()];
@@ -953,10 +955,16 @@ async function refreshVisit(visitId: number): Promise<boolean> {
     changed = true;
   }
   // живая карточка в чате: шапка («Ушло в Комиссию ✅ …») остаётся, сводка под ней — свежая
-  const { data: post } = await sb.from("bot_posts").select("card_text").eq("visit_id", visitId).maybeSingle();
+  const { data: post } = await sb.from("bot_posts").select("card_text, verdict_text").eq("visit_id", visitId).maybeSingle();
+  // решение с очками — тоже свежее: тип или регион бани поменяли, таблица пересчитана — очки другие
+  const cardVerdict = post?.verdict_text ? await verdictLine(visitId) : null;
   const cut = post?.card_text ? post.card_text.indexOf("\n\n") : -1;
-  if (cut >= 0 && post!.card_text.slice(cut + 2) !== summary) {
-    await sb.from("bot_posts").update({ card_text: `${post!.card_text.slice(0, cut)}\n\n${summary}` }).eq("visit_id", visitId);
+  const freshSummary = cut >= 0 && post!.card_text.slice(cut + 2) !== summary;
+  if (freshSummary || (cardVerdict && cardVerdict !== post!.verdict_text)) {
+    await sb.from("bot_posts").update({
+      ...(freshSummary ? { card_text: `${post!.card_text.slice(0, cut)}\n\n${summary}` } : {}),
+      ...(cardVerdict && cardVerdict !== post!.verdict_text ? { verdict_text: cardVerdict } : {}),
+    }).eq("visit_id", visitId);
     await refreshCard(visitId);
     changed = true;
   }
@@ -1727,6 +1735,17 @@ Deno.serve(async (req) => {
   if (url.searchParams.get("refresh")) {
     await new Promise((r) => setTimeout(r, 1500));
     return new Response(JSON.stringify({ refreshed: await refreshVisit(Number(url.searchParams.get("refresh"))) }), { headers: { "Content-Type": "application/json" } });
+  }
+  // у бани поменяли название, тип, регион или страну (триггер baths_notify_changed): пересчитать таблицу и обновить
+  // сообщения бота о свежих походах в неё — сводку (тип) и строку решения (очки)
+  if (url.searchParams.get("bath")) {
+    const bathId = Number(url.searchParams.get("bath"));
+    await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+    const { data: vs } = await sb.from("visits").select("id, bot_posts!inner(visit_id)").eq("bath_id", bathId)
+      .gte("created_at", new Date(Date.now() - 30 * 864e5).toISOString());
+    let n = 0;
+    for (const v of vs ?? []) if (await refreshVisit(v.id)) n++;
+    return new Response(JSON.stringify({ refreshed: n }), { headers: { "Content-Type": "application/json" } });
   }
   // дозаполнить страну и регион у бань с точной точкой (dry — только показать)
   const fp = url.searchParams.get("fillplaces");
