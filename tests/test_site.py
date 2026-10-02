@@ -235,6 +235,7 @@ with sync_playwright() as pw:
         all_views(s, "гость")
         s.page.click("#addVisitBtn")
         check("гость на «Добавить баню» — окно входа", s.js("() => !document.getElementById('loginModal').hidden"))
+        check("гостю вкладки «Бани» (справочник Комиссии) нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
         s.close()
 
         print("Участник")
@@ -243,6 +244,7 @@ with sync_playwright() as pw:
         all_views(s, "участник")
         s.view("feed")
         check("участнику видна лента походов", s.js("() => !!document.querySelector('#feedFilter button')"))
+        check("участнику (не Комиссии) вкладки «Бани» нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
         # поход через форму: баня из справочника + попутчик
         s.page.click("#addVisitBtn")
         s.page.fill("#vBathQ", "Василевские")
@@ -320,6 +322,20 @@ with sync_playwright() as pw:
         s.page.click('#eDur button[data-long="1"]')
         s.page.click('#editForm button[type="submit"]'); s.page.wait_for_timeout(1500)
         check("Комиссия правит засчитанный поход: «🔥 Долгая» — в базе больше 150 минут", int(sql(f"select duration_min from visits where id = {vid}")) > 150)
+        # справочник бань — вкладка только у Комиссии (просьба Витька 02.10): тип, где, сколько походов, кто где был
+        s.view("dir")
+        s.page.wait_for_selector("#dirTable tbody tr", timeout=8000)
+        check("Комиссии видна вкладка «Бани»: справочник всех бань", s.js("() => document.querySelectorAll('#dirTable tbody tr').length") >= 100)
+        s.page.click('#dirType [data-t="spa"]'); s.page.wait_for_timeout(300)
+        check("фильтр «Хуитнесы» — только хуитнесы", s.js("() => { const r = [...document.querySelectorAll('#dirTable tbody tr')]; return r.length > 0 && r.every((x) => x.dataset.t === 'spa'); }"))
+        s.page.click('#dirType [data-t=""]'); s.page.fill("#dirQ", "Василевские"); s.page.wait_for_timeout(300)
+        row = f'#dirTable tr[data-id="{bath}"]'
+        check("поиск по названию — строка бани с теми, кто там был", s.js(f"() => !!document.querySelector('{row}') && document.querySelector('{row} .dir-who').innerText.length > 0"))
+        old_type = sql(f"select coalesce(type, '') from baths where id = {bath}")
+        new_type = "private" if old_type != "private" else "public"
+        s.page.select_option(f"{row} select[data-dirtype]", new_type); s.page.wait_for_timeout(1500)
+        check("тип бани меняется прямо в справочнике", sql(f"select type from baths where id = {bath}") == new_type)
+        sql(f"update baths set type = {repr(old_type) if old_type else 'null'} where id = {bath}")
         # название бани Комиссия правит прямо в карточке (prompt отвечает «проверка сайта»)
         bath_name = sql(f"select name from baths where id = {bath}")
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
@@ -397,6 +413,14 @@ with sync_playwright() as pw:
         s.nav_free("«Жар» на телефоне во время приближения")
         s.page.click('.nav [data-view="table"]', timeout=3000)
         check("…и меню переключает вкладку, не дожидаясь конца анимации", s.js("() => !document.getElementById('view-table').hidden"))
+        s.close()
+        s = Site(browser, url, sess=vitek, mobile=True, name="mobile-commission")
+        s.view("dir")
+        s.page.wait_for_selector("#dirTable tbody tr", timeout=8000)
+        s.no_clip("Комиссия на телефоне: справочник бань", "#view-dir")
+        s.nav_free("Комиссия на телефоне: справочник бань")
+        s.no_clip("Комиссия на телефоне: шапка и меню из шести вкладок", ".top")
+        s.clean("Комиссия на телефоне")
         s.close()
         s = Site(browser, url, sess=shurik, mobile=True, name="mobile-member")
         check("участник на телефоне: аватарка видна (не белая точка)",

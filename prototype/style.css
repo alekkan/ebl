@@ -824,3 +824,17 @@ tr.below { color: var(--ink-2); }
   .seg button { font-size: 12px; }
   #feedFilter { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }   /* четыре фильтра в одну строку не влезают */
 }
+
+/* ---------- справочник бань (Комиссия) ---------- */
+.dir-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 6px; }
+.dir-tools .inp { flex: 1 1 240px; min-width: 0; }
+.dir-tools .seg { flex-wrap: wrap; }
+.dir-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.dir-table th, .dir-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.dir-table th { font-size: 12px; color: var(--ink-3); font-weight: 600; white-space: nowrap; }
+.dir-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dir-table .linkbtn { text-align: left; font-weight: 600; }
+.dir-table .dir-type { font-size: 13px; padding: 4px 6px; }
+.dir-who { color: var(--ink-2); min-width: 180px; }
+.dir-who .now { color: var(--ink); font-weight: 700; }
+#dirMore { margin: 12px auto 0; display: block; }

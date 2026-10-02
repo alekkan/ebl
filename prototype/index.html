@@ -91,6 +91,7 @@
     <button role="tab" data-view="table"><svg class="ic"><use href="#i-trophy"/></svg><span>Таблица</span></button>
     <button role="tab" data-view="feed"><svg class="ic"><use href="#i-feed"/></svg><span>Лента</span><b class="badge" id="pendingBadge" hidden>0</b></button>
     <button role="tab" data-view="rules"><svg class="ic"><use href="#i-doc"/></svg><span>Правила</span></button>
+    <button role="tab" data-view="dir" hidden><svg class="ic"><use href="#i-seal"/></svg><span>Бани</span></button>
   </nav>
   <button class="me-btn" id="meBtn" hidden></button>
   <button class="cta" id="addVisitBtn">
@@ -235,6 +236,32 @@
       </div>
       <div id="secPanel"></div>
       <div class="feed" id="feed"></div>
+    </div>
+  </section>
+
+  <!-- СПРАВОЧНИК БАНЬ — только Комиссии -->
+  <section class="view page" id="view-dir" hidden>
+    <div class="wrap">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Для Комиссии</div>
+          <h1>Справочник бань</h1>
+        </div>
+      </div>
+      <p class="lead">Все бани лиги: тип, где, сколько походов и кто где был (жирным — кто был в 2026). Тип меняется прямо здесь — таблица пересчитается, а бот поправит свои сообщения в чате.</p>
+      <div class="dir-tools">
+        <input class="inp" id="dirQ" type="search" placeholder="Название, город или ник" aria-label="Поиск по бане, месту или нику">
+        <div class="seg" id="dirType" role="group" aria-label="Тип бани">
+          <button type="button" data-t="" aria-pressed="true">Все</button>
+          <button type="button" data-t="public" aria-pressed="false">Общественные</button>
+          <button type="button" data-t="spa" aria-pressed="false">Хуитнесы</button>
+          <button type="button" data-t="private" aria-pressed="false">Частные</button>
+          <button type="button" data-t="unknown" aria-pressed="false">Без типа</button>
+        </div>
+      </div>
+      <p class="note" id="dirCount"></p>
+      <div class="tablecard"><div class="tablewrap"><table id="dirTable" class="dir-table"></table></div></div>
+      <button type="button" class="btn" id="dirMore" hidden>Показать ещё</button>
     </div>
   </section>
 
