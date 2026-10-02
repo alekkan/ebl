@@ -162,6 +162,7 @@
     if (view === "map") setTimeout(() => map.invalidateSize(), 0);
     if (view === "heat") initHeat(); else stopPlay();
     if (view === "feed") renderFeed();
+    if (view === "dir") renderDir();
     history.replaceState(null, "", "#" + view);
   }
   $$(".nav button").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
@@ -1539,8 +1540,61 @@
     store.set("reviews", reviews); store.set("seeded2", true);
   }
 
+  // ---------- справочник бань — только Комиссии ----------
+  // Все бани лиги: тип (меняется прямо здесь), где, сколько походов и кто где был — по нику, сколько раз за все годы
+  // (жирным — кто был в 2026). Просьба Витька, 02.10: «список всех бань, где смотреть, с отметками, кто где был».
+  // Тип поменяли — таблица пересчитается (recomputeSoon), сообщения бота о походах в эту баню обновит триггер в базе.
+  const DIR_PAGE = 150;
+  let dirLimit = DIR_PAGE;
+  const lowerE = (s) => String(s ?? "").toLowerCase().replace(/ё/g, "е");
+  function dirWho(b) {
+    const all = {};
+    for (const [n, k] of Object.entries(b.v26 || {})) all[n] = (all[n] || 0) + k;
+    for (const y of Object.values(b.histBy || {})) for (const [n, k] of Object.entries(y)) all[n] = (all[n] || 0) + k;
+    return Object.entries(all).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ru"));
+  }
+  function renderDir() {
+    const q = lowerE($("#dirQ").value.trim()), t = $("#dirType [aria-pressed='true']")?.dataset.t ?? "";
+    const rows = [...byId.values()].filter((b) => b.status !== "rejected" && (!t || b.t === t))
+      .filter((b) => !q || lowerE(b.search).includes(q) || dirWho(b).some(([n]) => lowerE(n).includes(q)))
+      .sort((a, b) => b.nAll - a.nAll || a.name.localeCompare(b.name, "ru"));
+    $("#dirCount").textContent = `${rows.length} ${plural(rows.length, "баня", "бани", "бань")}`;
+    $("#dirTable").innerHTML = `<thead><tr><th>Баня</th><th>Тип</th><th>Где</th><th class="num">2026</th><th class="num">Всего</th><th>Кто был</th></tr></thead><tbody>`
+      + rows.slice(0, dirLimit).map((b) => {
+        const who = dirWho(b);
+        return `<tr data-t="${b.t}" data-id="${b.id}">
+          <td><button type="button" class="linkbtn" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}</td>
+          <td><select class="sel dir-type" data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k, l]) => `<option value="${k}" ${b.t === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+          <td>${esc(where(b))}</td><td class="num">${b.n26 || ""}</td><td class="num">${b.nAll || ""}</td>
+          <td class="dir-who">${who.slice(0, 12).map(([n, k]) => `<span class="${b.v26?.[n] ? "now" : ""}">${esc(n)}${k > 1 ? ` ×${k}` : ""}</span>`).join(", ")}${who.length > 12 ? ` <span class="hint">и ещё ${who.length - 12}</span>` : ""}</td>
+        </tr>`;
+      }).join("") + "</tbody>";
+    $("#dirMore").hidden = rows.length <= dirLimit;
+  }
+  if (canModerate && D.live) $('.nav [data-view="dir"]').hidden = false;
+  $("#dirQ").addEventListener("input", () => { dirLimit = DIR_PAGE; renderDir(); });
+  $("#dirType").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-t]"); if (!b) return;
+    $$("#dirType button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    dirLimit = DIR_PAGE; renderDir();
+  });
+  $("#dirMore").addEventListener("click", () => { dirLimit += DIR_PAGE; renderDir(); });
+  $("#dirTable").addEventListener("click", (e) => {
+    const n = e.target.closest("[data-dirbath]"); if (!n) return;
+    show("map"); openBath(Number(n.dataset.dirbath), true);
+  });
+  $("#dirTable").addEventListener("change", async (e) => {
+    const sel = e.target.closest("select[data-dirtype]"); if (!sel) return;
+    const b = byId.get(Number(sel.dataset.dirtype)); if (!b) return;
+    try {
+      await D.moderateBath(b.id, { type: sel.value || null });
+      b.type = sel.value || null; b.t = b.type || "unknown"; render(); renderDir();
+      toast(`«${b.name}»: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); recomputeSoon();
+    } catch (err) { toast("Не получилось: " + err.message); renderDir(); }
+  });
+
   updateBadge();
   render("home");
   const h = location.hash.slice(1);
-  if (["heat", "table", "feed", "rules"].includes(h)) show(h);
+  if (["heat", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
 })();

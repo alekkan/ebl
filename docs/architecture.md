@@ -4,7 +4,7 @@
 
 | Компонент | Где | Что делает |
 |---|---|---|
-| Сайт | Yandex Object Storage, бакет `ebl.su` (https — Certificate Manager, DNS — Cloud DNS); резерв — GitHub Pages, ветка `gh-pages`. Оба собираются из `prototype/` | карта (с подсказкой «куда сходить за очками» и «📍 Рядом»), тепловая карта, таблица, лента, правила, форма похода, вход |
+| Сайт | Yandex Object Storage, бакет `ebl.su` (https — Certificate Manager, DNS — Cloud DNS); резерв — GitHub Pages, ветка `gh-pages`. Оба собираются из `prototype/` | карта (с подсказкой «куда сходить за очками» и «📍 Рядом»), тепловая карта, таблица, лента, правила, форма похода, вход; у Комиссии — вкладка «Бани» (справочник: тип меняется на месте, кто где был) |
 | API-шлюз | Yandex API Gateway `ebl-api` (`infra/api-gateway.yaml`), каталог `ebl` | браузер ходит к Supabase только через него: сам Supabase за Cloudflare, а его в России режут провайдеры. Проксирует REST, Auth, Storage и функции как есть |
 | База | Supabase Postgres, проект `yeerkfdgmhcmvdqzaoio`, eu-central-1 | журнал походов, бани, участники, входящий остаток, итоговая таблица |
 | `tg-login` | edge-функция | вход через Telegram: проверка подписи → пользователь Supabase Auth → одноразовый `token_hash` |
