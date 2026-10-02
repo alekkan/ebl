@@ -847,8 +847,19 @@ tr.below { color: var(--ink-2); }
 .dir-table .num .dir-sort { flex-direction: row-reverse; }
 .dir-bath { border: 0; background: none; padding: 0; text-align: left; font: 600 13px/1.3 var(--body); color: var(--ink); cursor: pointer; }
 .dir-bath:hover { color: var(--oak); text-decoration: underline; }
-.dir-pill { font-size: 12px; padding: 2px 4px 2px 6px; max-width: 100%; }
-.dir-pill select { font-weight: 600; }
+/* тип — лёгкий: точка цвета типа и название; рамка и стрелка — только при наведении (видно, что можно сменить) */
+.dir-pill { --c: var(--t-unknown); display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 8px; border-radius: 8px;
+  color: var(--c); cursor: pointer; transition: background .15s; }
+.dir-pill.t-public { --c: var(--t-public); } .dir-pill.t-spa { --c: var(--t-spa); } .dir-pill.t-private { --c: var(--t-private); }
+.dir-pill.t-unknown { color: var(--ink-3); }
+.dir-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
+.dir-pill select { appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 0 14px 0 0; margin: 0;
+  font: 600 13px/1.2 var(--body); color: inherit; cursor: pointer; max-width: 100%; text-overflow: ellipsis;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 6px) 55%, calc(100% - 2px) 55%; background-size: 4px 4px; background-repeat: no-repeat; opacity: .95; }
+@media (hover: hover) { .dir-pill:not(:hover):not(:focus-within) select { background-image: none; } }   /* на телефоне наведения нет — стрелка всегда */
+.dir-pill:hover, .dir-pill:focus-within { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
+.dir-pill select:focus { outline: 0; }
 .dir-who .who-n { color: var(--ink-2); }
 .dir-who .who-n i { font-style: normal; font-weight: 700; color: var(--ink-3); }
 .dir-who .who-n.now { color: var(--oak-deep); font-weight: 600; }
