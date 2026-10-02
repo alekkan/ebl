@@ -335,6 +335,12 @@ with sync_playwright() as pw:
         s.page.click('#dirTable [data-sort="n26"]'); s.page.wait_for_timeout(300)
         n26 = s.js("() => [...document.querySelectorAll('#dirTable tbody tr')].slice(0, 30).map((r) => parseInt(r.querySelector('td[data-label=\"в 2026\"]').textContent) || 0)")
         check("сортировка по «2026» — сначала больше походов", n26 == sorted(n26, reverse=True) and n26[0] > 0, n26[:5])
+        s.page.click('#dirTable [data-sort="country"]'); s.page.wait_for_timeout(300)
+        cs = s.js("() => [...document.querySelectorAll('#dirTable tbody .dir-country')].slice(0, 40).map((x) => x.textContent.trim().toLowerCase().replace(/ё/g, 'е'))")
+        known = [c for c in cs if c != "—"]
+        check("страна — отдельным столбцом, сортировка по ней по алфавиту (пустые — в конце)", known == sorted(known) and cs[:len(known)] == known, cs[:6])
+        check("одна строка на баню: высота строки как у одной строки текста",
+              s.js("() => Math.max(...[...document.querySelectorAll('#dirTable tbody tr')].slice(0, 20).map((r) => r.getBoundingClientRect().height))") < 48)
         s.page.click('#dirSeason [data-s="no"]'); s.page.wait_for_timeout(300)
         check("«Не были в 2026» — только бани без походов в этом сезоне",
               s.js("() => [...document.querySelectorAll('#dirTable tbody td[data-label=\"в 2026\"]')].every((x) => x.textContent.trim() === '—')"))

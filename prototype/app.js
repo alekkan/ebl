@@ -1545,7 +1545,7 @@
   // (выделены, кто был в 2026). Просьба Витька, 02.10: «список всех бань, где смотреть, с отметками, кто где был».
   // Фильтры: поиск (название, место, ник), страна, тип, были/не были в 2026, без региона; сортировка — по заголовку.
   // Тип поменяли — таблица пересчитается (recomputeSoon), сообщения бота о походах в эту баню обновит триггер в базе.
-  const DIR_PAGE = 150, DIR_WHO = 6;
+  const DIR_PAGE = 150, DIR_WHO = 4;
   let dirLimit = DIR_PAGE, dirSort = { key: "all", dir: -1 };
   const dirOpen = new Set();   // строки, где раскрыт весь список «кто был»
   const lowerE = (s) => String(s ?? "").toLowerCase().replace(/ё/g, "е");
@@ -1556,10 +1556,12 @@
     return Object.entries(all).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ru"));
   }
   const DIR_COLS = [
-    ["name", "Баня"], ["type", "Тип"], ["where", "Где"], ["n26", "2026", "num"], ["all", "Всего", "num"], ["who", "Кто был"],
+    ["name", "Баня"], ["type", "Тип"], ["country", "Страна"], ["region", "Регион"], ["n26", "2026", "num"], ["all", "Всего", "num"], ["who", "Кто был"],
   ];
+  // пустые страна/регион — в конце при любом направлении: «\uffff» сортируется после букв
   const dirKey = {
-    name: (b) => lowerE(b.name), type: (b) => TYPE_LABEL[b.t], where: (b) => lowerE(where(b)),
+    name: (b) => lowerE(b.name), type: (b) => TYPE_LABEL[b.t],
+    country: (b) => `${lowerE(b.country) || "\uffff"} ${lowerE(b.region) || "\uffff"}`, region: (b) => lowerE(b.region) || "\uffff",
     n26: (b) => b.n26, all: (b) => b.nAll, who: (b) => dirWho(b).length,
   };
   function dirCountries() {
@@ -1584,13 +1586,15 @@
     $("#dirTable").innerHTML = `<thead><tr>${head}</tr></thead><tbody>`
       + rows.slice(0, dirLimit).map((b) => {
         const who = dirWho(b), open = dirOpen.has(b.id), list = open ? who : who.slice(0, DIR_WHO);
-        return `<tr data-t="${b.t}" data-id="${b.id}">
-          <td class="dir-name"><button type="button" class="dir-bath" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}</td>
-          <td><label class="pill pill-sel dir-pill">${tdot(b.t)}<select data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>Тип не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k2, l]) => `<option value="${k2}" ${b.t === k2 ? "selected" : ""}>${l}</option>`).join("")}</select></label></td>
-          <td class="dir-where">${b.region ? esc(b.region) : '<span class="hint">регион не указан</span>'}${b.country ? `<small>${esc(b.country)}</small>` : ""}</td>
+        // одна строка на баню: длинное — троеточием (полностью — в подсказке), участники — «Ден 216 · Alex B 72 · +12»
+        return `<tr data-t="${b.t}" data-id="${b.id}" class="${open ? "open" : ""}">
+          <td class="dir-name" title="${esc(b.name)}"><button type="button" class="dir-bath" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}</td>
+          <td><label class="pill pill-sel dir-pill">${tdot(b.t)}<select data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k2, l]) => `<option value="${k2}" ${b.t === k2 ? "selected" : ""}>${l}</option>`).join("")}</select></label></td>
+          <td class="dir-country" title="${esc(b.country || "")}">${b.country ? esc(b.country) : '<span class="hint">—</span>'}</td>
+          <td class="dir-region" title="${esc(b.region || "")}">${b.region ? esc(b.region) : '<span class="hint">—</span>'}</td>
           <td class="num" data-label="в 2026">${b.n26 || '<span class="hint">—</span>'}</td><td class="num" data-label="всего">${b.nAll || '<span class="hint">—</span>'}</td>
-          <td class="dir-who">${list.map(([n, c]) => `<span class="who-n ${b.v26?.[n] ? "now" : ""}">${esc(n)}${c > 1 ? `<i>${c}</i>` : ""}</span>`).join("")}`
-          + `${who.length > DIR_WHO ? `<button type="button" class="linkbtn dir-more" data-dirwho="${b.id}">${open ? "свернуть" : `ещё ${who.length - DIR_WHO}`}</button>` : ""}${!who.length ? '<span class="hint">никто</span>' : ""}</td>
+          <td class="dir-who" title="${esc(who.map(([n, c]) => `${n} ${c}`).join(", "))}"><div class="who-line"><span class="who-list">${list.map(([n, c]) => `<span class="who-n ${b.v26?.[n] ? "now" : ""}">${esc(n)}${c > 1 ? ` <i>${c}</i>` : ""}</span>`).join('<span class="sep">·</span>')}${!who.length ? '<span class="hint">—</span>' : ""}</span>`
+          + `${who.length > DIR_WHO ? `<button type="button" class="linkbtn dir-more" data-dirwho="${b.id}">${open ? "свернуть" : `+${who.length - DIR_WHO}`}</button>` : ""}</div></td>
         </tr>`;
       }).join("") + "</tbody>";
     $("#dirMore").hidden = rows.length <= dirLimit;
@@ -1612,7 +1616,7 @@
     if (sort) {
       const key = sort.dataset.sort;
       // тот же столбец — обратный порядок; новый: текст — по алфавиту, числа — сначала большие
-      dirSort = dirSort.key === key ? { key, dir: -dirSort.dir } : { key, dir: ["name", "type", "where"].includes(key) ? 1 : -1 };
+      dirSort = dirSort.key === key ? { key, dir: -dirSort.dir } : { key, dir: ["name", "type", "country", "region"].includes(key) ? 1 : -1 };
       const opt = [...$("#dirSortSel").options].find((o) => o.value === `${dirSort.key}:${dirSort.dir}`);
       if (opt) $("#dirSortSel").value = opt.value;
       return renderDir();
