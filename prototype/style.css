@@ -826,50 +826,57 @@ tr.below { color: var(--ink-2); }
 }
 
 /* ---------- справочник бань (Комиссия) ---------- */
+/* одна строка на баню, чтобы на экран влезало больше: длинное — троеточием, полностью — в подсказке (title) */
 .dir-tools { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 4px 0 8px; }
 .dir-tools .inp { flex: 1 1 260px; min-width: 0; }
 .dir-tools .sel { flex: 0 1 200px; min-width: 0; }
 .dir-tools .seg { max-width: 100%; }
 #dirSortSel { display: none; }
 .dir-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
-.dir-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.dir-table th, .dir-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; white-space: normal; }
+.dir-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+.dir-table th, .dir-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dir-table tbody tr:hover { background: var(--panel-2); }
-.dir-table th { position: sticky; top: 0; background: var(--panel); z-index: 1; white-space: nowrap; }
-.dir-sort { border: 0; background: none; padding: 0; font: 600 12px/1 var(--body); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
+.dir-table th { background: var(--panel); }
+.dir-table th:nth-child(1) { width: 25%; } .dir-table th:nth-child(2) { width: 158px; } .dir-table th:nth-child(3) { width: 9%; }
+.dir-table th:nth-child(4) { width: 14%; } .dir-table th:nth-child(5), .dir-table th:nth-child(6) { width: 64px; }
+.dir-sort { border: 0; background: none; padding: 0; font: 600 11px/1 var(--body); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 .dir-sort:hover, th[aria-sort="ascending"] .dir-sort, th[aria-sort="descending"] .dir-sort { color: var(--ink); }
 .dir-sort .arr { min-width: .8em; }
-.dir-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; width: 1%; }
+.dir-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .dir-table .num .dir-sort { flex-direction: row-reverse; }
-.dir-name { min-width: 180px; }
-.dir-bath { border: 0; background: none; padding: 0; text-align: left; font: 600 14px/1.3 var(--body); color: var(--ink); cursor: pointer; }
+.dir-bath { border: 0; background: none; padding: 0; text-align: left; font: 600 13px/1.3 var(--body); color: var(--ink); cursor: pointer; }
 .dir-bath:hover { color: var(--oak); text-decoration: underline; }
-.dir-pill { white-space: nowrap; font-weight: 600; }
+.dir-pill { font-size: 12px; padding: 2px 4px 2px 6px; max-width: 100%; }
 .dir-pill select { font-weight: 600; }
-.dir-where { min-width: 140px; line-height: 1.3; }
-.dir-where small { display: block; font-size: 12px; color: var(--ink-3); }
-.dir-who { min-width: 220px; line-height: 1.9; }
-.dir-pill, .dir-table .num { white-space: nowrap; }
-.who-n { display: inline-flex; align-items: center; gap: 4px; margin: 0 6px 0 0; padding: 1px 8px; border-radius: 999px; background: var(--panel-2); color: var(--ink-2); font-size: 12px; white-space: nowrap; }
-.who-n i { font-style: normal; font-weight: 700; color: var(--ink-3); }
-.who-n.now { background: var(--oak-soft); color: var(--oak-deep); }
-.who-n.now i { color: var(--oak); }
+.dir-who .who-n { color: var(--ink-2); }
+.dir-who .who-n i { font-style: normal; font-weight: 700; color: var(--ink-3); }
+.dir-who .who-n.now { color: var(--oak-deep); font-weight: 600; }
+.dir-who .who-n.now i { color: var(--oak); }
+.dir-who .sep { color: var(--ink-3); margin: 0 5px; }
+/* ники — троеточием, а «+N» всегда видна справа */
+.who-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.who-list { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who-line .dir-more { flex: none; }
+.dir-table tr.open .who-list { white-space: normal; }
+.dir-table tr.open td { white-space: normal; }
 .dir-more { font-size: 12px; }
 #dirMore { margin: 12px auto 0; display: block; }
-/* на телефоне — карточки вместо таблицы: название и тип сверху, место и походы, ники; сортировка — списком */
+/* на телефоне — карточки вместо таблицы: название и тип сверху, место и походы, участники; сортировка — списком */
 @media (max-width: 760px) {
   .dir-tools .inp, .dir-tools .sel { flex: 1 1 100%; }
   .dir-tools .seg { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
-  #dirSeason { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #dirSortSel { display: block; }
   .dir-table thead { display: none; }
   .dir-table, .dir-table tbody { display: block; }
-  .dir-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-  .dir-table td { display: block; padding: 0; border: 0; min-width: 0; }
-  .dir-table .dir-name { grid-column: 1 / -1; min-width: 0; }
+  .dir-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .dir-table td { display: block; padding: 0; border: 0; min-width: 0; white-space: normal; overflow: visible; }
+  .dir-table .who-list { white-space: normal; overflow: visible; }
+  .dir-table .dir-name { grid-column: 1 / -1; }
   .dir-table td:nth-child(2) { grid-column: 1 / -1; }
-  .dir-table .dir-where { grid-column: 1; min-width: 0; }
-  .dir-table .num { width: auto; text-align: right; font-size: 15px; font-weight: 700; }
+  .dir-table .dir-country { grid-column: 1; grid-row: 3; font-size: 12px; color: var(--ink-3); }
+  .dir-table .dir-region { grid-column: 1; grid-row: 4; }
+  .dir-table .num { grid-row: 3 / span 2; font-size: 15px; font-weight: 700; }
   .dir-table .num::after { content: attr(data-label); display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); }
-  .dir-table .dir-who { grid-column: 1 / -1; min-width: 0; }
+  .dir-table .dir-who { grid-column: 1 / -1; white-space: normal; }
 }
