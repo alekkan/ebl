@@ -21,13 +21,22 @@ python3 - "$DIR" > "$SQLF" <<'PY'
 import gzip, json, pathlib, sys
 d = pathlib.Path(sys.argv[1]); m = json.loads((d / "manifest.json").read_text())
 print("begin;\nset session_replication_role = replica;")
+# вставка без вычисляемых столбцов (baths.name_search — generated): их значение база считает сама, а запись в них — ошибка
+# (поймал тест восстановления 02.10). Список столбцов берём у базы, куда восстанавливаем, — схема из миграций
+print("""create function pg_temp.restore_rows(t text, data json) returns void language plpgsql as $f$
+declare cols text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position) into cols
+  from information_schema.columns where table_schema = 'public' and table_name = t and is_generated = 'NEVER';
+  execute format('insert into public.%I (%s) select %s from json_populate_recordset(null::public.%I, $1)', t, cols, cols, t) using data;
+end $f$;""")
 # все таблицы — одним truncate: по одной с cascade очистка следующей стирала уже залитые зависимые (поймал тест восстановления)
 print("truncate " + ", ".join(f'public."{t}"' for t in m["tables"]) + ";")
 for t in m["tables"]:
     data = gzip.decompress((d / f"public.{t}.json.gz").read_bytes()).decode()
     tag = "$ebl_backup$"
     assert tag not in data
-    print(f'insert into public."{t}" select * from json_populate_recordset(null::public."{t}", {tag}{data}{tag});')
+    print(f"select pg_temp.restore_rows('{t}', {tag}{data}{tag}::json);")
 print("""update public.player_accounts set auth_user = null where auth_user is not null and auth_user not in (select id from auth.users);
 do $$ declare r record; begin
   for r in select table_name, column_name from information_schema.columns where table_schema = 'public' and is_identity = 'YES' loop

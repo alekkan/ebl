@@ -82,6 +82,9 @@ st = case("@eblsu_bot Сандуны 2ч с @lekha_tg и @den_tg", 13)
 check("автор, отметивший сам себя, в компанию не попадает", nicks(st["company"]) == {"Ден"}, st)
 sql("delete from bot_sessions")
 check("сообщения без отметки бота игнорируются", post("просто болтаем про Сандуны", 7) is None)
+st = case("@eblsu_bot Полундра! Легкий пар", 16)
+check("«Легкий пар» находит «Лёгкий пар» (ё ≠ е не мешает), «Полундра» — не часть названия (01.10 бот завёл «полундра Легкий пар»)",
+      "полундра" not in (st.get("query") or "").lower() and any("Лёгкий пар" in c["name"] for c in st.get("candidates") or []), st)
 tbath = sql("insert into baths (name, region, country, status) values ('поляна Тестгет, Поворот', 'Кабардино-Балкарская республика', 'Россия', 'ok') returning id").splitlines()[0]
 st = case("@eblsu_bot Гостиница Къуанч, Тестгет", 14)
 check("совпало одно слово из поста — баню сам не выбирает, показывает найденное (30.09 «Гостиница Къуанч, Чегет» стала «Поворотом»)",
@@ -780,6 +783,26 @@ check("ответ цифрой в чате — цена в черновике, �
 sql("delete from bot_sessions")
 sql("delete from player_accounts where tg_id = 911")
 sql(f"delete from baths where id = {pbath}")
+
+print("Поменяли тип бани — бот обновил свои сообщения")
+tb = sql("insert into baths (name, country, region, type, status) values ('Тестсменатипа', 'Россия', 'Москва', 'spa', 'ok') returning id").splitlines()[0]
+tv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source, status, moderated_by, moderated_at) select {tb}, now() - interval '2 hours', 60, id, 'bot', 'ok', "
+         f"(select id from players where nick = 'Витёк'), now() from players where nick = 'Леха' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {tv}, id from players where nick = 'Леха'")
+req("POST", "/functions/v1/recompute", {})
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text, verdict_text) values ({tv}, {CHAT}, 7101, 7102, {tb}, "
+    f"E'Ушло в Комиссию ✅ <b>Леха</b>\\n\\nстарая сводка: 🏷 Хуитнес', '👍 Засчитано — Витёк: Леха +1')")
+sql(f"update baths set type = 'public' where id = {tb}")
+def wait_long(q, want):   # триггер → tg-bot?bath → пересчёт таблицы → правка карточки: несколько секунд
+    for _ in range(60):
+        if sql(q) == want: return True
+        time.sleep(0.5)
+    return False
+check("Комиссия поменяла тип — в карточке поста «Общественная», а строка решения — с пересчитанными очками (02.10 висели «Хуитнес» и «+5»)",
+      wait_long(f"select position('Общественная' in card_text) > 0 and verdict_text <> '👍 Засчитано — Витёк: Леха +1' from bot_posts where visit_id = {tv}", "t"),
+      sql(f"select card_text || ' | ' || verdict_text from bot_posts where visit_id = {tv}"))
+sql(f"delete from visits where id = {tv}")
+sql(f"delete from baths where id = {tb}")
 
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]

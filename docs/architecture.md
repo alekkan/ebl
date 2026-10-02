@@ -104,7 +104,7 @@ Edge-функции работают с service role и сами проверя�
 
 Триггеры `visits_announce_verdict` (смена статуса похода → `tg-bot?verdict=<id>`), `visits_notify_site` (новый поход с сайта →
 `tg-bot?new=<id>`), `visits_changed` / `visit_players_changed` (поправили баню, время, длительность или компанию →
-`tg-bot?refresh=<id>`), `player_accounts_notify` (заявка «это я» и её подтверждение) и `visit_photos_sync` (фото попало в поход → `photos?sync=<id>`) берут адрес функций из `settings.functions_url`, чат лиги для решений по походам с сайта — `settings.league_chat`.
+`tg-bot?refresh=<id>`), `player_accounts_notify` (заявка «это я» и её подтверждение), `baths_notify_changed` (у бани поменяли название, тип, регион, страну → `tg-bot?bath=<id>`) и `visit_photos_sync` (фото попало в поход → `photos?sync=<id>`) берут адрес функций из `settings.functions_url`, чат лиги для решений по походам с сайта — `settings.league_chat`.
 
 Расписания лежат в миграциях с зашитым адресом боевого проекта. На локальном стенде их стоит снять, а `functions_url` переключить на локальный:
 `select cron.unschedule(jobname) from cron.job;` — иначе локальная база будет дёргать боевые функции.
