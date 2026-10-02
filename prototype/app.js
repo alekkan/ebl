@@ -1542,10 +1542,12 @@
 
   // ---------- справочник бань — только Комиссии ----------
   // Все бани лиги: тип (меняется прямо здесь), где, сколько походов и кто где был — по нику, сколько раз за все годы
-  // (жирным — кто был в 2026). Просьба Витька, 02.10: «список всех бань, где смотреть, с отметками, кто где был».
+  // (выделены, кто был в 2026). Просьба Витька, 02.10: «список всех бань, где смотреть, с отметками, кто где был».
+  // Фильтры: поиск (название, место, ник), страна, тип, были/не были в 2026, без региона; сортировка — по заголовку.
   // Тип поменяли — таблица пересчитается (recomputeSoon), сообщения бота о походах в эту баню обновит триггер в базе.
-  const DIR_PAGE = 150;
-  let dirLimit = DIR_PAGE;
+  const DIR_PAGE = 150, DIR_WHO = 6;
+  let dirLimit = DIR_PAGE, dirSort = { key: "all", dir: -1 };
+  const dirOpen = new Set();   // строки, где раскрыт весь список «кто был»
   const lowerE = (s) => String(s ?? "").toLowerCase().replace(/ё/g, "е");
   function dirWho(b) {
     const all = {};
@@ -1553,35 +1555,72 @@
     for (const y of Object.values(b.histBy || {})) for (const [n, k] of Object.entries(y)) all[n] = (all[n] || 0) + k;
     return Object.entries(all).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ru"));
   }
+  const DIR_COLS = [
+    ["name", "Баня"], ["type", "Тип"], ["where", "Где"], ["n26", "2026", "num"], ["all", "Всего", "num"], ["who", "Кто был"],
+  ];
+  const dirKey = {
+    name: (b) => lowerE(b.name), type: (b) => TYPE_LABEL[b.t], where: (b) => lowerE(where(b)),
+    n26: (b) => b.n26, all: (b) => b.nAll, who: (b) => dirWho(b).length,
+  };
+  function dirCountries() {
+    const n = {};
+    for (const b of byId.values()) if (b.country) n[b.country] = (n[b.country] || 0) + 1;
+    const cur = $("#dirCountry").value;
+    $("#dirCountry").innerHTML = '<option value="">Все страны</option>' + Object.entries(n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"))
+      .map(([c, k]) => `<option value="${esc(c)}" ${c === cur ? "selected" : ""}>${esc(c)} · ${k}</option>`).join("");
+  }
   function renderDir() {
+    if ($("#dirCountry").options.length <= 1) dirCountries();
     const q = lowerE($("#dirQ").value.trim()), t = $("#dirType [aria-pressed='true']")?.dataset.t ?? "";
-    const rows = [...byId.values()].filter((b) => b.status !== "rejected" && (!t || b.t === t))
+    const season = $("#dirSeason [aria-pressed='true']")?.dataset.s ?? "", country = $("#dirCountry").value, noRegion = $("#dirNoRegion").checked;
+    const k = dirKey[dirSort.key];
+    const rows = [...byId.values()].filter((b) => b.status !== "rejected" && (!t || b.t === t) && (!country || b.country === country)
+        && (!season || (season === "yes" ? b.n26 > 0 : !b.n26)) && (!noRegion || !b.region))
       .filter((b) => !q || lowerE(b.search).includes(q) || dirWho(b).some(([n]) => lowerE(n).includes(q)))
-      .sort((a, b) => b.nAll - a.nAll || a.name.localeCompare(b.name, "ru"));
+      .sort((a, b) => { const x = k(a), y = k(b); return (typeof x === "string" ? x.localeCompare(y, "ru") : x - y) * dirSort.dir || b.nAll - a.nAll; });
     $("#dirCount").textContent = `${rows.length} ${plural(rows.length, "баня", "бани", "бань")}`;
-    $("#dirTable").innerHTML = `<thead><tr><th>Баня</th><th>Тип</th><th>Где</th><th class="num">2026</th><th class="num">Всего</th><th>Кто был</th></tr></thead><tbody>`
+    const head = DIR_COLS.map(([key, label, cls]) => `<th class="${cls || ""}" aria-sort="${dirSort.key === key ? (dirSort.dir > 0 ? "ascending" : "descending") : "none"}">`
+      + `<button type="button" class="dir-sort" data-sort="${key}">${label}<span class="arr">${dirSort.key === key ? (dirSort.dir > 0 ? "↑" : "↓") : ""}</span></button></th>`).join("");
+    $("#dirTable").innerHTML = `<thead><tr>${head}</tr></thead><tbody>`
       + rows.slice(0, dirLimit).map((b) => {
-        const who = dirWho(b);
+        const who = dirWho(b), open = dirOpen.has(b.id), list = open ? who : who.slice(0, DIR_WHO);
         return `<tr data-t="${b.t}" data-id="${b.id}">
-          <td><button type="button" class="linkbtn" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}</td>
-          <td><select class="sel dir-type" data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k, l]) => `<option value="${k}" ${b.t === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
-          <td>${esc(where(b))}</td><td class="num">${b.n26 || ""}</td><td class="num">${b.nAll || ""}</td>
-          <td class="dir-who">${who.slice(0, 12).map(([n, k]) => `<span class="${b.v26?.[n] ? "now" : ""}">${esc(n)}${k > 1 ? ` ×${k}` : ""}</span>`).join(", ")}${who.length > 12 ? ` <span class="hint">и ещё ${who.length - 12}</span>` : ""}</td>
+          <td class="dir-name"><button type="button" class="dir-bath" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}</td>
+          <td><label class="pill pill-sel dir-pill">${tdot(b.t)}<select data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>Тип не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k2, l]) => `<option value="${k2}" ${b.t === k2 ? "selected" : ""}>${l}</option>`).join("")}</select></label></td>
+          <td class="dir-where">${b.region ? esc(b.region) : '<span class="hint">регион не указан</span>'}${b.country ? `<small>${esc(b.country)}</small>` : ""}</td>
+          <td class="num" data-label="в 2026">${b.n26 || '<span class="hint">—</span>'}</td><td class="num" data-label="всего">${b.nAll || '<span class="hint">—</span>'}</td>
+          <td class="dir-who">${list.map(([n, c]) => `<span class="who-n ${b.v26?.[n] ? "now" : ""}">${esc(n)}${c > 1 ? `<i>${c}</i>` : ""}</span>`).join("")}`
+          + `${who.length > DIR_WHO ? `<button type="button" class="linkbtn dir-more" data-dirwho="${b.id}">${open ? "свернуть" : `ещё ${who.length - DIR_WHO}`}</button>` : ""}${!who.length ? '<span class="hint">никто</span>' : ""}</td>
         </tr>`;
       }).join("") + "</tbody>";
     $("#dirMore").hidden = rows.length <= dirLimit;
   }
   if (canModerate && D.live) $('.nav [data-view="dir"]').hidden = false;
-  $("#dirQ").addEventListener("input", () => { dirLimit = DIR_PAGE; renderDir(); });
-  $("#dirType").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-t]"); if (!b) return;
-    $$("#dirType button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    dirLimit = DIR_PAGE; renderDir();
+  const dirReset = () => { dirLimit = DIR_PAGE; renderDir(); };
+  $("#dirQ").addEventListener("input", dirReset);
+  $("#dirCountry").addEventListener("change", dirReset);
+  $("#dirNoRegion").addEventListener("change", dirReset);
+  $("#dirSortSel").addEventListener("change", (e) => { const [key, dir] = e.target.value.split(":"); dirSort = { key, dir: Number(dir) }; renderDir(); });
+  for (const id of ["#dirType", "#dirSeason"]) $(id).addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    $$(`${id} button`).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    dirReset();
   });
   $("#dirMore").addEventListener("click", () => { dirLimit += DIR_PAGE; renderDir(); });
   $("#dirTable").addEventListener("click", (e) => {
-    const n = e.target.closest("[data-dirbath]"); if (!n) return;
-    show("map"); openBath(Number(n.dataset.dirbath), true);
+    const sort = e.target.closest("[data-sort]");
+    if (sort) {
+      const key = sort.dataset.sort;
+      // тот же столбец — обратный порядок; новый: текст — по алфавиту, числа — сначала большие
+      dirSort = dirSort.key === key ? { key, dir: -dirSort.dir } : { key, dir: ["name", "type", "where"].includes(key) ? 1 : -1 };
+      const opt = [...$("#dirSortSel").options].find((o) => o.value === `${dirSort.key}:${dirSort.dir}`);
+      if (opt) $("#dirSortSel").value = opt.value;
+      return renderDir();
+    }
+    const more = e.target.closest("[data-dirwho]");
+    if (more) { const id = Number(more.dataset.dirwho); dirOpen.has(id) ? dirOpen.delete(id) : dirOpen.add(id); return renderDir(); }
+    const n = e.target.closest("[data-dirbath]");
+    if (n) { show("map"); openBath(Number(n.dataset.dirbath), true); }
   });
   $("#dirTable").addEventListener("change", async (e) => {
     const sel = e.target.closest("select[data-dirtype]"); if (!sel) return;
