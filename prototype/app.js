@@ -1589,7 +1589,7 @@
         // одна строка на баню: длинное — троеточием (полностью — в подсказке), участники — «Ден 216 · Alex B 72 · +12»
         return `<tr data-t="${b.t}" data-id="${b.id}" class="${open ? "open" : ""}">
           <td class="dir-name" title="${esc(b.name)}"><button type="button" class="dir-bath" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}</td>
-          <td><label class="pill pill-sel dir-pill">${tdot(b.t)}<select data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k2, l]) => `<option value="${k2}" ${b.t === k2 ? "selected" : ""}>${l}</option>`).join("")}</select></label></td>
+          <td><label class="dir-pill t-${b.t}"><i class="dir-dot"></i><select data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k2, l]) => `<option value="${k2}" ${b.t === k2 ? "selected" : ""}>${l}</option>`).join("")}</select></label></td>
           <td class="dir-country" title="${esc(b.country || "")}">${b.country ? esc(b.country) : '<span class="hint">—</span>'}</td>
           <td class="dir-region" title="${esc(b.region || "")}">${b.region ? esc(b.region) : '<span class="hint">—</span>'}</td>
           <td class="num" data-label="в 2026">${b.n26 || '<span class="hint">—</span>'}</td><td class="num" data-label="всего">${b.nAll || '<span class="hint">—</span>'}</td>
