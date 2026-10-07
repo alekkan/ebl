@@ -96,9 +96,16 @@ async function nominatimSearch(q: string): Promise<any[] | null> {
   return null;
 }
 
+// латиница и кириллица к одному виду: «Bansko» = «Банско», «Asanitsa» = «Асаница» — чтобы сверить находку с адресом Google
+const LAT: Record<string, string> = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i", й: "y", к: "k",
+  л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sht",
+  ъ: "a", ы: "y", ь: "", э: "e", ю: "yu", я: "ya" };
+const flat = (s: string) => (s ?? "").toLowerCase().replace(/[а-яё]/g, (c) => LAT[c] ?? c).replace(/kh/g, "h").replace(/[^a-z0-9]/g, "");
+
 /** near/maxKm — защита от промахов: найденное дальше maxKm от примерной точки бани не принимаем;
- *  specific — только конкретное место (здание, заведение, улица), не город и не регион целиком */
-export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300, specific = false): Promise<Point | null> {
+ *  specific — только конкретное место (здание, заведение, улица), не город и не регион целиком;
+ *  must — слова, которые должны быть в найденном адресе (город, улица из ссылки Google): то же место, а не тёзка */
+export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300, specific = false, must: string[] = []): Promise<Point | null> {
   const clean = q.replace(/\s+/g, " ").trim();
   const variants = [...new Set([clean,
     clean.replace(/,?\s*(строение|стр\.?|корпус|корп\.?|к\.|с\.)\s*\d+\S*/gi, ""),
@@ -106,6 +113,7 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
   for (const v of variants) {
     for (const hit of (await nominatimSearch(v)) ?? []) {
       if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) continue;
+      if (must.length && !must.every((w) => flat(hit.display_name ?? "").includes(flat(w)))) continue;
       const p = valid(+hit.lat, +hit.lon);
       if (p && (!near || km(p, near) <= maxKm)) return p;
     }
@@ -115,15 +123,21 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
 
 // Адрес из ссылки Google по-английски («12 Asanitsa Str, 2770 Bansko, Bulgaria») OpenStreetMap часто не находит (07.10),
 // а улицу без номера и «Str» с городом — находит («Asanitsa, Bansko, Bulgaria»). Варианты — от точного к общему.
-function placeVariants(place: string): string[] {
+function placeVariants(place: string): { variants: string[]; must: string[] } {
   const parts = place.split(",").map((s) => s.trim()).filter(Boolean);
   const [name, ...rest] = parts;
   const clean = (s: string) => s.replace(/\b\d{3,6}\b/g, " ").replace(/^\s*\d+[a-zа-я]?\s+/i, " ")
     .replace(/\b(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица)\.?(?![\p{L}])/giu, " ").replace(/\s+/g, " ").trim();
   const cleaned = rest.map(clean).filter(Boolean);
   const city = cleaned.length >= 2 ? cleaned[cleaned.length - 2] : cleaned[0] ?? "";
-  return [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : ""])]
-    .filter((q) => q.length >= 5);
+  // сверка: в найденном должны быть город и улица из ссылки Google (если они там есть)
+  const street = cleaned.length >= 3 ? cleaned[0] : "";
+  const must = [city, street].filter((w) => w && flat(w).length >= 3);
+  return {
+    variants: [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : ""])]
+      .filter((q) => q.length >= 5),
+    must,
+  };
 }
 
 // Google: итоговая ссылка на место — /maps/place/<Название, адрес, город, страна>/…; координат в ней может не быть
@@ -162,10 +176,12 @@ export async function locate(text: string, near?: Point | null, maxKm = 300): Pr
   const gurl = (text ?? "").match(/https?:\/\/[^\s<>"]+/)?.[0];
   const place = gurl ? await googlePlace(gurl) : null;
   if (place) {
-    for (const q of placeVariants(place)) {
-      const p = await geocodeAddress(q, near, maxKm, true);
+    const { variants, must } = placeVariants(place);
+    for (const q of variants) {
+      const p = await geocodeAddress(q, near, maxKm, true, must);
       if (p) return p;
     }
+    return null;   // ссылка Google на место, но OpenStreetMap того же места не нашёл — не угадываем, просим геопозицию
   }
   const lines = (text ?? "").replace(/https?:\/\/\S+/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
   for (const line of lines.filter((l) => STREET.test(l) && /\d/.test(l))) {

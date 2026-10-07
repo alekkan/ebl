@@ -33,7 +33,11 @@ PLACES = [
 # город целиком (addresstype town) — не точка бани, бот его отбрасывает
 SEARCH = {
     # как настоящий: английский адрес из ссылки Google не находит, а улицу без номера с городом — находит
-    "Asanitsa, Bansko, Bulgaria": [{"lat": "41.8296", "lon": "23.4734", "addresstype": "road", "category": "highway"}],
+    "Asanitsa, Bansko, Bulgaria": [{"lat": "41.8296", "lon": "23.4734", "addresstype": "road", "category": "highway",
+                                    "display_name": "Асаница, кв.Глазне, Банско, Благоевградская область, 2770, Болгария"}],
+    # нашлась улица-тёзка в другом городе — бот должен отбросить (сверка с адресом из ссылки Google)
+    "Lipa, Bansko, Bulgaria": [{"lat": "42.6977", "lon": "23.3219", "addresstype": "road", "category": "highway",
+                                "display_name": "Липа, Лозенец, София, 1000, Болгария"}],
     "St. George, Банско, Болгария": [{"lat": "41.8361", "lon": "23.4879", "addresstype": "hotel", "category": "tourism"}],
     "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
 }
