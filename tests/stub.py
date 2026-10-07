@@ -32,7 +32,8 @@ PLACES = [
 # ответы Nominatim /search для адресов из тестов (07.10: ссылка Google на место без координат и «название, город, страна»);
 # город целиком (addresstype town) — не точка бани, бот его отбрасывает
 SEARCH = {
-    "12 Asanitsa Str, 2770 Bansko, Bulgaria": [{"lat": "41.8357", "lon": "23.4882", "addresstype": "building", "category": "building"}],
+    # как настоящий: английский адрес из ссылки Google не находит, а улицу без номера с городом — находит
+    "Asanitsa, Bansko, Bulgaria": [{"lat": "41.8296", "lon": "23.4734", "addresstype": "road", "category": "highway"}],
     "St. George, Банско, Болгария": [{"lat": "41.8361", "lon": "23.4879", "addresstype": "hotel", "category": "tourism"}],
     "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
 }

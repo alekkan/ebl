@@ -113,6 +113,19 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
   return null;
 }
 
+// Адрес из ссылки Google по-английски («12 Asanitsa Str, 2770 Bansko, Bulgaria») OpenStreetMap часто не находит (07.10),
+// а улицу без номера и «Str» с городом — находит («Asanitsa, Bansko, Bulgaria»). Варианты — от точного к общему.
+function placeVariants(place: string): string[] {
+  const parts = place.split(",").map((s) => s.trim()).filter(Boolean);
+  const [name, ...rest] = parts;
+  const clean = (s: string) => s.replace(/\b\d{3,6}\b/g, " ").replace(/^\s*\d+[a-zа-я]?\s+/i, " ")
+    .replace(/\b(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица)\.?(?![\p{L}])/giu, " ").replace(/\s+/g, " ").trim();
+  const cleaned = rest.map(clean).filter(Boolean);
+  const city = cleaned.length >= 2 ? cleaned[cleaned.length - 2] : cleaned[0] ?? "";
+  return [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : ""])]
+    .filter((q) => q.length >= 5);
+}
+
 // Google: итоговая ссылка на место — /maps/place/<Название, адрес, город, страна>/…; координат в ней может не быть
 async function googlePlace(url: string): Promise<string | null> {
   let u = url;
@@ -149,10 +162,7 @@ export async function locate(text: string, near?: Point | null, maxKm = 300): Pr
   const gurl = (text ?? "").match(/https?:\/\/[^\s<>"]+/)?.[0];
   const place = gurl ? await googlePlace(gurl) : null;
   if (place) {
-    const parts = place.split(",").map((s) => s.trim()).filter(Boolean);
-    const noName = parts.slice(1).join(", ");
-    for (const q of [place, noName, noName.replace(/\b\d{4,6}\s+/g, "")]) {
-      if (q.length < 5) continue;
+    for (const q of placeVariants(place)) {
       const p = await geocodeAddress(q, near, maxKm, true);
       if (p) return p;
     }

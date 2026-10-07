@@ -825,7 +825,7 @@ point = lambda: sql(f"select coalesce(round(lat::numeric, 4)::text, '') || ',' |
 reply_geo("Центр, Банско, Болгария", 81)
 check("«название, город, страна», а нашёлся только город целиком — точку не ставим (не центр Банско)", point() == ",", point())
 reply_geo("https://www.google.com/maps/place/St+George+Ski+and+Holiday+Hotel,+12+Asanitsa+Str,+2770+Bansko,+Bulgaria/data=!4m2!3m1!1s0x14abac26e09ef345:0x911eb2af96e46f1f", 82)
-check("ссылка Google на место без координат — точка по адресу из ссылки", point() == "41.8357,23.4882", point())
+check("ссылка Google на место без координат — точка по адресу из ссылки (улица и город, если весь адрес не нашёлся)", point() == "41.8296,23.4734", point())
 sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
 sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
 reply_geo("St. George, Банско, Болгария", 83)
