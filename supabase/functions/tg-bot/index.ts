@@ -12,7 +12,7 @@
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { hasLocationHint, locate, looksLikeAddress, parseLocation } from "../_shared/geo.ts";
+import { hasLocationHint, locate, looksLikeAddress, parseLocation, useDbGeocoder } from "../_shared/geo.ts";
 import { placeByPoint } from "../_shared/place.ts";
 import { greetLine } from "../_shared/greetings.ts";
 import { TELEGRAM_API } from "../_shared/hosts.ts";
@@ -24,6 +24,7 @@ const SITE = Deno.env.get("SITE_URL") ?? "https://alekkan.github.io/ebl/";
 const BOT = (Deno.env.get("TELEGRAM_BOT_USERNAME") ?? "eblsu_bot").toLowerCase();
 const LONG = 150; // минут — дольше этого поход долгий
 const sb = createClient(BASE, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+useDbGeocoder(sb);   // геокодер edge-функциям не отвечает — запасной путь через сервер базы (_shared/geo.ts)
 
 // deno-lint-ignore no-explicit-any
 type Any = any;

@@ -1,7 +1,7 @@
 // Уточнить точку бани с сайта: участник лиги присылает ссылку на карту или координаты.
 // Участник может поставить точку, только если сейчас она примерная; Комиссия — любую.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { locate } from "../_shared/geo.ts";
+import { locate, useDbGeocoder } from "../_shared/geo.ts";
 import { placeByPoint } from "../_shared/place.ts";
 
 const ALLOWED = (Deno.env.get("ALLOWED_ORIGINS") ?? "https://ebl.su,https://www.ebl.su,http://ebl.su,http://www.ebl.su,https://alekkan.github.io,http://localhost:8765")
@@ -19,6 +19,7 @@ Deno.serve(async (req) => {
   const fail = (status: number, error: string) => new Response(JSON.stringify({ error }), { status, headers });
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+  useDbGeocoder(sb);   // геокодер edge-функциям не отвечает — запасной путь через сервер базы
   const token = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   const { data: { user } } = await sb.auth.getUser(token);
   if (!user) return fail(401, "Войди через Telegram");

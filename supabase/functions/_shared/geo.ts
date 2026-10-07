@@ -1,7 +1,14 @@
 // Координаты бани из того, что прислал участник: координаты текстом, ссылка на Яндекс Карты, Google Maps, 2ГИС или OSM.
 // Короткие ссылки (maps.app.goo.gl, yandex.ru/maps/-/…, go.2gis.com) раскрываем по редиректам.
-// Ссылка на карточку организации без координат в адресе не подходит — тогда просим геопозицию.
+// Ссылка Google на место без координат (короткая maps.app.goo.gl раскрывается в /maps/place/<название, адрес>/…) —
+// ищем адрес из самой ссылки. Геокодер OpenStreetMap edge-функциям не отвечает — тогда спрашиваем через сервер базы
+// (useDbGeocoder: pg_net, geo_search/geo_result).
 import { NOMINATIM } from "./hosts.ts";
+
+// deno-lint-ignore no-explicit-any
+let db: any = null;
+// deno-lint-ignore no-explicit-any
+export function useDbGeocoder(sb: any) { db = sb; }
 
 export type Point = { lat: number; lng: number };
 
@@ -47,7 +54,8 @@ async function fromRedirect(url: string): Promise<Point | null> {
 export async function parseLocation(input: string): Promise<Point | null> {
   const s = (input ?? "").trim();
   const url = s.match(/https?:\/\/[^\s<>"]+/)?.[0];
-  if (url) return fromUrl(url) ?? (await fromRedirect(url));
+  // уже итоговая ссылка Google на место (/maps/place/…) — редиректов нет, координат в ней нет: адрес ищет locate
+  if (url) return fromUrl(url) ?? (/\/maps\/place\//.test(url) ? null : await fromRedirect(url));
   const m = s.match(/(-?\d{1,2}[.,]\d{3,})\s*[,;\s]\s*(-?\d{1,3}[.,]\d{3,})/);
   return m ? valid(parseFloat(m[1].replace(",", ".")), parseFloat(m[2].replace(",", "."))) : null;
 }
@@ -63,23 +71,61 @@ const km = (a: Point, b: Point) => {
 const STREET = /(ул\.?|улица|пр-т|проспект|просп\.|пер\.?|переулок|ш\.|шоссе|наб\.?|набережная|бульвар|б-р|пл\.?|площадь|проезд|тупик|аллея|мкр|микрорайон|street|st\.|avenue|ave|road|straße|strasse|str\.)/i;
 export const looksLikeAddress = (s: string) => (s ?? "").split(/\n/).some((l) => STREET.test(l) && /\d/.test(l));
 
-/** near/maxKm — защита от промахов: найденное дальше maxKm от примерной точки бани не принимаем */
-export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300): Promise<Point | null> {
+// город, область, страна целиком — не точка бани: «St. George, Банско» не должен стать центром Банско
+const ADMIN = new Set(["city", "town", "village", "hamlet", "suburb", "municipality", "county", "state", "region", "province",
+  "country", "district", "city_district", "borough", "quarter", "neighbourhood", "postcode", "continent"]);
+
+// ответ геокодера: напрямую, а не ответил (edge-функциям Supabase он отказывает) — через сервер базы
+// deno-lint-ignore no-explicit-any
+async function nominatimSearch(q: string): Promise<any[] | null> {
+  try {
+    const url = `${NOMINATIM}/search?` + new URLSearchParams({ q, format: "jsonv2", limit: "3", "accept-language": "ru" });
+    const r = await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } });
+    if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j.length) return j; }
+  } catch { /* через базу */ }
+  if (!db) return null;
+  const { data: id } = await db.rpc("geo_search", { p_q: q });
+  if (id == null) return null;
+  for (let i = 0; i < 16; i++) {
+    await new Promise((res) => setTimeout(res, 500));
+    const { data } = await db.rpc("geo_result", { p_id: id });
+    const r = data?.[0];
+    if (!r) continue;
+    try { return r.status === 200 ? JSON.parse(r.content) : null; } catch { return null; }
+  }
+  return null;
+}
+
+/** near/maxKm — защита от промахов: найденное дальше maxKm от примерной точки бани не принимаем;
+ *  specific — только конкретное место (здание, заведение, улица), не город и не регион целиком */
+export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300, specific = false): Promise<Point | null> {
   const clean = q.replace(/\s+/g, " ").trim();
   const variants = [...new Set([clean,
     clean.replace(/,?\s*(строение|стр\.?|корпус|корп\.?|к\.|с\.)\s*\d+\S*/gi, ""),
     clean.replace(/,?\s*(строение|стр\.?|корпус|корп\.?|к\.|с\.)\s*\d+\S*/gi, "").replace(/\b(ул\.?|улица)\s*/gi, "")])].filter((v) => v.length > 4);
   for (const v of variants) {
-    try {
-      const url = `${NOMINATIM}/search?` + new URLSearchParams({ q: v, format: "jsonv2", limit: "3", "accept-language": "ru" });
-      const res = await (await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } })).json();
-      for (const hit of res ?? []) {
-        const p = valid(+hit.lat, +hit.lon);
-        if (p && (!near || km(p, near) <= maxKm)) return p;
-      }
-    } catch { /* следующий вариант */ }
+    for (const hit of (await nominatimSearch(v)) ?? []) {
+      if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) continue;
+      const p = valid(+hit.lat, +hit.lon);
+      if (p && (!near || km(p, near) <= maxKm)) return p;
+    }
   }
   return null;
+}
+
+// Google: итоговая ссылка на место — /maps/place/<Название, адрес, город, страна>/…; координат в ней может не быть
+async function googlePlace(url: string): Promise<string | null> {
+  let u = url;
+  if (!/\/maps\/place\//.test(u)) {
+    if (!/goo\.gl|google\./.test(u)) return null;
+    try {
+      const r = await fetch(u, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" } });
+      await r.body?.cancel();
+      u = r.url || u;
+    } catch { return null; }
+  }
+  const m = (() => { try { return decodeURIComponent(u); } catch { return u; } })().match(/\/maps\/place\/([^/?]+)/);
+  return m ? m[1].replace(/\+/g, " ").trim() : null;
 }
 
 // заголовок страницы карточки организации: «Сандуновские бани, баня, Неглинная ул., 14, стр. 5, Москва — Яндекс Карты»
@@ -98,6 +144,19 @@ async function pageTitle(url: string): Promise<string | null> {
 export async function locate(text: string, near?: Point | null, maxKm = 300): Promise<Point | null> {
   const direct = await parseLocation(text);
   if (direct) return direct;
+  // ссылка Google на место без координат: «St George Ski and Holiday Hotel, 12 Asanitsa Str, 2770 Bansko, Bulgaria» —
+  // ищем целиком, потом без названия (адрес), потом без индекса (07.10 бот не принял такую ссылку Шурика)
+  const gurl = (text ?? "").match(/https?:\/\/[^\s<>"]+/)?.[0];
+  const place = gurl ? await googlePlace(gurl) : null;
+  if (place) {
+    const parts = place.split(",").map((s) => s.trim()).filter(Boolean);
+    const noName = parts.slice(1).join(", ");
+    for (const q of [place, noName, noName.replace(/\b\d{4,6}\s+/g, "")]) {
+      if (q.length < 5) continue;
+      const p = await geocodeAddress(q, near, maxKm, true);
+      if (p) return p;
+    }
+  }
   const lines = (text ?? "").replace(/https?:\/\/\S+/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
   for (const line of lines.filter((l) => STREET.test(l) && /\d/.test(l))) {
     const p = await geocodeAddress(line, near, maxKm);
@@ -118,5 +177,10 @@ export async function locate(text: string, near?: Point | null, maxKm = 300): Pr
     }
   }
   if (lines.length > 1) return await geocodeAddress(lines.join(", "), near, maxKm);
+  // одна строка «название, город, страна» («St. George, Банско, Болгария»): минимум три части — иначе «огонь, баня» в ответе
+  // на карточку мог бы найти чужое заведение; и только конкретное место, не город целиком
+  if (lines.length === 1 && lines[0].split(",").filter((x) => x.trim()).length >= 3 && lines[0].length <= 160) {
+    return await geocodeAddress(lines[0], near, maxKm, true);
+  }
   return null;
 }
