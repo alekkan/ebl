@@ -422,9 +422,11 @@ sql(f"delete from visits where id = {dup}")
 sql("delete from bot_sessions")
 
 def wait(q, want):
-    for _ in range(30):
+    # триггер → pg_net → функция → правка: сразу после перезапуска supabase functions serve это бывает дольше 9 с
+    # (30.09 и 07.10 так останавливалась выкладка) — ждём до 20 с, проверка та же
+    for _ in range(50):
         if sql(q) == want: return True
-        time.sleep(0.3)
+        time.sleep(0.4)
     return False
 
 
@@ -531,9 +533,11 @@ for tg, name in ((NEW1, "Хвост Тест"), (NEW2, "Даня Тест"), (NE
     sql(f"insert into player_accounts (tg_id, tg_username, tg_name) values ({tg}, 'new{tg}', '{name}')")
 acc = lambda tg: sql(f"select id from player_accounts where tg_id = {tg}")
 def wait(q, want):
-    for _ in range(30):
+    # триггер → pg_net → функция → правка: сразу после перезапуска supabase functions serve это бывает дольше 9 с
+    # (30.09 и 07.10 так останавливалась выкладка) — ждём до 20 с, проверка та же
+    for _ in range(50):
         if sql(q) == want: return True
-        time.sleep(0.3)
+        time.sleep(0.4)
     return False
 check("ника нет — пост не запоминается, бот советует выбрать ник на сайте", post("@eblsu_bot Василевские 2ч", 60, who=NEW1) is None)
 sql(f"update player_accounts set claimed_nick = 'Хвост' where tg_id = {NEW1}")
