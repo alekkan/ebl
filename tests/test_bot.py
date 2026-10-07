@@ -828,6 +828,8 @@ reply_geo("https://www.google.com/maps/place/St+George+Ski+and+Holiday+Hotel,+12
 check("ссылка Google на место без координат — точка по адресу из ссылки (улица и город, если весь адрес не нашёлся)", point() == "41.8296,23.4734", point())
 sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
 sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+reply_geo("https://www.google.com/maps/place/Lipa+Spa,+7+Lipa+Str,+2770+Bansko,+Bulgaria/data=!4m2!3m1!1s0x14ab:0x92", 84)
+check("сверка с адресом из ссылки Google: нашлась улица-тёзка в Софии, а в ссылке Банско — точку не ставим", point() == ",", point())
 reply_geo("St. George, Банско, Болгария", 83)
 check("«St. George, Банско, Болгария» ответом на карточку — точка найденного места", point() == "41.8361,23.4879", point())
 gid = sql("select public.geo_search('St. George, Банско, Болгария')")
