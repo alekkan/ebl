@@ -1748,6 +1748,16 @@ Deno.serve(async (req) => {
     for (const v of vs ?? []) if (await refreshVisit(v.id)) n++;
     return new Response(JSON.stringify({ refreshed: n }), { headers: { "Content-Type": "application/json" } });
   }
+  // действия по просьбе владельца из bot_actions (пишет только service_role): поменять реакцию на сообщении и т. п.
+  if (url.searchParams.get("actions")) {
+    const { data: rows } = await sb.from("bot_actions").select("*").is("done_at", null).order("id").limit(20);
+    for (const a of rows ?? []) {
+      // replace — реакция бота заменяет его прежнюю (🤔 → 👍)
+      const r = a.kind === "react" ? await react(a.chat_id, a.message_id, a.emoji) : { ok: false, description: "неизвестное действие" };
+      await sb.from("bot_actions").update({ done_at: new Date().toISOString(), result: r.ok ? "ok" : String(r.description ?? "нет ответа").slice(0, 200) }).eq("id", a.id);
+    }
+    return new Response(JSON.stringify({ done: (rows ?? []).length }), { headers: { "Content-Type": "application/json" } });
+  }
   // дозаполнить страну и регион у бань с точной точкой (dry — только показать)
   const fp = url.searchParams.get("fillplaces");
   if (fp) return new Response(JSON.stringify(await fillPlaces(fp === "dry", Number(url.searchParams.get("id")) || undefined)), { headers: { "Content-Type": "application/json" } });
