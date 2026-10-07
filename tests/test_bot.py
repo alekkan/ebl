@@ -845,6 +845,16 @@ sql(f"delete from visits where id = {gv}")
 sql(f"delete from baths where id = {gb}")
 sql("delete from player_accounts where tg_id = 909")
 
+print("Действия бота по просьбе владельца (bot_actions)")
+from local import TELEGRAM
+seen = len(TELEGRAM.calls)
+aid = sql(f"insert into bot_actions (kind, chat_id, message_id, emoji) values ('react', {CHAT}, 4242, '👍') returning id").splitlines()[0]
+check("запись в bot_actions — бот ставит реакцию на сообщение (замена 🤔 на 👍)",
+      wait(f"select coalesce(result, '') from bot_actions where id = {aid}", "ok")
+      and any(m == "setMessageReaction" and int(p.get("message_id") or 0) == 4242 and (p.get("reaction") or [{}])[0].get("emoji") == "👍" for m, p in TELEGRAM.calls[seen:]))
+check("гость в bot_actions не пишет", req("POST", "/rest/v1/bot_actions", {"kind": "react", "chat_id": 1, "message_id": 1})[0] in (401, 403))
+sql("delete from bot_actions")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)

@@ -88,6 +88,11 @@ Telegram Web скриптом `scripts/seed-chat-members.sh <файл> --prod` (
 пополняет его сам по входам и выходам. Сбор ушёл с «участник» вместо имени — бот поправит сам; вручную:
 `curl -X POST 'https://yeerkfdgmhcmvdqzaoio.supabase.co/functions/v1/tg-bot?rollfix=<id>'` (`id` — из `rollcalls`).
 
+**Поправить реакцию бота руками** (например, 🤔 на сообщении, которое разобрали без бота): токен есть только у функции,
+поэтому пишем действие в `bot_actions`, бот выполняет его сам (триггер → `tg-bot?actions=1`):
+`supabase db query --linked "insert into bot_actions (kind, chat_id, message_id, emoji) values ('react', -1002192445671, <номер>, '👍')"`.
+Номер сообщения — из ссылки «Копировать ссылку» (`t.me/c/2192445671/<номер>`). Итог — в `bot_actions.result` (`ok` или ошибка Telegram).
+
 ## Домен ebl.su
 
 Сайт живёт в Yandex Cloud: облако `cloud-cumulus-511`, каталог `ebl` (владелец — Леха). Переезд с GitHub Pages — 27.09.2026:
