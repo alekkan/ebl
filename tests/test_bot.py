@@ -804,6 +804,41 @@ check("Комиссия поменяла тип — в карточке пост
 sql(f"delete from visits where id = {tv}")
 sql(f"delete from baths where id = {tb}")
 
+print("Точка бани: ссылка Google на место без координат, «название, город, страна»")
+# 07.10 бот не принял у Шурика ни maps.app.goo.gl (раскрывается в /maps/place/<название, адрес> без координат), ни текст
+gb = sql("insert into baths (name, status) values ('Тест-Банско', 'ok') returning id").splitlines()[0]
+gv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {gb}, now() - interval '1 hour', 60, id, 'bot' from players where nick = 'Шурик' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {gv}, id from players where nick = 'Шурик'")
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text, geo_msg, geo_at) values ({gv}, {CHAT}, 8101, 8102, {gb}, 'Ушло в Комиссию ✅', 8102, now())")
+sql("delete from player_accounts where tg_id = 909")
+sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
+def reply_geo(text, mid):
+    upd = {"update_id": 9100 + mid, "message": {"message_id": mid, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
+           "from": {"id": 909, "is_bot": False, "first_name": "Шурик"}, "text": text,
+           "reply_to_message": {"message_id": 8102, "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": CHAT, "type": "supergroup"}, "text": "карточка"}}}
+    req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+point = lambda: sql(f"select coalesce(round(lat::numeric, 4)::text, '') || ',' || coalesce(round(lng::numeric, 4)::text, '') from baths where id = {gb}")
+reply_geo("Центр, Банско, Болгария", 81)
+check("«название, город, страна», а нашёлся только город целиком — точку не ставим (не центр Банско)", point() == ",", point())
+reply_geo("https://www.google.com/maps/place/St+George+Ski+and+Holiday+Hotel,+12+Asanitsa+Str,+2770+Bansko,+Bulgaria/data=!4m2!3m1!1s0x14abac26e09ef345:0x911eb2af96e46f1f", 82)
+check("ссылка Google на место без координат — точка по адресу из ссылки", point() == "41.8357,23.4882", point())
+sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
+sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+reply_geo("St. George, Банско, Болгария", 83)
+check("«St. George, Банско, Болгария» ответом на карточку — точка найденного места", point() == "41.8361,23.4879", point())
+gid = sql("select public.geo_search('St. George, Банско, Болгария')")
+def geo_search_answer():
+    for _ in range(30):
+        r = sql(f"select status || '|' || left(content, 300) from public.geo_result({gid})")
+        if r: return r
+        time.sleep(0.3)
+    return ""
+ga = geo_search_answer()
+check("поиск адреса через сервер базы (geo_search → geo_result) — функциям Supabase геокодер не отвечает", ga.startswith("200|") and "41.8361" in ga, ga)
+sql(f"delete from visits where id = {gv}")
+sql(f"delete from baths where id = {gb}")
+sql("delete from player_accounts where tg_id = 909")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)

@@ -29,6 +29,15 @@ PLACES = [
 ]
 
 
+# ответы Nominatim /search для адресов из тестов (07.10: ссылка Google на место без координат и «название, город, страна»);
+# город целиком (addresstype town) — не точка бани, бот его отбрасывает
+SEARCH = {
+    "12 Asanitsa Str, 2770 Bansko, Bulgaria": [{"lat": "41.8357", "lon": "23.4882", "addresstype": "building", "category": "building"}],
+    "St. George, Банско, Болгария": [{"lat": "41.8361", "lon": "23.4879", "addresstype": "hotel", "category": "tourism"}],
+    "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
+}
+
+
 def env_file():
     out = {}
     if ENV_FILE.exists():
@@ -177,7 +186,7 @@ def start(token):
                 if what == "reverse":
                     return self.reply(*reverse(urllib.parse.parse_qs(u.query)))
                 if what == "search":
-                    return self.reply(200, [])
+                    return self.reply(200, SEARCH.get(urllib.parse.parse_qs(u.query).get("q", [""])[0], []))
             if u.path.startswith(prefixes["NPM_CDN_URL"] + "/"):
                 data = npm_file(u.path[len(prefixes["NPM_CDN_URL"]) + 1:])
                 if data:
