@@ -958,9 +958,15 @@
       // тип не размечен — спрашиваем: от него зависит +1 за общественную (п. 4); ответ сохранится у бани
       const ask = picked.t === "unknown" ? `<div class="type-ask"><span class="lab">Какая это баня? <small>тип не отмечен, за общественную +1</small></span>
         <div class="chips">${Object.entries(TYPE_CHOICE).map(([t, l]) => `<button type="button" data-ptype="${t}" aria-pressed="${pickedType === t}">${tdot(t)}${l}</button>`).join("")}</div></div>` : "";
-      box.innerHTML = `<div class="picked"><span><b>${esc(picked.name)}</b><small>${tdot(picked.t)} ${TYPE_LABEL[picked.t]} · ${esc(where(picked))}</small></span><button type="button" class="btn sm" data-other>Другая</button></div>${ask}`;
+      // точки нет или она примерная — спрашиваем тут же: человек только что из бани и знает, где она (как «📍 Знаю, где это» в карточке)
+      const geo = D.live && (!picked.ll || picked.prec !== "exact") ? `<div class="type-ask geo-ask"><span class="lab">${picked.ll ? "Точка этой бани на карте примерная" : "Этой бани ещё нет на карте"} <small>— кинь ссылку, если знаешь</small></span>
+        <div class="geo-row"><input class="inp" id="vGeo" placeholder="Ссылка на баню в картах, адрес или координаты" autocomplete="off"><button type="button" class="btn sm" id="vGeoSet">Поставить</button></div>
+        <span class="hint" id="vGeoState" hidden></span></div>` : "";
+      box.innerHTML = `<div class="picked"><span><b>${esc(picked.name)}</b><small>${tdot(picked.t)} ${TYPE_LABEL[picked.t]} · ${esc(where(picked))}</small></span><button type="button" class="btn sm" data-other>Другая</button></div>${ask}${geo}`;
       $("[data-other]", box).onclick = () => { picked = null; pickedType = null; renderPicked(); calc(); $("#vBathQ").focus(); };
       $$("[data-ptype]", box).forEach((b) => (b.onclick = () => { pickedType = pickedType === b.dataset.ptype ? null : b.dataset.ptype; renderPicked(); calc(); }));
+      $("#vGeoSet", box)?.addEventListener("click", () => setPickedPoint(picked));
+      $("#vGeo", box)?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); setPickedPoint(picked); } });
     } else box.hidden = true;
     if (isNew) setTimeout(() => {
       if (!pickMap) {
@@ -973,6 +979,18 @@
       }
       pickMap.invalidateSize();
     }, 0);
+  }
+  // точка бани из справочника — прямо из формы похода; сохраняется сразу, независимо от самого похода
+  async function setPickedPoint(b) {
+    const input = $("#vGeo").value.trim(), state = $("#vGeoState");
+    if (!input) return $("#vGeo").focus();
+    state.hidden = false; state.textContent = "Ищу…";
+    try {
+      const p = await D.setBathLocation(b.id, input);
+      b.lat = p.lat; b.lng = p.lng; b.precision = "exact"; hydrate(b); render();
+      $(".geo-ask").innerHTML = `<span class="lab">📍 Точка поставлена — спасибо!</span>`;
+      refreshData().catch(() => {});   // страну и регион по точке сервер мог заполнить
+    } catch (err) { state.textContent = err.message; }
   }
   // точка новой бани: кликом, перетаскиванием, по ссылке/адресу или геопозиции
   function placePin(p, fly = true) {
