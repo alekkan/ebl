@@ -7,7 +7,7 @@
 Перед запуском: supabase start, supabase functions serve (см. AGENTS.md). Нужен Google Chrome.
 Запуск: python3 tests/test_site.py        (скриншоты провалов — в tests/artifacts/)
 """
-import base64, functools, http.server, json, pathlib, re, threading, time, urllib.parse
+import base64, functools, http.server, json, pathlib, re, threading, time, urllib.error, urllib.parse, urllib.request
 from playwright.sync_api import sync_playwright
 import stub
 from local import API, KEY, TELEGRAM, check, link, player_id, session, sql
@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 ART = ROOT / "tests" / "artifacts"
 # фото походов — из заглушки хранилища (tests/stub.py): функции ходят в неё через host.docker.internal, браузер — напрямую
 PHOTOS = stub.env_file()["S3_URL"].replace("host.docker.internal", "127.0.0.1") + "/ebl-photos"
+STUB_PORT = urllib.parse.urlsplit(PHOTOS).port
 LIVE_CONFIG = f'window.EBL_CONFIG = {{ supabaseUrl: "{API}", supabaseKey: "{KEY}", telegramBot: "eblsu_bot", telegramBotId: 1, photosUrl: "{PHOTOS}" }};'
 SHOWCASE_CONFIG = 'window.EBL_CONFIG = { supabaseUrl: "", supabaseKey: "", telegramBot: "" };'
 # ключ, под которым supabase-js хранит сессию: sb-<первая часть адреса>-auth-token
@@ -128,6 +129,17 @@ class Site:
             return route.fulfill(body="", content_type="text/css")
         if u.hostname in ("tile.openstreetmap.org", "server.arcgisonline.com"):
             return route.fulfill(body=TILE, content_type="image/png")
+        if u.hostname == "host.docker.internal" and u.port == STUB_PORT:
+            # одноразовая ссылка на бакет от функции photos: функции видят заглушку по этому имени, браузер — по 127.0.0.1
+            r = route.request
+            fwd = urllib.request.Request(r.url.replace("host.docker.internal", "127.0.0.1"), data=r.post_data_buffer, method=r.method,
+                                         headers={k: v for k, v in r.headers.items() if k.lower() in ("content-type", "cache-control")})
+            try:
+                with urllib.request.urlopen(fwd, timeout=10) as resp:
+                    status, body = resp.status, resp.read()
+            except urllib.error.HTTPError as e:
+                status, body = e.code, e.read()
+            return route.fulfill(status=status, body=body, headers={"Access-Control-Allow-Origin": "*"})
         if u.hostname == "nominatim.openstreetmap.org" and u.path == "/reverse":
             status, body = stub.reverse(urllib.parse.parse_qs(u.query))
             return route.fulfill(status=status, json=body, headers={"Access-Control-Allow-Origin": "*"})
@@ -266,6 +278,7 @@ with sync_playwright() as pw:
         s.page.click('#vDurChips button[data-m="180"]')
         s.page.click("#vComp button")
         s.page.fill("#vPrice", "700"); s.page.fill("#vPrBeer", "280")
+        s.page.set_input_files("#vPhotos", files=[{"name": "par.png", "mimeType": "image/png", "buffer": TILE}])
         s.page.wait_for_timeout(500)
         check("в талоне есть очки", s.js("() => /Итого\\s*\\+[1-9]/.test(document.getElementById('calc').innerText)"),
               s.js("() => document.getElementById('calc').innerText"))
@@ -275,6 +288,17 @@ with sync_playwright() as pw:
         vid = max(map(int, new)) if new else None
         row = sql(f"select source || ' ' || status || ' ' || (select count(*) from visit_players where visit_id = {vid}) from visits where id = {vid}") if vid else ""
         check("поход сохранился: с сайта, на модерации, с попутчиком", row == "site pending 2", row)
+        # фото из формы: браузер уменьшил, положил в бакет по одноразовой ссылке, функция проверила оба файла и показала
+        ph = lambda: sql(f"select coalesce(string_agg(key || ' ' || ready || ' ' || source || ' ' || w || 'x' || h, ','), '') from visit_photos where visit_id = {vid}") if vid else ""
+        for _ in range(40):   # не time.sleep: он стопорит Playwright, и запись в бакет (через _offline) не идёт
+            if " true " in ph(): break
+            s.page.wait_for_timeout(500)
+        row = ph()
+        check("фото из формы похода легло в бакет и показано", row.endswith(" true site 1x1"), row)
+        pk = row.split(" ")[0]
+        check("в бакете — большое и превью, кэш на год", all(TELEGRAM.s3.get(f"ebl-photos/{pk}{x}.jpg", {}).get("cache", "").endswith("immutable") for x in ("", "_s")),
+              {k: v.get("cache") for k, v in TELEGRAM.s3.items() if pk in k})
+        check("загрузка — без ошибок в консоли", not s.errors, s.errors[:3])
         # цена и цена пива, вписанные прямо в форму похода, сохраняются тем же путём, что и через карточку бани
         check("цена из формы похода сохранилась", sql(f"select count(*) from bath_prices where bath_id = {bath}") == "1")
         check("цена пива из формы похода сохранилась", sql(f"select count(*) from bath_beer_prices where bath_id = {bath}") == "1")
@@ -309,11 +333,11 @@ with sync_playwright() as pw:
         s.page.wait_for_selector("#dPhotos:not([hidden]) .ph", timeout=8000)
         check("в карточке бани — лента фото похода с датой на первом", s.js("""() => {
           const ph = [...document.querySelectorAll('#dPhotos .ph')];
-          return ph.length === 2 && ph[0].querySelector('span')?.innerText === 'сегодня' && !ph[1].querySelector('span');
-        }"""))
-        s.page.click("#dPhotos .ph")
-        check("фото открывается во весь экран: большое, «1 / 2»", s.js(f"""() => !document.getElementById('photoModal').hidden
-          && document.getElementById('pvImg').src.endsWith('{pkeys[0]}.jpg') && document.getElementById('pvCap').innerText.startsWith('1 / 2')"""))
+          return ph.length === 3 && ph[0].querySelector('span')?.innerText === 'сегодня' && !ph[1].querySelector('span') && !ph[2].querySelector('span');
+        }"""))   # три фото одного похода: загруженное через форму и два подложенных
+        s.page.click("#dPhotos .ph >> nth=1")
+        check("фото открывается во весь экран: большое, «2 / 3»", s.js(f"""() => !document.getElementById('photoModal').hidden
+          && document.getElementById('pvImg').src.endsWith('{pkeys[0]}.jpg') && document.getElementById('pvCap').innerText.startsWith('2 / 3')"""))
         s.page.keyboard.press("ArrowRight")
         check("стрелка — следующее фото", s.js(f"() => document.getElementById('pvImg').src.endsWith('{pkeys[1]}.jpg')"))
         s.page.keyboard.press("Escape")
@@ -324,6 +348,9 @@ with sync_playwright() as pw:
         g.page.click(f'#list .item[data-id="{bath}"]'); g.page.wait_for_timeout(1500)
         check("гостю фото не видны: ленты нет", g.js("() => document.getElementById('dPhotos').hidden && !document.querySelector('#dPhotos .ph')"))
         g.close()
+        s.view("feed")
+        check("в ленте у своего похода — «📷 Фото»", s.js(f"() => !!document.querySelector('#feed [data-addph=\"{vid}\"]')"))
+        s.view("map")
         # отзывы: второй не затирает первый, свой можно удалить
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)

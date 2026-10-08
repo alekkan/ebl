@@ -272,6 +272,32 @@ window.EBLData = (() => {
         src: `${cfg.photosUrl}/${p.key}.jpg`, thumb: `${cfg.photosUrl}/${p.key}_s.jpg` }))
         .sort((a, b) => b.date.localeCompare(a.date) || a.id - b.id);
     },
+    // загрузка с сайта: функция photos выдаёт места под фото и одноразовые ссылки, файлы браузер кладёт прямо в бакет Яндекса
+    // (через Cloudflare тяжёлое не гоняем), потом просит показать. Фото, которое не легло, пропускаем — остальные грузим.
+    // items: [{ big: {blob, w, h}, small: {blob} }]; возвращает, сколько фото показалось
+    async uploadPhotos(visitId, items, progress) {
+      const { data: { session } } = await sb.auth.getSession();
+      const call = async (what, body) => {
+        const r = await fetch(base + "/functions/v1/photos?" + what, {
+          method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: "Bearer " + (session?.access_token ?? "") },
+          body: JSON.stringify(body),
+        });
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(res.error || "Фото не загрузились");
+        return res;
+      };
+      const { photos, cache: cacheControl } = await call("upload", { visit_id: visitId, files: items.map((x) => ({ w: x.big.w, h: x.big.h })) });
+      const put = async (url, blob) => {
+        const r = await fetch(url, { method: "PUT", body: blob, headers: { "Content-Type": "image/jpeg", "Cache-Control": cacheControl } });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+      };
+      const done = [];
+      for (const [i, p] of photos.entries()) {
+        try { await put(p.put, items[i].big.blob); await put(p.put_s, items[i].small.blob); done.push(p.id); } catch { /* это фото не легло */ }
+        progress?.(i + 1);
+      }
+      return done.length ? (await call("done", { ids: done })).ready.length : 0;
+    },
     // точка бани по ссылке на карту или координатам — разбирает edge-функция (короткие ссылки раскрываются там)
     async findLocation(input) {
       if (!live) throw new Error("Поиск по ссылке и адресу работает на боевом сайте — поставь точку кликом по карте");

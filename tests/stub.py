@@ -181,7 +181,7 @@ def start(token):
                     return self.reply(200, jpeg(m[2]), "application/octet-stream")   # Telegram отдаёт файлы без типа
                 return self.reply(404, {"ok": False, "error_code": 404, "description": "Not Found"})
             if u.path.startswith(prefixes["S3_URL"] + "/"):
-                return self.s3(u.path[len(prefixes["S3_URL"]) + 1:])
+                return self.s3(u.path[len(prefixes["S3_URL"]) + 1:], u.query)
             if u.path.startswith(prefixes["TELEGRAM_API_URL"] + "/bot"):
                 m = re.match(r"^/bot([^/]+)/(\w+)$", u.path[len(prefixes["TELEGRAM_API_URL"]):])
                 if m:
@@ -200,10 +200,12 @@ def start(token):
             self.rfile.read(int(self.headers.get("Content-Length") or 0))   # непрочитанное тело при закрытии — это сброс соединения
             self.reply(404, {"ok": False, "error_code": 404, "description": "Not Found (заглушка тестов)"})
 
-        # бакет Яндекса: PUT кладёт (только с подписью AWS4 — как настоящий), GET/HEAD отдают; всё в памяти (tg.s3)
-        def s3(self, path):
+        # бакет Яндекса: PUT кладёт (только с подписью AWS4 — как настоящий: в заголовке у функции или в адресе у одноразовой
+        # ссылки, по которой грузит браузер), GET/HEAD отдают; всё в памяти (tg.s3)
+        def s3(self, path, query=""):
             if self.command == "PUT":
-                if not (self.headers.get("Authorization") or "").startswith("AWS4-HMAC-SHA256"):
+                signed = (self.headers.get("Authorization") or "").startswith("AWS4-HMAC-SHA256") or "X-Amz-Signature=" in query
+                if not signed:
                     return self.reply(403, {"error": "AccessDenied"})
                 n = int(self.headers.get("Content-Length") or 0)
                 tg.s3[path] = {"body": self.rfile.read(n) if n else b"", "type": self.headers.get("Content-Type"),

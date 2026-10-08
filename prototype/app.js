@@ -590,6 +590,45 @@
     if (Math.abs(dx) > 40) stepPhoto(dx < 0 ? 1 : -1);
   });
 
+  // фото к походу с сайта: браузер уменьшает снимок — до 1600 px и превью 400 px — и кладёт прямо в хранилище Яндекса;
+  // canvas заодно стирает метаданные снимка, в том числе GPS. Не открылось (HEIC на компьютере, не картинка) — пропускаем
+  async function shrink(file, max) {
+    const img = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const k = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    img.close?.();
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.85));
+    if (!blob) throw new Error("не сжалось");
+    return { blob, w: c.width, h: c.height };
+  }
+  async function uploadPhotos(visitId, bathId, files) {
+    files = files.slice(0, 10);
+    const items = [];
+    for (const f of files) {
+      try { items.push({ big: await shrink(f, 1600), small: await shrink(f, 400) }); } catch { /* не открылось — пропускаем */ }
+    }
+    if (!items.length) return toast("Фото не открылись — нужен JPEG или PNG (HEIC браузер на компьютере не читает)");
+    toast(`📷 Загружаю фото: 0 из ${items.length}…`);
+    try {
+      const n = await D.uploadPhotos(visitId, items, (i) => toast(`📷 Загружаю фото: ${i} из ${items.length}…`));
+      photoCache.delete(bathId);
+      if (openId === bathId) openBath(bathId);
+      const skipped = files.length - items.length;
+      toast(n === files.length ? `📷 Фото добавлены: ${n}` : `📷 Добавлено ${n} из ${files.length}${skipped ? " — часть не открылась" : " — остальные не загрузились"}`);
+    } catch (err) { toast("Фото не загрузились: " + err.message); }
+  }
+  // «📷 Фото» у своего похода в ленте — выбор файлов и загрузка
+  const inVisit = (v) => !!myNick && (v.player === myNick || v.companions.includes(myNick));
+  function pickPhotos(v) {
+    if (!v) return;
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = "image/*"; inp.multiple = true;
+    inp.onchange = () => inp.files.length && uploadPhotos(v.id, v.bathId, [...inp.files]);
+    inp.click();
+  }
+
   function closeBath() { $("#drawer").hidden = true; openId = null; $$(".pin.sel").forEach((p) => p.classList.remove("sel")); $$(".item.active").forEach((x) => x.classList.remove("active")); }
 
   // ---------- таблица ----------
@@ -950,6 +989,7 @@
     picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0; pickedType = null;
     if (pickMarker) { pickMarker.remove(); pickMarker = null; }
     $("#nbGeoState").textContent = "Или кликни на карте. Точку можно перетащить.";
+    $("#vPhotosField").hidden = !D.live; $("#vPhotosState").textContent = PHOTOS_HINT;
     renderComp(); renderPicked(); calc();
     $("#visitModal").hidden = false;
     if (!picked) setTimeout(() => $("#vBathQ").focus(), 50);
@@ -967,6 +1007,11 @@
     setTimeout(() => { pouring = false; openVisit(); }, wait);
   };
 
+  const PHOTOS_HINT = $("#vPhotosState").textContent;
+  $("#vPhotos").addEventListener("change", () => {
+    const n = $("#vPhotos").files.length;
+    $("#vPhotosState").textContent = n ? `Выбрано: ${n}${n > 10 ? " — возьмём первые 10" : ""}. Загрузятся после отправки похода.` : PHOTOS_HINT;
+  });
   function setDur(m) {
     $("#vDur").value = m;
     $$("#vDurChips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === m)));
@@ -1191,6 +1236,7 @@
     const payload = { bathId: picked.id, newBath, date: r.date, week: r.week, dur: r.dur,
       bathType: picked !== "new" && picked.t === "unknown" ? pickedType : null,
       companions: r.comp, player: r.player, lines: r.lines.filter((l) => l[1]), total: r.total };
+    const files = [...($("#vPhotos")?.files || [])];   // форму сбросит следующее открытие — забираем сейчас
     vf.dataset.busy = "1"; $("#vSubmit span").textContent = "Отправляю…";
     try {
       const saved = await D.submitVisit(payload);
@@ -1222,6 +1268,7 @@
       updateBadge(); render();
       if (!$("#view-feed").hidden) renderFeed();
       toast(`С лёгким паром! <b>+${r.total}</b> ушло на модерацию`, true);
+      if (D.live && files.length) setTimeout(() => uploadPhotos(saved.id, payload.bathId, files), 1500);
     } catch (err) {
       toast("Поход не сохранился: " + err.message);
     } finally {
@@ -1306,9 +1353,10 @@
         ${v.status === "rejected" && v.reason ? `<div class="post-reason">Причина: ${esc(v.reason)}</div>` : ""}
         <div class="post-head" style="justify-content:space-between">
           <span class="post-pts">${pts != null ? "+" + fmt(pts) : ""}${v.total == null && v.status === "pending" ? '<small class="hint"> по талону</small>' : ""}</span>
-          ${sec ? `<span class="post-actions">
-            ${v.status === "pending" ? `<button class="btn sm solid" data-ok="${v.id}">${icon("check")}Засчитать</button><button class="btn sm danger" data-no="${v.id}">Отклонить</button>` : ""}
-            ${D.live ? `<button class="btn sm" data-edit="${v.id}">✏️ Изменить</button>` : ""}
+          ${sec || inVisit(v) ? `<span class="post-actions">
+            ${inVisit(v) && v.status !== "rejected" ? `<button class="btn sm" data-addph="${v.id}">📷 Фото</button>` : ""}
+            ${sec && v.status === "pending" ? `<button class="btn sm solid" data-ok="${v.id}">${icon("check")}Засчитать</button><button class="btn sm danger" data-no="${v.id}">Отклонить</button>` : ""}
+            ${sec && D.live ? `<button class="btn sm" data-edit="${v.id}">✏️ Изменить</button>` : ""}
           </span>` : ""}
         </div>
       </article>`;
@@ -1317,8 +1365,9 @@
   }
   $("#feed").addEventListener("click", (e) => {
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
-    const ed = e.target.closest("[data-edit]")?.dataset.edit;
+    const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
     if (ed) return openEdit(visits.find((x) => x.id === +ed));
+    if (ph) return pickPhotos(visits.find((x) => x.id === +ph));
     if (ok || no) {
       const v = visits.find((x) => x.id === +(ok || no));
       // причину отказа увидит автор — и в ленте, и в чате; «Отмена» — не отклонять

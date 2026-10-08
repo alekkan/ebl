@@ -240,6 +240,30 @@ try:
           (real.get("state"), real.get("country")) == ("Кировская область", "Россия"), real)
 except (urllib.error.URLError, OSError, ValueError) as e:
     print(f"  – пропущено [сеть]: настоящий геокодер OSM сейчас недоступен ({getattr(e, 'code', None) or getattr(e, 'reason', None) or e})")
+print("Фото с сайта")
+# браузер получает места под фото и одноразовые ссылки, кладёт файлы прямо в бакет (здесь — заглушка), потом просит показать
+ph = lambda what, body, token=None: req("POST", f"/functions/v1/photos?{what}", body, token=token)
+one = {"visit_id": vid, "files": [{"w": 800, "h": 600}]}
+check("без входа фото не добавить", ph("upload", one)[0] == 401)
+check("вошедшему, но не участнику лиги — тоже", ph("upload", one, stranger)[0] == 401)
+ov = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by) values (5, now() - interval '3 days', 120, '{vit}') returning id").split()[0]
+check("в чужой поход — нельзя", ph("upload", {**one, "visit_id": int(ov)}, shurik)[0] == 403)
+sql(f"delete from visits where id = {ov}")
+check("без размеров — нельзя", ph("upload", {**one, "files": [{"w": 0, "h": 600}]}, shurik)[0] == 400)
+s, r = ph("upload", {"visit_id": vid, "files": [{"w": 1600, "h": 1200}, {"w": 1200, "h": 1600}]}, shurik)
+check("участник похода получает места под фото и одноразовые ссылки на запись",
+      s == 200 and len(r.get("photos", [])) == 2 and all("X-Amz-Signature=" in p["put"] and "X-Amz-Expires=900" in p["put_s"] for p in r["photos"]), (s, r))
+check("пока файлы не легли — фото не видно", sql(f"select count(*) from visit_photos where visit_id = {vid} and ready") == "0")
+p0, p1 = r["photos"]
+for u in (p0["put"], p0["put_s"]):   # функции видят заглушку как host.docker.internal, тесты — как 127.0.0.1
+    urllib.request.urlopen(urllib.request.Request(u.replace("host.docker.internal", "127.0.0.1"), data=b"\xff\xd8x\xff\xd9", method="PUT",
+                                                  headers={"Content-Type": "image/jpeg", "Cache-Control": r["cache"]}))
+check("чужое фото «готовым» не пометить", ph("done", {"ids": [p0["id"]]}, vitek)[1].get("ready") == [])
+s, d = ph("done", {"ids": [p0["id"], p1["id"]]}, shurik)
+check("показано только фото, у которого легли оба файла", s == 200 and d.get("ready") == [p0["id"]], (s, d))
+check("и только оно видно участникам", sql(f"select string_agg(id::text, ',') from visit_photos where visit_id = {vid} and ready") == str(p0["id"]))
+sql(f"delete from visit_photos where visit_id = {vid}")
+
 # убираем за собой: иначе следующий прогон упрётся в «одна баня в сутки»
 sql(f"delete from visits where id = {vid}")
 sql("update settings set value = '40' where key = 'cutover_week'")

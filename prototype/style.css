@@ -309,6 +309,8 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .type-ask { margin-top: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--honey-soft); display: grid; gap: 8px; }
 .type-ask .lab small { font-weight: 500; color: var(--ink-3); }
 .type-ask .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.photo-pick { position: relative; justify-self: start; cursor: pointer; }
+.photo-pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }   /* не hidden: так надёжнее открывается выбор файлов на iPhone */
 .geo-ask .geo-row { grid-template-columns: minmax(0, 1fr) auto; }
 .pill.ember { background: var(--ember-soft); color: var(--ember); }
 .pill.oak { background: var(--oak); color: var(--oak-ink); }
