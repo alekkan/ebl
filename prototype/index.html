@@ -436,6 +436,17 @@
   </div>
 </div>
 
+<!-- фото похода во весь экран -->
+<div class="modal photo-modal" id="photoModal" hidden>
+  <div class="pv" role="dialog" aria-modal="true" aria-label="Фото похода">
+    <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
+    <img id="pvImg" alt="">
+    <button class="pv-nav prev" type="button" id="pvPrev" aria-label="Предыдущее фото">‹</button>
+    <button class="pv-nav next" type="button" id="pvNext" aria-label="Следующее фото">›</button>
+    <div class="pv-cap" id="pvCap"></div>
+  </div>
+</div>
+
 <datalist id="countryList"></datalist>
 <datalist id="regionList"></datalist>
 

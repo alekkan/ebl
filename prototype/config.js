@@ -9,4 +9,5 @@ window.EBL_CONFIG = {
   authKey: "sb-yeerkfdgmhcmvdqzaoio-auth-token",   // ключ сессии в браузере — прежний, чтобы после смены адреса никого не разлогинило
   telegramBot: "eblsu_bot",   // username бота без @; домен входа задан в BotFather (/setdomain)
   telegramBotId: 8889070315,  // числовой id бота — публичный, это не токен
+  photosUrl: "https://storage.yandexcloud.net/ebl-photos",   // фото походов (docs/photos.md): <key>.jpg и превью <key>_s.jpg
 };

@@ -398,6 +398,7 @@
         <div class="where">${icon("pin")}${esc(where(b))}</div>
       </div>
       <div class="d-body">
+        <div class="d-photos" id="dPhotos" hidden></div>
         <div class="stats">
           <div><b>${b.n26}</b><span>${plural(b.n26, "поход", "похода", "походов")} в 2026</span></div>
           <div><b>${who.length}</b><span>${plural(who.length, "участник", "участника", "участников")}</span></div>
@@ -476,6 +477,10 @@
         </form>`}
       </div>`;
     d.hidden = false;
+    if (D.live && member) {
+      if (!photoCache.has(id)) photoCache.set(id, D.bathPhotos(id).catch(() => { photoCache.delete(id); return []; }));
+      photoCache.get(id).then((ps) => renderPhotos(id, ps));
+    }
     $(".x", d).onclick = closeBath;
     $("#dType", d)?.addEventListener("change", async (e) => {
       try {
@@ -548,6 +553,43 @@
       } catch (err) { toast("Отзыв не сохранился: " + err.message); }
     };
   }
+  // фото походов в карточке бани (docs/photos.md): лента, свежие походы первыми; дата — на первом фото похода, между походами
+  // промежуток шире; имён нет. Грузим, когда карточку открыли, и держим до перезагрузки — карточка перерисовывается часто
+  const photoCache = new Map();
+  function renderPhotos(id, ps) {
+    const box = $("#dPhotos"); if (!box || openId !== id || !ps.length) return;
+    box.innerHTML = `<div class="ph-strip">${ps.map((p, i) => {
+      const first = i === 0 || ps[i - 1].visitId !== p.visitId;
+      return `<button type="button" class="ph${first && i ? " gap" : ""}" data-ph="${i}" style="aspect-ratio: ${p.w || 4} / ${p.h || 3}" aria-label="Фото ${i + 1} из ${ps.length}"><img src="${esc(p.thumb)}" alt="" loading="lazy">${first ? `<span>${dayLabel(p.date)}</span>` : ""}</button>`;
+    }).join("")}</div>`;
+    box.hidden = false;
+    $$("[data-ph]", box).forEach((x) => (x.onclick = () => openPhotos(ps, +x.dataset.ph)));
+  }
+  // просмотр во весь экран: стрелки и свайп; Esc и тап мимо закрывают, как любое окно
+  let pv = { list: [], i: 0 };
+  function openPhotos(list, i) { pv = { list, i }; showPhoto(); $("#photoModal").hidden = false; }
+  function showPhoto() {
+    const p = pv.list[pv.i]; if (!p) return;
+    $("#pvImg").src = p.src;
+    $("#pvCap").textContent = `${pv.i + 1} / ${pv.list.length} · ${dayLabel(p.date)}`;
+    $("#pvPrev").hidden = pv.i === 0; $("#pvNext").hidden = pv.i === pv.list.length - 1;
+  }
+  const stepPhoto = (step) => { const n = pv.i + step; if (n >= 0 && n < pv.list.length) { pv.i = n; showPhoto(); } };
+  $("#pvPrev").onclick = () => stepPhoto(-1);
+  $("#pvNext").onclick = () => stepPhoto(1);
+  $("#photoModal .pv").addEventListener("click", (e) => { if (e.target === e.currentTarget) $("#photoModal").hidden = true; });
+  document.addEventListener("keydown", (e) => {
+    if ($("#photoModal").hidden) return;
+    if (e.key === "ArrowLeft") stepPhoto(-1); else if (e.key === "ArrowRight") stepPhoto(1);
+  });
+  let touchX = null;
+  $("#photoModal").addEventListener("touchstart", (e) => (touchX = e.touches[0].clientX), { passive: true });
+  $("#photoModal").addEventListener("touchend", (e) => {
+    if (touchX == null) return;
+    const dx = e.changedTouches[0].clientX - touchX; touchX = null;
+    if (Math.abs(dx) > 40) stepPhoto(dx < 0 ? 1 : -1);
+  });
+
   function closeBath() { $("#drawer").hidden = true; openId = null; $$(".pin.sel").forEach((p) => p.classList.remove("sel")); $$(".item.active").forEach((x) => x.classList.remove("active")); }
 
   // ---------- таблица ----------
