@@ -7,16 +7,18 @@ window.EBLData = (() => {
   const broken = configured && !window.supabase;
   const live = configured && !broken;
   // Два пути к базе. Основной — шлюз в Яндексе (supabaseUrl): Supabase за Cloudflare, а его в России режут провайдеры.
-  // Запасной — напрямую (directUrl): у части VPN до *.yandexcloud.net не достучаться (28.09). Шлюз не ответил за 6 с — напрямую.
+  // Запасной — напрямую (directUrl): у части VPN до *.yandexcloud.net не достучаться (28.09). Шлюз не ответил вовсе за 6 с — напрямую.
+  // Ответ с ошибкой — не повод уходить: 503 значит, что Supabase не ответил самому шлюзу в плохую минуту связи Яндекса с Cloudflare,
+  // а путь к Яндексу есть. Напрямую без VPN режутся большие ответы — сайт так и висел на заставке (08.10); 503 клиент повторит сам.
   // По скорости не выбираем: без VPN маленький запрос напрямую проходит — режутся только большие ответы.
   let sb = null, base = cfg.supabaseUrl;
   const clientFor = (url) => window.supabase.createClient(url, cfg.supabaseKey, cfg.authKey ? { auth: { storageKey: cfg.authKey } } : undefined);
   async function pickBase() {
     if (!cfg.directUrl) return cfg.supabaseUrl;
     try {
-      const r = await fetch(cfg.supabaseUrl + "/rest/v1/settings?select=key&limit=1",
+      await fetch(cfg.supabaseUrl + "/rest/v1/settings?select=key&limit=1",
         { headers: { apikey: cfg.supabaseKey }, ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(6000) } : {}) });
-      if (r.ok) return cfg.supabaseUrl;
+      return cfg.supabaseUrl;
     } catch { /* шлюз недоступен — идём запасным путём */ }
     return cfg.directUrl;
   }
