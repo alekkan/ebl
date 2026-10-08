@@ -90,8 +90,9 @@ def serve():
 class Site:
     """Страница сайта с собранными ошибками консоли; config.js — локальный стенд или витрина."""
 
-    def __init__(self, browser, url, *, config=LIVE_CONFIG, sess=None, mobile=False, name="site"):
+    def __init__(self, browser, url, *, config=LIVE_CONFIG, sess=None, mobile=False, name="site", route=None, noise=None):
         self.name = name
+        self.noise = noise   # ещё одна нарочная ошибка сценария (подстрока адреса), кроме мёртвого DEAD
         self.ctx = browser.new_context(viewport={"width": 375, "height": 812} if mobile else {"width": 1280, "height": 860},
                                        is_mobile=mobile, has_touch=mobile)
         self.page = self.ctx.new_page()
@@ -100,6 +101,8 @@ class Site:
         self.page.on("pageerror", lambda e: self.errors.append(f"pageerror: {e}"))
         self.page.route(EXTERNAL, self._offline)
         self.page.route("**/config.js*", lambda r: r.fulfill(body=config, content_type="application/javascript"))
+        if route:   # (шаблон адреса, обработчик) — подменить ответ API в сценарии
+            self.page.route(*route)
         if sess:
             self.page.add_init_script(f"localStorage.setItem({json.dumps(AUTH_KEY)}, {json.dumps(json.dumps(sess))})")
         self.page.on("dialog", lambda d: d.accept("проверка сайта"))   # причина отказа и т. п.
@@ -129,11 +132,11 @@ class Site:
         self.errors.append(f"сайт полез в интернет: {route.request.url[:120]}")
         route.abort()
 
-    @staticmethod
-    def _noise(m):
+    def _noise(self, m):
         # не ошибка сайта — только нарочно мёртвый адрес в проверке двух путей к базе; тайлы и шрифты подменены (_offline),
         # а сбой загрузки своих файлов прятать нельзя: так пряталась причина провалов 28.09
-        return DEAD in m.text or DEAD in (m.location or {}).get("url", "")
+        where = m.text + " " + (m.location or {}).get("url", "")
+        return DEAD in where or bool(self.noise and self.noise in where)
 
     def js(self, code, arg=None):
         return self.page.evaluate(code, arg)
@@ -227,6 +230,13 @@ with sync_playwright() as pw:
         s.close()
         s = Site(browser, url, config=cfg2(API, dead), name="fallback-main")
         check("шлюз отвечает — работаем через него, прямой путь не нужен", s.js("() => document.querySelectorAll('#list .item').length > 0"))
+        s.close()
+        # 08.10: в плохую минуту связи Яндекса с Cloudflare шлюз на первый же запрос ответил 503, сайт счёл его недоступным
+        # и ушёл напрямую — а без VPN там режутся большие ответы, и сайт висел на заставке
+        busy = ("**/rest/v1/settings?*", lambda r: r.fulfill(status=503, body='{"message":"upstream"}', headers={"Access-Control-Allow-Origin": "*"}))
+        s = Site(browser, url, config=cfg2(API, dead), name="gateway-503", route=busy, noise="/rest/v1/settings")
+        check("шлюз ответил 503 (Supabase за ним не ответил) — остаёмся на шлюзе, а не уходим напрямую",
+              s.js("() => document.querySelectorAll('#list .item').length > 0"))
         s.close()
 
         print("Гость")
