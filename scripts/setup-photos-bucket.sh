@@ -19,7 +19,10 @@ REF=yeerkfdgmhcmvdqzaoio
   || "$YC" storage bucket create --name "$BUCKET" --default-storage-class standard --max-size 21474836480 >/dev/null
 "$YC" storage bucket update --name "$BUCKET" --public-read --versioning versioning-enabled \
   --lifecycle-rules '{"lifecycleRules":[{"id":"old-versions-30-days","enabled":true,"noncurrentExpiration":{"noncurrentDays":"30"}}]}' >/dev/null
-echo "Бакет: $BUCKET (файлы по ссылке, список закрыт, версии 30 дней, не больше 20 ГБ)"
+# сайт кладёт фото прямо в бакет по одноразовым ссылкам от функции photos — браузеру нужен CORS на запись с ebl.su
+"$YC" storage bucket update --name "$BUCKET" \
+  --cors 'allowed-methods=[method-put,method-get,method-head],allowed-origins=[https://ebl.su,https://www.ebl.su],allowed-headers=[*],max-age-seconds=3600' >/dev/null
+echo "Бакет: $BUCKET (файлы по ссылке, список закрыт, версии 30 дней, не больше 20 ГБ, запись с сайта — по одноразовым ссылкам)"
 
 "$YC" iam service-account get --name "$SA" >/dev/null 2>&1 \
   || "$YC" iam service-account create --name "$SA" --description "ЕБЛ: фото из походов в $BUCKET" >/dev/null
