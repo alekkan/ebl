@@ -309,6 +309,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .type-ask { margin-top: 10px; padding: 12px 14px; border-radius: var(--r); background: var(--honey-soft); display: grid; gap: 8px; }
 .type-ask .lab small { font-weight: 500; color: var(--ink-3); }
 .type-ask .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.geo-ask .geo-row { grid-template-columns: minmax(0, 1fr) auto; }
 .pill.ember { background: var(--ember-soft); color: var(--ember); }
 .pill.oak { background: var(--oak); color: var(--oak-ink); }
 .d-hero h2 { font: 700 22px/1.2 var(--display); letter-spacing: -.01em; margin: 12px 0 6px; text-wrap: balance; }
