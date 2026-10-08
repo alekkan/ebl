@@ -10,11 +10,13 @@
 import base64, functools, http.server, json, pathlib, re, threading, time, urllib.parse
 from playwright.sync_api import sync_playwright
 import stub
-from local import API, KEY, check, link, player_id, session, sql
+from local import API, KEY, TELEGRAM, check, link, player_id, session, sql
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ART = ROOT / "tests" / "artifacts"
-LIVE_CONFIG = f'window.EBL_CONFIG = {{ supabaseUrl: "{API}", supabaseKey: "{KEY}", telegramBot: "eblsu_bot", telegramBotId: 1 }};'
+# фото походов — из заглушки хранилища (tests/stub.py): функции ходят в неё через host.docker.internal, браузер — напрямую
+PHOTOS = stub.env_file()["S3_URL"].replace("host.docker.internal", "127.0.0.1") + "/ebl-photos"
+LIVE_CONFIG = f'window.EBL_CONFIG = {{ supabaseUrl: "{API}", supabaseKey: "{KEY}", telegramBot: "eblsu_bot", telegramBotId: 1, photosUrl: "{PHOTOS}" }};'
 SHOWCASE_CONFIG = 'window.EBL_CONFIG = { supabaseUrl: "", supabaseKey: "", telegramBot: "" };'
 # ключ, под которым supabase-js хранит сессию: sb-<первая часть адреса>-auth-token
 AUTH_KEY = "sb-" + API.split("//")[1].split(".")[0].split(":")[0] + "-auth-token"
@@ -294,6 +296,34 @@ with sync_playwright() as pw:
         s.page.click("#visitModal .x")
         lat, lng, prec = orig.split(",")
         sql(f"update baths set lat = {lat}, lng = {lng}, precision = '{prec}' where id = {bath}")
+        # фото похода: лента в карточке бани и просмотр во весь экран (docs/photos.md); файлы — в заглушке хранилища
+        sql("delete from visit_photos where key like 'sitetest%'")
+        pkeys = [f"sitetest{vid}a", f"sitetest{vid}b"]
+        for k in pkeys:
+            sql(f"insert into visit_photos (visit_id, added_by, source, key, w, h, ready) values ({vid}, '{player_id('Шурик')}', 'site', '{k}', 800, 600, true)")
+            for suf in ("", "_s"):
+                TELEGRAM.s3[f"ebl-photos/{k}{suf}.jpg"] = {"body": stub.jpeg(k), "type": "image/jpeg", "cache": None}
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]')
+        s.page.wait_for_selector("#dPhotos:not([hidden]) .ph", timeout=8000)
+        check("в карточке бани — лента фото похода с датой на первом", s.js("""() => {
+          const ph = [...document.querySelectorAll('#dPhotos .ph')];
+          return ph.length === 2 && ph[0].querySelector('span')?.innerText === 'сегодня' && !ph[1].querySelector('span');
+        }"""))
+        s.page.click("#dPhotos .ph")
+        check("фото открывается во весь экран: большое, «1 / 2»", s.js(f"""() => !document.getElementById('photoModal').hidden
+          && document.getElementById('pvImg').src.endsWith('{pkeys[0]}.jpg') && document.getElementById('pvCap').innerText.startsWith('1 / 2')"""))
+        s.page.keyboard.press("ArrowRight")
+        check("стрелка — следующее фото", s.js(f"() => document.getElementById('pvImg').src.endsWith('{pkeys[1]}.jpg')"))
+        s.page.keyboard.press("Escape")
+        check("Esc закрывает просмотр, карточка бани остаётся", s.js("() => document.getElementById('photoModal').hidden && !document.getElementById('drawer').hidden"))
+        s.page.click("#drawer .x")
+        g = Site(browser, url, name="guest-photos")
+        g.view("map"); g.page.fill("#q", "Василевские"); g.page.wait_for_timeout(300)
+        g.page.click(f'#list .item[data-id="{bath}"]'); g.page.wait_for_timeout(1500)
+        check("гостю фото не видны: ленты нет", g.js("() => document.getElementById('dPhotos').hidden && !document.querySelector('#dPhotos .ph')"))
+        g.close()
         # отзывы: второй не затирает первый, свой можно удалить
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)

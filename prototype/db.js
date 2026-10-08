@@ -262,6 +262,16 @@ window.EBLData = (() => {
     async linkAccount(accountId, nick) {
       check(await sb.from("player_accounts").update({ player_id: cache.playerIds[nick], claimed_nick: null }).eq("id", accountId));
     },
+    // фото походов в эту баню (docs/photos.md) — по запросу, когда открыли карточку: на загрузке сайта лишних запросов не надо.
+    // Видят только участники (RLS), файлы — в бакете Яндекса по случайному ключу. Свежие походы — первыми, внутри похода — по порядку.
+    async bathPhotos(bathId) {
+      if (!live || !cfg.photosUrl || !cache?.me?.playerId) return [];
+      const rows = check(await sb.from("visit_photos").select("id, key, w, h, visit_id, visits!inner(bath_id, entered_at)")
+        .eq("visits.bath_id", bathId).order("id").limit(300));
+      return rows.map((p) => ({ id: p.id, visitId: p.visit_id, date: mskLocal(p.visits.entered_at), w: p.w, h: p.h,
+        src: `${cfg.photosUrl}/${p.key}.jpg`, thumb: `${cfg.photosUrl}/${p.key}_s.jpg` }))
+        .sort((a, b) => b.date.localeCompare(a.date) || a.id - b.id);
+    },
     // точка бани по ссылке на карту или координатам — разбирает edge-функция (короткие ссылки раскрываются там)
     async findLocation(input) {
       if (!live) throw new Error("Поиск по ссылке и адресу работает на боевом сайте — поставь точку кликом по карте");
