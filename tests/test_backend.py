@@ -37,6 +37,9 @@ print("Права")
 req("POST", "/functions/v1/recompute", {})  # после db reset таблица пустая — считаем её из остатка
 me, vit, leha = player_id("Шурик"), player_id("Витёк"), player_id("Леха")
 check("аноним видит таблицу", len(req("GET", "/rest/v1/standings?select=nick")[1]) > 0)
+s, counts = req("GET", "/rest/v1/rpc/bath_counts_all")
+check("посещения бань для карты — одним запросом, все строки представления",
+      s == 200 and len(counts) == int(sql("select count(*) from bath_counts")) > 1000, (s, len(counts) if isinstance(counts, list) else counts))
 s, body = req("GET", "/rest/v1/visits?select=id")
 check("аноним не видит журнал", s != 200 or body == [], (s, body))
 check("поход от чужого имени запрещён",

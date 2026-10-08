@@ -8,6 +8,26 @@ info:
   version: 1.0.0
 paths:
   /{path+}:
+    # Проверку CORS (OPTIONS перед каждым запросом с ключом) шлюз отвечает сам, не ходя к Supabase: это половина всех
+    # запросов, и каждый поход к Cloudflare — шанс попасть на его плохую минуту (08.10.2026). Authorization в разрешённых
+    # заголовках — явно: «*» его не покрывает.
+    options:
+      x-yc-apigateway-integration:
+        type: dummy
+        http_code: 204
+        http_headers:
+          Access-Control-Allow-Origin: '*'
+          Access-Control-Allow-Methods: 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'
+          Access-Control-Allow-Headers: 'authorization, *'
+          Access-Control-Max-Age: '7200'
+        content:
+          '*': ''
+      parameters:
+        - name: path
+          in: path
+          required: false
+          schema:
+            type: string
     x-yc-apigateway-any-method:
       x-yc-apigateway-integration:
         type: http

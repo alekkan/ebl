@@ -97,7 +97,9 @@ window.EBLData = (() => {
   async function loadLive() {
     const [baths, counts, standings, reviews, prices, beerPrices, players, me] = await Promise.all([
       all("baths", "id, name, type, country, region, lat, lng, precision, status, created_by", (q) => q.neq("status", "rejected")),
-      all("bath_counts", "bath_id, year, nick, n", null, ["bath_id", "year", "nick"]),
+      // одним запросом, а не страницами по 1000: каждый лишний запрос через шлюз — шанс попасть на его плохую минуту;
+      // GET, а не POST — такой клиент Supabase сам повторит при 503
+      sb.rpc("bath_counts_all", {}, { get: true }).then(check).then((rows) => rows.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }))),
       all("standings", "*", null, ["nick"]),
       all("reviews", "id, bath_id, rating, text, created_at, player_id, players(nick)", null, ["id"]),
       all("bath_prices", "id, bath_id, price, currency, duration_min, is_weekend, before_time, price_date", null, ["bath_id", "price_date"]),
