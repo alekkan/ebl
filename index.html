@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#F2F4EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1311" media="(prefers-color-scheme: dark)">
+<title>ЕБЛ · Евразийская банная лига</title>
+<meta name="description" content="Карта бань лиги, турнирная таблица, недельный зачёт и жар по годам. Отмечай бани — Комиссия засчитает.">
+<!-- превью ссылки в Telegram; картинка по http, пока у ebl.su нет сертификата (см. docs/operations.md) -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ЕБЛ">
+<meta property="og:title" content="ЕБЛ · Евразийская банная лига">
+<meta property="og:description" content="Карта бань, турнирная таблица, недельный зачёт и жар по годам">
+<meta property="og:image" content="https://ebl.su/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 48 48%22%3E%3Cdefs%3E%3Cpath id=%22l%22 d=%22M0 0C-1-1-2.2-1.5-2.6-2.8-4.2-2.6-4.6-4.4-3.2-5.2-4.8-5.8-5-7.8-3.4-8.4-4.8-9.4-4.6-11.4-2.8-11.6-3.6-13-2.6-15 0-16 2.6-15 3.6-13 2.8-11.6 4.6-11.4 4.8-9.4 3.4-8.4 5-7.8 4.8-5.8 3.2-5.2 4.6-4.4 4.2-2.6 2.6-2.8 2.2-1.5 1-1 0 0Z%22 stroke=%22%23e5eedf%22 stroke-width=%221%22 paint-order=%22stroke%22/%3E%3C/defs%3E%3Ccircle cx=%2224%22 cy=%2224%22 r=%2224%22 fill=%22%23e5eedf%22/%3E%3Cg transform=%22rotate(-32 24 27)%22%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(-64) scale(.85)%22 fill=%22%232d5025%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(64) scale(.85)%22 fill=%22%232d5025%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(-42)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(42)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(-20) scale(1.1)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) rotate(20) scale(1.1)%22 fill=%22%233f6b35%22/%3E%3Cuse href=%22%23l%22 transform=%22translate(24 31) scale(1.22)%22 fill=%22%2362904d%22/%3E%3Crect x=%2221.9%22 y=%2231%22 width=%224.2%22 height=%2210.5%22 rx=%222.1%22 fill=%22%238b5a2b%22/%3E%3Crect x=%2220.6%22 y=%2229.6%22 width=%226.8%22 height=%223%22 rx=%221.5%22 fill=%22%23e3a332%22/%3E%3Crect x=%2221%22 y=%2233.6%22 width=%226%22 height=%222.2%22 rx=%221.1%22 fill=%22%23e3a332%22/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;600;700;800&display=swap">
+<link rel="stylesheet" href="vendor/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
+<link rel="stylesheet" href="vendor/MarkerCluster.min.css" integrity="sha384-uIZNAcoEHVWMk8LrCSX95DJk6FQzH6zG00LQC9BykRY1UKKpkDzDhbDLYQ1Ho3mI" crossorigin="anonymous">
+<link rel="stylesheet" href="style.css?v=20261010200355">
+</head>
+<body>
+
+<!-- спрайт: дубовый лист и иконки -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="oak-leaf">
+      <path d="M0 0C-1-1-2.2-1.5-2.6-2.8-4.2-2.6-4.6-4.4-3.2-5.2-4.8-5.8-5-7.8-3.4-8.4-4.8-9.4-4.6-11.4-2.8-11.6-3.6-13-2.6-15 0-16 2.6-15 3.6-13 2.8-11.6 4.6-11.4 4.8-9.4 3.4-8.4 5-7.8 4.8-5.8 3.2-5.2 4.6-4.4 4.2-2.6 2.6-2.8 2.2-1.5 1-1 0 0Z"/>
+      <path d="M0-1V-14" fill="none" stroke="currentColor" stroke-width=".7" stroke-linecap="round"/>
+    </g>
+    <!-- типы бань — силуэт на цветном кружке: фундаментальная общественная (как у Алексеева), штанга хуитнеса, маленький сруб из кело -->
+    <symbol id="bt-public" viewBox="0 0 24 24"><path d="M10 5.2c-.9-.8.9-1.6 0-2.6M14 5.2c-.9-.8.9-1.6 0-2.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M2.4 11.2 12 6.2l9.6 5z"/><rect x="3" y="11.8" width="18" height="1.5"/><rect x="4.3" y="13.9" width="2.1" height="4.9"/><rect x="8.4" y="13.9" width="2.1" height="4.9"/><rect x="13.5" y="13.9" width="2.1" height="4.9"/><rect x="17.6" y="13.9" width="2.1" height="4.9"/><rect x="2.2" y="19.3" width="19.6" height="1.9" rx=".4"/></symbol>
+    <symbol id="bt-spa" viewBox="0 0 24 24"><rect x=".6" y="11" width="22.8" height="2" rx="1"/><rect x="3.6" y="4.8" width="2.9" height="14.4" rx="1.1"/><rect x="17.5" y="4.8" width="2.9" height="14.4" rx="1.1"/><rect x="7" y="7.4" width="2.1" height="9.2" rx=".9"/><rect x="14.9" y="7.4" width="2.1" height="9.2" rx=".9"/></symbol>
+    <symbol id="bt-private" viewBox="0 0 24 24"><rect x="15.6" y="4.4" width="2.4" height="4.6"/><path d="M1.4 11.4 12 4.2l10.6 7.2z"/><rect x="2.4" y="12.3" width="19.2" height="2.6" rx="1.3"/><rect x="2.4" y="15.4" width="7.6" height="2.6" rx="1.3"/><rect x="14" y="15.4" width="7.6" height="2.6" rx="1.3"/><rect x="2.4" y="18.5" width="7.6" height="2.6" rx="1.3"/><rect x="14" y="18.5" width="7.6" height="2.6" rx="1.3"/></symbol>
+    <!-- банная шапка-боярка: замша и овчина, «ЕБЛ» на меху — за победу в неделе -->
+    <symbol id="i-banhat" viewBox="0 0 40 31"><path d="M20.2 4 C19.8 2 21.2 .6 23.3 1.1" fill="none" stroke="#5a3717" stroke-width="2.8" stroke-linecap="round"/><path d="M20.2 4 C19.8 2 21.2 .6 23.3 1.1" fill="none" stroke="#b9773b" stroke-width="1.5" stroke-linecap="round"/><path d="M20.5 3.2 C20.5 2.2 21.3 1.6 22.4 1.6" fill="none" stroke="#cd8d4e" stroke-width=".5" stroke-linecap="round"/><path d="M8.4 22.5 C8.0 10.6 13.5 3.6 20 3.6 C26.5 3.6 32 10.6 31.6 22.5 Z" fill="#b9773b"/><path d="M20 3.7 C16.5 7.8 14.6 14 14.2 22.5 L8.4 22.5 C8 10.6 13.5 3.6 20 3.7Z" fill="#cd8d4e" opacity=".55"/><path d="M20 3.7 C23.5 7.8 25.4 14 25.8 22.5 L31.6 22.5 C32 10.6 26.5 3.6 20 3.7Z" fill="#9a5d28" opacity=".55"/><path d="M11.6 16.4 C11.9 11.4 14.4 7.6 17.8 6.3" fill="none" stroke="#dfa566" stroke-width="1.6" stroke-linecap="round" opacity=".7"/><circle cx="11.0" cy="18.0" r=".22" fill="#a5682f" opacity=".7"/><circle cx="13.2" cy="12.5" r=".22" fill="#a5682f" opacity=".7"/><circle cx="16.8" cy="16.0" r=".22" fill="#a5682f" opacity=".7"/><circle cx="18.6" cy="10.4" r=".22" fill="#a5682f" opacity=".7"/><circle cx="21.8" cy="15.2" r=".22" fill="#a5682f" opacity=".7"/><circle cx="23.3" cy="9.6" r=".22" fill="#a5682f" opacity=".7"/><circle cx="27.4" cy="17.4" r=".22" fill="#a5682f" opacity=".7"/><circle cx="28.6" cy="12.4" r=".22" fill="#a5682f" opacity=".7"/><circle cx="12.2" cy="20.6" r=".22" fill="#a5682f" opacity=".7"/><circle cx="26.1" cy="20.2" r=".22" fill="#a5682f" opacity=".7"/><circle cx="19.4" cy="19.4" r=".22" fill="#a5682f" opacity=".7"/><circle cx="15.2" cy="8.8" r=".22" fill="#a5682f" opacity=".7"/><g fill="none" stroke="#83501f" stroke-width=".9" stroke-linecap="round"><path d="M20 3.8 C16.5 7.8 14.6 14 14.2 21"/><path d="M20 3.8 C23.5 7.8 25.4 14 25.8 21"/></g><g fill="none" stroke="#ebbd86" stroke-width=".45" stroke-dasharray=".8 .75" stroke-linecap="round"><path d="M19.2 4.9 C16 8.6 14.1 14.3 13.6 20.8"/><path d="M20.8 4.9 C17.8 8.6 16 14.3 15.4 20.8" opacity=".8"/><path d="M20.8 4.9 C24 8.6 25.9 14.3 26.4 20.8"/><path d="M19.2 4.9 C22.2 8.6 24 14.3 24.6 20.8" opacity=".8"/></g><path d="M8.4 22.5 C8.0 10.6 13.5 3.6 20 3.6 C26.5 3.6 32 10.6 31.6 22.5 Z" fill="none" stroke="#5a3717" stroke-width="1.15" stroke-linejoin="round"/><path d="M5.6 19.6 Q20 22.4 34.4 19.6 Q36.8 22.5 34.2 25.4 Q20 29.8 5.8 25.4 Q3.2 22.5 5.6 19.6 Z" fill="#9a7c55" stroke="#9a7c55" stroke-width="1.8"/><circle cx="5.60" cy="19.60" r="2.28" fill="#9a7c55"/><circle cx="7.40" cy="19.93" r="2.18" fill="#9a7c55"/><circle cx="9.20" cy="20.21" r="2.46" fill="#9a7c55"/><circle cx="11.00" cy="20.45" r="2.14" fill="#9a7c55"/><circle cx="12.80" cy="20.65" r="2.39" fill="#9a7c55"/><circle cx="14.60" cy="20.80" r="2.30" fill="#9a7c55"/><circle cx="16.40" cy="20.91" r="2.13" fill="#9a7c55"/><circle cx="18.20" cy="20.98" r="2.38" fill="#9a7c55"/><circle cx="20.00" cy="21.00" r="2.12" fill="#9a7c55"/><circle cx="21.80" cy="20.98" r="2.34" fill="#9a7c55"/><circle cx="23.60" cy="20.91" r="2.14" fill="#9a7c55"/><circle cx="25.40" cy="20.80" r="2.15" fill="#9a7c55"/><circle cx="27.20" cy="20.65" r="2.33" fill="#9a7c55"/><circle cx="29.00" cy="20.45" r="2.55" fill="#9a7c55"/><circle cx="30.80" cy="20.21" r="2.17" fill="#9a7c55"/><circle cx="32.60" cy="19.93" r="2.22" fill="#9a7c55"/><circle cx="34.40" cy="19.60" r="2.45" fill="#9a7c55"/><circle cx="35.29" cy="21.05" r="2.62" fill="#9a7c55"/><circle cx="35.55" cy="22.50" r="2.42" fill="#9a7c55"/><circle cx="35.19" cy="23.95" r="2.32" fill="#9a7c55"/><circle cx="34.20" cy="25.40" r="2.64" fill="#9a7c55"/><circle cx="32.42" cy="25.92" r="2.13" fill="#9a7c55"/><circle cx="30.65" cy="26.36" r="2.57" fill="#9a7c55"/><circle cx="28.88" cy="26.74" r="2.26" fill="#9a7c55"/><circle cx="27.10" cy="27.05" r="2.18" fill="#9a7c55"/><circle cx="25.33" cy="27.29" r="2.16" fill="#9a7c55"/><circle cx="23.55" cy="27.46" r="2.27" fill="#9a7c55"/><circle cx="21.78" cy="27.57" r="2.55" fill="#9a7c55"/><circle cx="20.00" cy="27.60" r="2.20" fill="#9a7c55"/><circle cx="18.23" cy="27.57" r="2.42" fill="#9a7c55"/><circle cx="16.45" cy="27.46" r="2.45" fill="#9a7c55"/><circle cx="14.68" cy="27.29" r="2.30" fill="#9a7c55"/><circle cx="12.90" cy="27.05" r="2.40" fill="#9a7c55"/><circle cx="11.12" cy="26.74" r="2.13" fill="#9a7c55"/><circle cx="9.35" cy="26.36" r="2.13" fill="#9a7c55"/><circle cx="7.58" cy="25.92" r="2.21" fill="#9a7c55"/><circle cx="5.80" cy="25.40" r="2.47" fill="#9a7c55"/><circle cx="4.81" cy="23.95" r="2.34" fill="#9a7c55"/><circle cx="4.45" cy="22.50" r="2.27" fill="#9a7c55"/><circle cx="4.71" cy="21.05" r="2.42" fill="#9a7c55"/><path d="M5.6 19.6 Q20 22.4 34.4 19.6 Q36.8 22.5 34.2 25.4 Q20 29.8 5.8 25.4 Q3.2 22.5 5.6 19.6 Z" fill="#f8f0e1"/><circle cx="5.60" cy="19.60" r="1.53" fill="#f8f0e1"/><circle cx="7.40" cy="19.93" r="1.43" fill="#f8f0e1"/><circle cx="9.20" cy="20.21" r="1.71" fill="#f8f0e1"/><circle cx="11.00" cy="20.45" r="1.39" fill="#f8f0e1"/><circle cx="12.80" cy="20.65" r="1.64" fill="#f8f0e1"/><circle cx="14.60" cy="20.80" r="1.55" fill="#f8f0e1"/><circle cx="16.40" cy="20.91" r="1.38" fill="#f8f0e1"/><circle cx="18.20" cy="20.98" r="1.63" fill="#f8f0e1"/><circle cx="20.00" cy="21.00" r="1.37" fill="#f8f0e1"/><circle cx="21.80" cy="20.98" r="1.59" fill="#f8f0e1"/><circle cx="23.60" cy="20.91" r="1.39" fill="#f8f0e1"/><circle cx="25.40" cy="20.80" r="1.40" fill="#f8f0e1"/><circle cx="27.20" cy="20.65" r="1.58" fill="#f8f0e1"/><circle cx="29.00" cy="20.45" r="1.80" fill="#f8f0e1"/><circle cx="30.80" cy="20.21" r="1.42" fill="#f8f0e1"/><circle cx="32.60" cy="19.93" r="1.47" fill="#f8f0e1"/><circle cx="34.40" cy="19.60" r="1.70" fill="#f8f0e1"/><circle cx="35.29" cy="21.05" r="1.87" fill="#f8f0e1"/><circle cx="35.55" cy="22.50" r="1.67" fill="#f8f0e1"/><circle cx="35.19" cy="23.95" r="1.57" fill="#f8f0e1"/><circle cx="34.20" cy="25.40" r="1.89" fill="#f8f0e1"/><circle cx="32.42" cy="25.92" r="1.38" fill="#f8f0e1"/><circle cx="30.65" cy="26.36" r="1.82" fill="#f8f0e1"/><circle cx="28.88" cy="26.74" r="1.51" fill="#f8f0e1"/><circle cx="27.10" cy="27.05" r="1.43" fill="#f8f0e1"/><circle cx="25.33" cy="27.29" r="1.41" fill="#f8f0e1"/><circle cx="23.55" cy="27.46" r="1.52" fill="#f8f0e1"/><circle cx="21.78" cy="27.57" r="1.80" fill="#f8f0e1"/><circle cx="20.00" cy="27.60" r="1.45" fill="#f8f0e1"/><circle cx="18.23" cy="27.57" r="1.67" fill="#f8f0e1"/><circle cx="16.45" cy="27.46" r="1.70" fill="#f8f0e1"/><circle cx="14.68" cy="27.29" r="1.55" fill="#f8f0e1"/><circle cx="12.90" cy="27.05" r="1.65" fill="#f8f0e1"/><circle cx="11.12" cy="26.74" r="1.38" fill="#f8f0e1"/><circle cx="9.35" cy="26.36" r="1.38" fill="#f8f0e1"/><circle cx="7.58" cy="25.92" r="1.46" fill="#f8f0e1"/><circle cx="5.80" cy="25.40" r="1.72" fill="#f8f0e1"/><circle cx="4.81" cy="23.95" r="1.59" fill="#f8f0e1"/><circle cx="4.45" cy="22.50" r="1.52" fill="#f8f0e1"/><circle cx="4.71" cy="21.05" r="1.67" fill="#f8f0e1"/><path d="M4.1 23.3 Q20 27.4 35.9 23.3 Q35.5 25.1 34.2 25.5 Q20 29.9 5.8 25.5 Q4.5 25.1 4.1 23.3 Z" fill="#e9dbc0" opacity=".9"/><path d="M7.2 20.6 Q20 23.9 32.8 20.6" fill="none" stroke="#fffaf1" stroke-width="1" stroke-linecap="round" opacity=".75"/><path d="M10 21.9 Q20 24.4 30 21.9" fill="none" stroke="#eadcc1" stroke-width=".8" stroke-linecap="round" opacity=".8"/><g fill="none" stroke="#d5c09a" stroke-width=".75" stroke-linecap="round"><path d="M7.4 22.2q0.8 -1.3 1.8 -.3"/><path d="M10.3 23.3q-0.8 -1.3 -1.8 -.3"/><path d="M29.6 23.3q0.8 -1.3 1.8 -.3"/><path d="M32.6 22.2q-0.8 -1.3 -1.8 -.3"/><path d="M8.6 25.6q0.8 -1.3 1.8 -.3"/><path d="M31.4 25.6q-0.8 -1.3 -1.8 -.3"/><path d="M13.2 27.6q0.8 -1.3 1.8 -.3"/><path d="M26.8 27.6q-0.8 -1.3 -1.8 -.3"/></g><text x="20" y="26.2" text-anchor="middle" font-family="Arial Black,Arial" font-weight="900" font-size="4.3" letter-spacing=".3" fill="#7c4a1f" stroke="#f8f0e1" stroke-width=".5" paint-order="stroke">ЕБЛ</text><path d="M14.6 27.2 Q20 28.4 25.4 27.2" fill="none" stroke="#b07a47" stroke-width=".4" stroke-dasharray=".6 .5" stroke-linecap="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+    <symbol id="i-feed" viewBox="0 0 24 24"><path d="M5 20c0-6 3-6 3-10S5 6 5 4M12 20c0-6 3-6 3-10s-3-4-3-6M19 20c0-6 3-6 3-10"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-route" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 21c4 0 7-2.7 7-6.8 0-3.7-2.6-6-4.3-8.7-.4 2.2-1.6 3.6-3 4.1.2-2.9-1.1-5.6-3.4-7.6C8.5 5.6 5 8.5 5 14.2 5 18.3 8 21 12 21Z"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-seal" viewBox="0 0 24 24"><path d="M12.00 0.60 L13.87 2.58 L16.36 1.47 L17.33 4.02 L20.06 3.94 L19.98 6.67 L22.53 7.64 L21.42 10.13 L23.40 12.00 L21.42 13.87 L22.53 16.36 L19.98 17.33 L20.06 20.06 L17.33 19.98 L16.36 22.53 L13.87 21.42 L12.00 23.40 L10.13 21.42 L7.64 22.53 L6.67 19.98 L3.94 20.06 L4.02 17.33 L1.47 16.36 L2.58 13.87 L0.60 12.00 L2.58 10.13 L1.47 7.64 L4.02 6.67 L3.94 3.94 L6.67 4.02 L7.64 1.47 L10.13 2.58Z" style="fill:var(--honey);stroke:var(--seal-ink);stroke-width:.5"/><circle cx="12" cy="12" r="7.4" style="fill:none;stroke:var(--seal-ink);stroke-width:.8"/><text x="12" y="15.7" text-anchor="middle" style="font:800 10.5px var(--display);fill:var(--seal-ink)">К</text></symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <a class="brand" href="#map" aria-label="ЕБЛ — Евразийская банная лига">
+    <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+      <circle cx="24" cy="24" r="24" class="m-bg"/>
+      <g transform="rotate(-32 24 27)"><g class="m-venik">
+        <g class="m-leaf back">
+          <use href="#oak-leaf" transform="translate(24 31) rotate(-64) scale(.85)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(64) scale(.85)"/>
+        </g>
+        <g class="m-leaf mid">
+          <use href="#oak-leaf" transform="translate(24 31) rotate(-42)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(42)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(-20) scale(1.1)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(20) scale(1.1)"/>
+        </g>
+        <g class="m-leaf front"><use href="#oak-leaf" transform="translate(24 31) scale(1.22)"/></g>
+        <rect class="m-handle" x="21.9" y="31" width="4.2" height="10.5" rx="2.1"/>
+        <rect class="m-twine" x="20.6" y="29.6" width="6.8" height="3" rx="1.5"/>
+        <rect class="m-twine" x="21" y="33.6" width="6" height="2.2" rx="1.1"/>
+      </g></g>
+    </svg>
+    <span class="word">ЕБЛ</span>
+    <span class="claim">Евразийская<br>банная лига</span>
+  </a>
+  <nav class="nav" role="tablist" aria-label="Разделы">
+    <button role="tab" data-view="map" aria-selected="true"><svg class="ic"><use href="#i-map"/></svg><span>Карта</span></button>
+    <button role="tab" data-view="heat"><svg class="ic"><use href="#i-flame"/></svg><span>Жар</span></button>
+    <button role="tab" data-view="table"><svg class="ic"><use href="#i-trophy"/></svg><span>Таблица</span></button>
+    <button role="tab" data-view="feed"><svg class="ic"><use href="#i-feed"/></svg><span>Лента</span><b class="badge" id="pendingBadge" hidden>0</b></button>
+    <button role="tab" data-view="rules"><svg class="ic"><use href="#i-doc"/></svg><span>Правила</span></button>
+    <button role="tab" data-view="dir" hidden><svg class="ic"><use href="#i-seal"/></svg><span>Бани</span></button>
+  </nav>
+  <button class="me-btn" id="meBtn" hidden></button>
+  <button class="cta" id="addVisitBtn">
+    <span class="ic-swap" aria-hidden="true">
+      <svg class="ic plus"><use href="#i-plus"/></svg>
+      <svg class="ic kovsh" viewBox="0 0 24 24">
+        <g class="ladle"><path d="M9 10.5h11.5v1.3a5.2 5.2 0 0 1-5.2 5.2h-1.1A5.2 5.2 0 0 1 9 11.8z"/><path d="M9.6 11.1 3.2 4.7"/></g>
+      </svg>
+    </span>
+    <span class="cta-puff" aria-hidden="true"><b></b><b></b><b></b><i style="--dx:-10px;--dy:10px;--s:0.60"></i><i style="--dx:-18px;--dy:7px;--s:0.85"></i><i style="--dx:-24px;--dy:-2px;--s:1.10"></i><i style="--dx:-12px;--dy:-7px;--s:1.35"></i><i style="--dx:-11px;--dy:-15px;--s:0.60"></i><i style="--dx:-5px;--dy:-23px;--s:0.85"></i><i style="--dx:3px;--dy:-14px;--s:1.10"></i><i style="--dx:11px;--dy:-15px;--s:1.35"></i><i style="--dx:21px;--dy:-12px;--s:0.60"></i><i style="--dx:14px;--dy:-1px;--s:0.85"></i><i style="--dx:18px;--dy:7px;--s:1.10"></i><i style="--dx:17px;--dy:17px;--s:1.35"></i></span>
+    <span class="cta-long">Добавить баню</span><span class="cta-short">Баня</span>
+  </button>
+</header>
+
+<main>
+  <div class="boot" id="boot" role="status">Готовлю парок…</div>
+  <!-- КАРТА -->
+  <section class="view view-map" id="view-map">
+    <div id="map"></div>
+    <aside class="panel">
+      <div class="panel-head">
+        <div class="eyebrow">Сезон 2026 · идёт неделя <b id="curWeek">W39</b></div>
+        <div class="kpis" id="kpis"></div>
+      </div>
+      <div class="filters">
+        <label class="searchbox"><svg class="ic"><use href="#i-search"/></svg><input id="q" type="search" placeholder="Баня, город, регион" autocomplete="off" aria-label="Поиск бани"></label>
+        <div class="seg" id="fSeason" role="group" aria-label="Сезон">
+          <button data-v="2026" aria-pressed="true">Были в 2026</button>
+          <button data-v="all" aria-pressed="false">Все бани</button>
+          <button data-v="never" aria-pressed="false">Не были в 2026</button>
+        </div>
+        <div class="chips types" id="fType" role="group" aria-label="Тип бани">
+          <button data-t="" aria-pressed="true">Все</button>
+          <button data-t="public" aria-pressed="false"><i class="dot t-public"><svg aria-hidden="true"><use href="#bt-public"/></svg></i>Общественные</button>
+          <button data-t="spa" aria-pressed="false"><i class="dot t-spa"><svg aria-hidden="true"><use href="#bt-spa"/></svg></i>Хуитнесы</button>
+          <button data-t="private" aria-pressed="false"><i class="dot t-private"><svg aria-hidden="true"><use href="#bt-private"/></svg></i>Частные</button>
+        </div>
+        <div class="selrow">
+          <select id="fCountry" class="sel" aria-label="Страна"><option value="">Все страны</option></select>
+          <div class="who-pick">
+            <select id="fPlayer" class="sel" aria-label="Участник"><option value="">Все участники</option></select>
+            <button type="button" class="me-pick" id="fMe" hidden aria-pressed="false" title="Мои бани">Я</button>
+          </div>
+        </div>
+      </div>
+      <div class="countrow">
+        <div class="count" id="count"></div>
+        <button type="button" class="near-btn" id="fNear" aria-pressed="false" title="Сортировать по расстоянию от меня">📍 Рядом</button>
+      </div>
+      <div class="pot-note" id="potNote" hidden></div>
+      <div class="list" id="list"></div>
+    </aside>
+    <div class="race" id="race"></div>
+    <article class="drawer" id="drawer" hidden></article>
+  </section>
+
+  <!-- ТЕПЛОВАЯ КАРТА -->
+  <section class="view view-heat" id="view-heat" data-style="light" hidden>
+    <div id="heatmap"></div>
+    <div class="heat-year" id="heatYearMark" aria-hidden="true">2026</div>
+    <div class="seg mapstyle" id="hStyle" role="group" aria-label="Подложка карты">
+      <button data-s="light" aria-pressed="true">Светлая</button>
+      <button data-s="dark" aria-pressed="false">Тёмная</button>
+      <button data-s="sat" aria-pressed="false">Спутник</button>
+    </div>
+    <aside class="heat-card">
+      <div class="eyebrow">Банная тепловая карта</div>
+      <h2>Где жарче всего</h2>
+      <div class="seg" id="hYear" role="group" aria-label="Год">
+        <button data-y="2023" aria-pressed="false">2023</button>
+        <button data-y="2024" aria-pressed="false">2024</button>
+        <button data-y="2025" aria-pressed="false">2025</button>
+        <button data-y="2026" aria-pressed="true">2026</button>
+        <button data-y="all" aria-pressed="false">Все</button>
+      </div>
+      <div class="heat-row">
+        <select id="hPlayer" class="sel" aria-label="Участник"><option value="">Вся лига</option></select>
+        <button class="btn" id="hPlay" type="button"><svg class="ic"><use href="#i-play"/></svg><span>Годы</span></button>
+      </div>
+      <div class="heat-kpis" id="hKpis"></div>
+      <div class="heat-legend"><span>пара ходок</span><i></i><span>место силы</span></div>
+      <h3>Самые горячие точки</h3>
+      <ol class="hot" id="hTop"></ol>
+      <p class="hint" id="hNote"></p>
+    </aside>
+  </section>
+
+  <!-- ТАБЛИЦА -->
+  <section class="view page" id="view-table" hidden>
+    <div class="wrap">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow" id="tableEyebrow"></div>
+          <h1>Турнирная таблица</h1>
+        </div>
+        <div class="timer" id="tableTimer"></div>
+      </div>
+      <div class="seg tmode" id="tMode" role="tablist" aria-label="Зачёт">
+        <button type="button" data-m="season" aria-pressed="true">Общий зачёт</button>
+        <button type="button" data-m="week" aria-pressed="false">Недельный зачёт</button>
+      </div>
+      <div id="tSeason">
+        <div class="podium" id="podium"></div>
+        <div class="tablecard"><div class="tablewrap"><table id="standings"></table></div></div>
+        <div class="cupnote"><i></i>Первые 16 проходят в Кубок ЕБЛ. Плюс wild-card: чемпионы и обладатели Кубков прошлых лет и одно место у Комиссии.</div>
+        <div class="legend-cols">
+          <span><svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg> победы в неделях</span><span><b>Бань</b> за сезон</span><span><b>У</b> уникальные</span><span><b>УУ</b> ультрауникальные</span>
+          <span><b>Дл</b> долгие, 150+ мин</span><span><b>К</b> за компанию</span><span><b>Общ</b> общественные</span><span><b>Рег</b> регионы и страны</span>
+        </div>
+      </div>
+      <div id="tWeek" hidden>
+        <div class="week-head">
+          <button type="button" class="wk-arrow" id="wPrev" aria-label="Предыдущая неделя"><svg class="ic"><use href="#i-chev"/></svg></button>
+          <div class="week-title" id="wTitle"></div>
+          <button type="button" class="wk-arrow next" id="wNext" aria-label="Следующая неделя"><svg class="ic"><use href="#i-chev"/></svg></button>
+        </div>
+        <div class="podium week-podium" id="weekPodium"></div>
+        <div class="tablecard"><div class="tablewrap"><table id="weekTable" class="week-table"></table></div></div>
+        <p class="note" id="wNote"></p>
+        <h2 class="h2">Все недели</h2>
+        <p class="note">В клетке — сколько бань за неделю. Подсвечены три первых места недели. Нажми на неделю, чтобы открыть её.</p>
+        <div class="tablecard"><div class="tablewrap"><table id="weekGrid" class="week-grid"></table></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ЛЕНТА -->
+  <section class="view page" id="view-feed" hidden>
+    <div class="wrap narrow">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Кто, где и с кем</div>
+          <h1>Лента походов</h1>
+        </div>
+      </div>
+      <p class="lead">Добавил баню — поход появился здесь. Очки по регламенту начислятся, когда Комиссия засчитает поход, — тогда они попадут и в таблицу.</p>
+      <div class="seg feed-filter" id="feedFilter" role="group" aria-label="Какие заявки показать">
+        <button data-f="pending" aria-pressed="false">На модерации</button>
+        <button data-f="ok" aria-pressed="false">Засчитанные</button>
+        <button data-f="rejected" aria-pressed="false">Отклонённые</button>
+        <button data-f="all" aria-pressed="true">Все</button>
+      </div>
+      <div id="secPanel"></div>
+      <div class="feed" id="feed"></div>
+    </div>
+  </section>
+
+  <!-- СПРАВОЧНИК БАНЬ — только Комиссии -->
+  <section class="view page" id="view-dir" hidden>
+    <div class="wrap">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Для Комиссии</div>
+          <h1>Справочник бань</h1>
+        </div>
+      </div>
+      <p class="lead">Все бани лиги: тип, где, сколько походов и кто где был (зелёным — кто был в 2026). Тип меняется прямо в строке — таблица пересчитается, а бот поправит свои сообщения в чате.</p>
+      <div class="dir-tools">
+        <input class="inp" id="dirQ" type="search" placeholder="Название, город или ник" aria-label="Поиск по бане, месту или нику">
+        <select class="sel" id="dirCountry" aria-label="Страна"><option value="">Все страны</option></select>
+        <div class="seg" id="dirType" role="group" aria-label="Тип бани">
+          <button type="button" data-t="" aria-pressed="true">Все типы</button>
+          <button type="button" data-t="public" aria-pressed="false">Общественные</button>
+          <button type="button" data-t="spa" aria-pressed="false">Хуитнесы</button>
+          <button type="button" data-t="private" aria-pressed="false">Частные</button>
+          <button type="button" data-t="unknown" aria-pressed="false">Без типа</button>
+        </div>
+        <div class="seg" id="dirSeason" role="group" aria-label="Походы в 2026">
+          <button type="button" data-s="" aria-pressed="true">Все</button>
+          <button type="button" data-s="yes" aria-pressed="false">Были в 2026</button>
+          <button type="button" data-s="no" aria-pressed="false">Не были в 2026</button>
+        </div>
+        <label class="dir-check"><input type="checkbox" id="dirNoRegion"> Без региона</label>
+        <select class="sel" id="dirSortSel" aria-label="Сортировка">
+          <option value="all:-1">Больше всего походов</option><option value="n26:-1">Больше походов в 2026</option>
+          <option value="name:1">По названию</option><option value="country:1">По стране</option><option value="region:1">По региону</option><option value="type:1">По типу</option>
+          <option value="who:-1">Больше участников</option>
+        </select>
+      </div>
+      <p class="note" id="dirCount"></p>
+      <div class="tablecard"><div class="tablewrap"><table id="dirTable" class="dir-table"></table></div></div>
+      <button type="button" class="btn" id="dirMore" hidden>Показать ещё</button>
+    </div>
+  </section>
+
+  <!-- ПРАВИЛА -->
+  <section class="view page" id="view-rules" hidden>
+    <div class="wrap narrow">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Положение о четвёртом чемпионате</div>
+          <h1>Как набрать очки</h1>
+        </div>
+      </div>
+
+      <div class="pricelist">
+        <div class="pl-title">Прейскурант</div>
+        <div class="pl-row"><span>Поход в баню<small>от часа, пост в группе в тот же день</small></span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Общественная баня<small>мужские часы, мужской день или разряд</small></span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Уникальная<small>первая в этом году для тебя</small></span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Ультрауникальная<small>никто из лиги не был в ней с 2023 года</small></span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Новый регион<small>субъект, область, земля, штат, префектура</small></span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Новая страна</span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Долгий поход<small>больше 150 минут, всей компании</small></span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Компания · К<small>3–5 участников в одни сутки</small></span><i></i><b>+1</b></div>
+        <div class="pl-row"><span>Компания · КК<small>6–8 участников</small></span><i></i><b>+2</b></div>
+        <div class="pl-row"><span>Компания · ККК<small>9 и больше</small></span><i></i><b>+3</b></div>
+      </div>
+
+      <h2 class="h2">Места по итогам недели</h2>
+      <div class="ptsgrid">
+        <div class="g"><b>15</b><span>1 место</span></div><div class="s"><b>12</b><span>2</span></div><div class="b"><b>10</b><span>3</span></div><div><b>8</b><span>4</span></div>
+        <div><b>6</b><span>5</span></div><div><b>4</b><span>6</span></div><div><b>2</b><span>7</span></div><div><b>1</b><span>8</span></div>
+      </div>
+      <p class="note">Место — по числу бань за неделю. Поделили места — делите и очки, с округлением до десятых: четверо на 7–10 местах получат по (2+1+0+0)/4 = 0,8. Если за неделю никто не был в бане, она не разыгрывается.</p>
+
+      <h2 class="h2">Мелкий шрифт</h2>
+      <div class="fine">
+        <p><b>Баня</b> — помещение для термопроцедур, нагретое выше 50 °C, где ты раздет. Подходят городские бани, ночные сауны, фитнесы и аквапарки с саунами, домашние и разборные бани.</p>
+        <p><b>Неделя</b> заканчивается в воскресенье в 22:59 МСК. Написал в группу позже — поход уйдёт в следующую неделю.</p>
+        <p><b>Одна баня в сутки.</b> Повторный поход в ту же баню в тот же день не засчитывается. Портал такие походы подсвечивает, а решает Комиссия: часто баню отмечают за прошлый день, и повтор оказывается мнимым.</p>
+        <p><b>Разные бани</b> — разные здания или разряды с отдельным входом и билетом. Помещения одного аквапарка, фитнеса или отеля и срубы одной частной бани — одна баня.</p>
+        <p><b>Долгий поход</b> — на доверии: отметил «Долгая» — +1 всей компании, без фото и отметок. Ошибся — поправит Комиссия.</p>
+        <p><b>Итог</b> — сумма очков за все недели. При равенстве выше тот, у кого больше бань. Сезон — с 1 января по 31 декабря 2026, неполные недели в начале и конце года разыгрываются как обычные.</p>
+        <p><b>Споры</b> решает Комиссия ЕБЛ — она же засчитывает походы. Таблицу считает портал, до W39 её вела Комиссия вручную.</p>
+        <p><b>Кубок.</b> Первые 16 мест на старт Кубка проходят в Кубок. Wild-card у чемпионов прошлых лет (Филипп Лысенко, Дмитрий Радомский, Денис Мамонтов), обладателей Кубков (Ахмед Саидалиев, Дмитрий Радомский, команда Евгения Иванова и Дениса Киреева) и одно место у Комиссии.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- модалка: поход -->
+<div class="modal" id="visitModal" hidden>
+  <div class="sheet sheet-wide" role="dialog" aria-modal="true" aria-labelledby="visitTitle">
+    <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
+    <form id="visitForm" class="visit">
+      <div class="visit-main">
+        <div class="eyebrow">С лёгким паром</div>
+        <h2 id="visitTitle">Добавить баню</h2>
+
+        <div class="field">
+          <label for="vBathQ">Где парился</label>
+          <div id="vBathPicked" hidden></div>
+          <label class="searchbox big" id="vBathBox"><svg class="ic"><use href="#i-search"/></svg><input id="vBathQ" type="search" placeholder="Сандуны, Екатеринбург, onsen…" autocomplete="off"></label>
+          <div class="suggest" id="vSuggest" hidden></div>
+        </div>
+
+        <div class="newbath" id="newBathBox" hidden>
+          <div class="grid2">
+            <div class="field"><label for="nbName">Название</label><input id="nbName" class="inp" placeholder="Город, название"></div>
+            <div class="field"><label for="nbType">Тип</label>
+              <select id="nbType" class="sel"><option value="" selected>— выбери —</option><option value="public">Общественная</option><option value="spa">Хуитнес — фитнес, аквапарк, спа</option><option value="private">Частная</option></select></div>
+            <div class="field"><label for="nbCountry">Страна</label><input id="nbCountry" class="inp" list="countryList" placeholder="Россия"></div>
+            <div class="field"><label for="nbRegion">Регион</label><input id="nbRegion" class="inp" list="regionList" placeholder="Субъект, область, земля"></div>
+          </div>
+          <div class="field"><span class="lab">Где баня <span class="hint">— необязательно, но так она сразу встанет на карту</span></span>
+            <div class="geo-row">
+              <input class="inp" id="nbGeo" placeholder="Ссылка на баню в картах, адрес или координаты" autocomplete="off">
+              <button type="button" class="btn sm" id="nbGeoFind">Найти</button>
+              <button type="button" class="btn sm" id="nbGeoMe">📍 Я сейчас здесь</button>
+            </div>
+            <div id="pickmap"></div>
+            <span class="hint" id="nbGeoState">Или кликни на карте. Точку можно перетащить.</span>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <label for="vPlayer">Кто</label>
+            <select id="vPlayer" class="sel"></select>
+            <span class="hint" id="vPlayerHint" hidden>Комиссия может отметить поход за другого — даже если сама там не была</span>
+          </div>
+          <div class="field">
+            <label for="vDate">Когда зашёл, МСК</label>
+            <input id="vDate" class="inp" type="datetime-local" required>
+            <span class="hint" id="vWeekHint"></span>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="lab">Сколько парились</span>
+          <div class="dur2" id="vDurChips" role="group" aria-label="Сколько парились">
+            <button type="button" data-m="120" aria-pressed="true"><b>⚡ Экспресс</b><span>до 2,5 часа</span></button>
+            <button type="button" data-m="180" aria-pressed="false" class="long"><b>🔥 Долгая</b><span>больше 2,5 часа · +1 очко</span></button>
+          </div>
+          <span class="hint">Меньше часа поход не засчитывается.</span>
+          <input type="hidden" id="vDur" value="120">
+        </div>
+
+        <div class="field">
+          <span class="lab">Цена <span class="hint">— необязательно, но остальным пригодится</span></span>
+          <input class="inp" id="vPrice" type="number" min="1" step="1" placeholder="♨️ Цена входа, ₽">
+          <input class="inp" id="vPrBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽">
+          <button type="button" class="linkbtn" id="vPrMore">ещё: продолжительность сеанса · будни/выходной · валюта →</button>
+          <div class="grid2" id="vPrExtra" hidden style="margin-top:4px">
+            <input class="inp" id="vPrDur" type="number" min="1" placeholder="Продолжительность сеанса, мин">
+            <div class="seg" id="vPrWeekend" role="radiogroup" aria-label="Будни или выходной">
+              <button type="button" data-w="" aria-pressed="true">Любой день</button>
+              <button type="button" data-w="0" aria-pressed="false">Будни</button>
+              <button type="button" data-w="1" aria-pressed="false">Выходной</button>
+            </div>
+            <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка до <input class="inp" id="vPrBefore" type="time" style="flex:0 0 auto"></label>
+            <input class="inp" id="vPrCurrency" placeholder="Валюта — код (USD, EUR…)">
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="lab">С кем был <span class="hint" id="vCompCount"></span></span>
+          <div class="people" id="vComp"></div>
+        </div>
+
+        <div class="field" id="vPhotosField">
+          <span class="lab">Фото <span class="hint">— необязательно; видят только участники лиги</span></span>
+          <label class="btn sm photo-pick"><input type="file" id="vPhotos" accept="image/*" multiple>📷 Выбрать фото</label>
+          <span class="hint" id="vPhotosState">До 10 штук. Браузер уменьшит их и уберёт геометки.</span>
+        </div>
+      </div>
+
+      <aside class="visit-side">
+        <div class="ticket" id="calc"></div>
+        <button type="submit" class="cta big" id="vSubmit"><svg class="ic"><use href="#i-check"/></svg><span>Отправить</span></button>
+        <p class="hint center">Комиссия проверит и засчитает</p>
+      </aside>
+    </form>
+  </div>
+</div>
+
+<!-- модалка: правка заявки Комиссией -->
+<div class="modal" id="editModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
+    <form class="edit" id="editForm"></form>
+  </div>
+</div>
+
+<!-- модалка: вход и профиль -->
+<div class="modal" id="loginModal" hidden>
+  <div class="sheet sheet-narrow" role="dialog" aria-modal="true">
+    <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
+    <div class="login" id="loginBody"></div>
+  </div>
+</div>
+
+<!-- модалка: участник -->
+<div class="modal" id="playerModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
+    <div id="playerBody"></div>
+  </div>
+</div>
+
+<!-- фото похода во весь экран -->
+<div class="modal photo-modal" id="photoModal" hidden>
+  <div class="pv" role="dialog" aria-modal="true" aria-label="Фото похода">
+    <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
+    <img id="pvImg" alt="">
+    <button class="pv-nav prev" type="button" id="pvPrev" aria-label="Предыдущее фото">‹</button>
+    <button class="pv-nav next" type="button" id="pvNext" aria-label="Следующее фото">›</button>
+    <div class="pv-cap" id="pvCap"></div>
+  </div>
+</div>
+
+<datalist id="countryList"></datalist>
+<datalist id="regionList"></datalist>
+
+<script src="vendor/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
+<script src="vendor/leaflet.markercluster.min.js" integrity="sha384-SIh+qcEBNMda8tT+rx66aCBuWtVYMVzRABqhK4eeQh4pjDHoRdVx8nYU4LQ5eGzI" crossorigin="anonymous"></script>
+<script src="vendor/leaflet-heat.js" integrity="sha384-mFKkGiGvT5vo1fEyGCD3hshDdKmW3wzXW/x+fWriYJArD0R3gawT6lMvLboM22c0" crossorigin="anonymous"></script>
+<script src="config.js?v=20261010200355"></script>
+<script src="vendor/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
+<script src="db.js?v=20261010200355"></script>
+<script src="app.js?v=20261010200355"></script>
+</body>
+</html>
