@@ -620,7 +620,7 @@
     } catch (err) { toast("Фото не загрузились: " + err.message); }
   }
   // «📷 Фото» у своего похода в ленте — выбор файлов и загрузка
-  const inVisit = (v) => !!myNick && (v.player === myNick || v.companions.includes(myNick));
+  const inVisit = (v) => !!myNick && (v.player === myNick || v.companions.includes(myNick) || v.enteredBy === myNick);
   function pickPhotos(v) {
     if (!v) return;
     const inp = document.createElement("input");
@@ -981,7 +981,9 @@
     vf.reset();
     delete $("#nbCountry").dataset.manual; delete $("#nbRegion").dataset.manual;
     $("#vPlayer").value = D.live ? me.nick : store.get("me", players[0]);
-    $("#vPlayer").disabled = D.live;
+    // Комиссия может завести поход за другого участника (сама в бане могла не быть); остальные — только за себя
+    $("#vPlayer").disabled = D.live && !canModerate;
+    $("#vPlayerHint").hidden = !(D.live && canModerate);
     $("#vDate").value = mskNow();
     setDur(120);
     $("#vPrMore").hidden = false; $("#vPrExtra").hidden = true;
@@ -1262,7 +1264,7 @@
       if (payload.createdBath) { const nb = payload.createdBath; hydrate(nb); baths.push(nb); byId.set(nb.id, nb); }
       if (payload.bathType && D.live) { const pb = byId.get(payload.bathId); if (pb && !pb.type) { pb.type = payload.bathType; pb.t = payload.bathType; } }
       if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur,
-        lines: [], total: null, preview: r.total, status: "pending" });
+        lines: [], total: null, preview: r.total, status: "pending", enteredBy: r.player !== myNick ? myNick : null });
       leafBurst($("#vSubmit"));
       setTimeout(() => { $("#visitModal").hidden = true; }, calm ? 0 : 450);
       updateBadge(); render();
@@ -1339,7 +1341,7 @@
       return `<article class="post">
         <div class="post-head">
           <span class="stack">${[v.player, ...v.companions].slice(0, 4).map((p) => ava(p)).join("")}</span>
-          <div class="post-who"><b>${esc(v.player)}</b>${v.companions.length ? ` и ещё ${v.companions.length}` : ""}<small>${fmtDate(v.date)} МСК · W${week}${v.companions.length ? " · " + v.companions.map(esc).join(", ") : ""}</small></div>
+          <div class="post-who"><b>${esc(v.player)}</b>${v.companions.length ? ` и ещё ${v.companions.length}` : ""}<small>${fmtDate(v.date)} МСК · W${week}${v.companions.length ? " · " + v.companions.map(esc).join(", ") : ""}${v.enteredBy ? ` · внёс ${esc(v.enteredBy)}` : ""}</small></div>
           <span class="status ${v.status}">${STATUS[v.status]}</span>
         </div>
         <div><a class="post-bath" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a><div class="hint">${esc(b ? where(b) : "")}</div></div>

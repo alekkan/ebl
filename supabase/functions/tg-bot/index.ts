@@ -979,7 +979,7 @@ async function siteVisit(visitId: number): Promise<boolean> {
   // короткая пауза на случай старой страницы, которая дописывает компанию отдельным запросом
   await new Promise((r) => setTimeout(r, 800));
   const { data: v } = await sb.from("visits")
-    .select("status, source, bath_id, duration_min, created_at, baths(name, type), author:players!visits_created_by_fkey(nick), visit_players(players(nick))")
+    .select("status, source, bath_id, duration_min, created_at, baths(name, type), author:players!visits_created_by_fkey(nick), enterer:players!visits_entered_by_fkey(nick), visit_players(players(nick))")
     .eq("id", visitId).maybeSingle();
   // только свежий поход с сайта, который ждёт решения
   if (!v || v.source !== "site" || v.status !== "pending" || Date.now() - new Date(v.created_at).getTime() > 15 * 60e3) return false;
@@ -988,14 +988,15 @@ async function siteVisit(visitId: number): Promise<boolean> {
   const { data: claim } = await sb.from("bot_posts").insert({ visit_id: visitId, chat_id: chat, source_msg: 0, bath_id: v.bath_id })
     .select("visit_id").maybeSingle();
   if (!claim) return false;
-  const vv = v as Any, author = vv.author?.nick;
+  const vv = v as Any, author = vv.author?.nick, by = vv.enterer?.nick;   // by — Комиссия внесла поход за участника (только с сайта)
   const company = (vv.visit_players ?? []).map((x: Any) => x.players?.nick).filter((n: string) => n && n !== author);
   const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
     + repeatLine(await sameDayRepeat(visitId));
   if (chat) {
     const greeting = greetLine(author);
-    const cardText = `🌐 <b>${esc(author)}</b> отметил баню на сайте${greeting ? `\n${greeting}` : ""}\n\n${summary}`;
+    const head = by ? `🌐 На сайте отмечена баня: <b>${esc(author)}</b> (внёс ${esc(by)})` : `🌐 <b>${esc(author)}</b> отметил баню на сайте`;
+    const cardText = `${head}${greeting ? `\n${greeting}` : ""}\n\n${summary}`;
     const r = await send(chat, `${cardText}\n\nЖдёт Комиссию 👀`);
     if (r.ok) {
       // это и пост похода, и его карточка: решение Комиссии допишется правкой, а не новым сообщением
@@ -1004,7 +1005,7 @@ async function siteVisit(visitId: number): Promise<boolean> {
     }
     if (vv.baths?.type === "spa") await send(chat, pick(SPA_JOKES));
   }
-  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>\n\n${summary}` + await placeNote(v.bath_id);
+  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>${by ? ` · внёс ${esc(by)}` : ""}\n\n${summary}` + await placeNote(v.bath_id);
   const lg = await league();
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   for (const c of commission) {

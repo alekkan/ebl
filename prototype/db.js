@@ -79,7 +79,7 @@ window.EBLData = (() => {
 
   async function loadVisits(playersById) {
     const rows = check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, reject_reason, tg_link, visit_players(player_id)")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, visit_players(player_id)")
       .order("posted_at", { ascending: false }).limit(300));
     const pts = await all("visit_points", "visit_id, nick, total, lines", (q) => q.in("visit_id", rows.map((r) => r.id)), ["visit_id", "nick"]);
     const ptsBy = {};
@@ -92,6 +92,7 @@ window.EBLData = (() => {
         id: v.id, bathId: v.bath_id, player: author, companions: vp.filter((x) => x.nick !== author).map((x) => x.nick),
         date: mskLocal(v.entered_at), posted: mskLocal(v.posted_at), dur: v.duration_min, status: v.status, reason: v.reject_reason,
         total: p ? +p.total : null, lines: p ? p.lines.map(([k, n]) => [LINE_LABEL[k] || k, n]) : [], tgLink: v.tg_link,
+        enteredBy: v.entered_by ? playersById[v.entered_by] : null,   // Комиссия внесла поход за участника
       };
     });
   }
@@ -217,6 +218,8 @@ window.EBLData = (() => {
         p_bath_id: v.newBath ? null : v.bathId, p_new_bath: v.newBath || null, p_bath_type: v.bathType || null,
         p_entered_at: v.date + ":00+03:00", p_duration_min: v.dur,
         p_companions: v.companions.map((nick) => cache.playerIds[nick]).filter(Boolean),
+        // за другого участника — только Комиссия (проверяет база); за себя — не передаём
+        p_player: v.player && v.player !== cache.me.nick ? cache.playerIds[v.player] : null,
       }));
       if (v.newBath) v.createdBath = { ...v.newBath, id: res.bath_id, status: "pending", created_by: cache.me.playerId, v26: {}, hist: {}, histBy: {}, isNew: true };
       v.bathId = res.bath_id;
