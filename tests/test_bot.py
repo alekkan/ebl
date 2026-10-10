@@ -6,7 +6,7 @@ Telegram на стенде — заглушка tests/stub.py (отвечает 
 """
 import json, re, time
 from concurrent.futures import ThreadPoolExecutor
-from local import API, KEY, WEBHOOK_SECRET, check, now, req, sql
+from local import API, KEY, TELEGRAM, WEBHOOK_SECRET, check, now, req, sql
 
 CHAT, ME = -1001234567890, 900
 sql("delete from bot_sessions")
@@ -194,6 +194,15 @@ req("POST", f"/functions/v1/tg-bot?new={vid}", {})   # триггер зовёт
 check("бот пишет о нём в чат лиги и Комиссии (свежий, ждёт решения)",
       sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"))
 check("второй раз о том же походе не пишет", req("POST", f"/functions/v1/tg-bot?new={vid}", {})[1] == {"notified": False})
+# Комиссия завела поход за участника на сайте — в посте и уведомлении видно, кто внёс (иначе «Махмуд отметил», а он не отмечал)
+seen_by = len(TELEGRAM.calls)
+vby = sql("insert into visits (bath_id, entered_at, duration_min, created_by, entered_by) select 5, now() - interval '3 hours', 120, "
+          "(select id from players where nick='Махмуд'), (select id from players where nick='Витёк') returning id").splitlines()[0]
+req("POST", f"/functions/v1/tg-bot?new={vby}", {})
+texts = [p.get("text") or "" for m, p in TELEGRAM.calls[seen_by:] if m == "sendMessage"]
+check("поход внесла Комиссия — в чате «(внёс Витёк)», Комиссии — «· внёс Витёк»",
+      any("Махмуд</b> (внёс Витёк)" in t for t in texts) and any("· внёс Витёк" in t for t in texts), texts)
+sql(f"delete from visits where id = {vby}")
 sql(f"update visits set status = 'rejected', moderated_by = (select id from players where nick='Леха') where id = {vid}")
 check("решение — в чат лиги, ответом на этот пост", wait_announced("rejected")
       and sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"), announced())

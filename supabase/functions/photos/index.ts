@@ -50,9 +50,10 @@ async function slots(aws: AwsClient, player: string, body: { visit_id?: unknown;
   const size = (x: unknown) => Math.round(Number(x));
   const ok = (f: { w?: unknown; h?: unknown }) => size(f?.w) > 0 && size(f?.w) <= 4000 && size(f?.h) > 0 && size(f?.h) <= 4000;
   if (!visitId || !files.length || !files.every(ok)) return json({ error: "Нужны поход и размеры фото" }, 400);
-  const { data: v } = await sb.from("visits").select("id, created_by, visit_players(player_id)").eq("id", visitId).maybeSingle();
+  // и Комиссии, которая внесла этот поход за участника на сайте: фото из формы грузит она
+  const { data: v } = await sb.from("visits").select("id, created_by, entered_by, visit_players(player_id)").eq("id", visitId).maybeSingle();
   // deno-lint-ignore no-explicit-any
-  if (!v || (v.created_by !== player && !(v.visit_players as any[]).some((x) => x.player_id === player))) {
+  if (!v || (v.created_by !== player && v.entered_by !== player && !(v.visit_players as any[]).some((x) => x.player_id === player))) {
     return json({ error: "Фото добавляют те, кто был в этом походе" }, 403);
   }
   // брошенные загрузки (вкладку закрыли до конца) — подметаем свои старше суток, чтобы не занимали лимит

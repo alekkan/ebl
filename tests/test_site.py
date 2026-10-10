@@ -271,6 +271,7 @@ with sync_playwright() as pw:
         check("участнику (не Комиссии) вкладки «Бани» нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
         # поход через форму: баня из справочника + попутчик
         s.page.click("#addVisitBtn")
+        check("участнику «Кто» не выбрать — поход только за себя", s.js("() => document.getElementById('vPlayer').disabled && document.getElementById('vPlayerHint').hidden"))
         s.page.fill("#vBathQ", "Василевские")
         s.page.click(f'#vSuggest button[data-id="{bath}"]')
         s.page.press("#vDate", "Enter")
@@ -444,6 +445,19 @@ with sync_playwright() as pw:
         s.page.click("#dRename"); s.page.wait_for_timeout(900)
         check("Комиссия переименовывает баню в карточке", sql(f"select name from baths where id = {bath}") == "проверка сайта")
         sql(f"update baths set name = '{bath_name}' where id = {bath}")
+        # поход за другого (только на сайте): Комиссия сама выбирает «Кто» и в бане могла не быть
+        s.page.click("#dVisit")   # из карточки этой бани: на странице она ещё под временным названием
+        check("Комиссии «Кто» можно выбрать", s.js("() => !document.getElementById('vPlayer').disabled && !document.getElementById('vPlayerHint').hidden"))
+        s.page.select_option("#vPlayer", "Леха")
+        s.page.fill("#vDate", "2026-10-01T19:00"); s.page.wait_for_timeout(300)
+        s.page.click("#vSubmit"); s.page.wait_for_selector("#visitModal", state="hidden", timeout=10000)
+        fv = sql("select coalesce(max(id), 0) from visits where entered_by = (select id from players where nick = 'Витёк')")
+        who = sql(f"select a.nick || '/' || (select string_agg(p.nick, ',' order by p.nick) from visit_players vp join players p on p.id = vp.player_id where vp.visit_id = v.id) "
+                  f"from visits v join players a on a.id = v.created_by where v.id = {fv}")
+        check("поход — Лехи, внёс Витёк, Витька в компании нет", who == "Леха/Леха", who)
+        s.view("feed"); s.page.click('#feedFilter button[data-f="pending"]'); s.page.wait_for_timeout(500)
+        check("в ленте у такого похода — «внёс Витёк»", s.js(f"() => (document.querySelector('[data-ok=\"{fv}\"]')?.closest('.post')?.innerText || '').includes('внёс Витёк')"))
+        sql(f"delete from visits where id = {fv}")
         s.clean("Комиссия")
         s.close()
         # второй поход в ту же баню в те же сутки: Комиссия должна видеть до решения, что очков не будет (п. 5)

@@ -116,6 +116,24 @@ check("новая баня — на модерации, от автора, с т
 check("пустое название новой бани не принимается", submit(shurik, p_new_bath={"name": "  "})[0] >= 400)
 sql(f"delete from visits where id in ({v2}, {r['visit_id']})"); sql(f"delete from baths where id = {r['bath_id']}")
 
+print("Комиссия заводит поход за участника (только на сайте)")
+s, r = submit(shurik, p_bath_id=22, p_player=vit)
+check("участник за другого — нельзя", s >= 400 and "только Комиссия" in str(r), r)
+s, r = submit(vitek, p_bath_id=22, p_player=me, p_entered_at="2026-09-27T12:00:00+03:00", p_companions=[leha])
+check("Комиссия заводит поход Шурика, сама в бане не была", s == 200, (s, r))
+v3 = r.get("visit_id")
+check("поход — Шурика, внёс Витёк, ждёт Комиссию",
+      sql(f"select (created_by = '{me}') || '/' || (entered_by = '{vit}') || '/' || status from visits where id = {v3}") == "true/true/pending")
+check("в компании Шурик и Леха, Витька нет",
+      sql(f"select string_agg(p.nick, ',' order by p.nick) from visit_players vp join players p on p.id = vp.player_id where visit_id = {v3}") == "Леха,Шурик")
+s, r = submit(vitek, p_bath_id=22, p_entered_at="2026-09-28T12:00:00+03:00")
+v4 = r.get("visit_id")
+check("за себя Комиссия — как все, без пометки «внёс»", s == 200 and sql(f"select entered_by is null from visits where id = {v4}") == "t", (s, r))
+s, v = req("POST", "/rest/v1/visits", {"bath_id": 22, "entered_at": "2026-09-29T12:00:00+03", "duration_min": 120, "created_by": me, "entered_by": vit},
+           token=shurik, headers={"Prefer": "return=representation"})
+check("участник не подпишет свой поход «внёс Витёк»", s == 201 and v[0]["entered_by"] is None, (s, v))
+sql(f"delete from visits where id in ({v3}, {v4}, {v[0]['id'] if s == 201 else 0})")
+
 print("Тип бани со слов участника")
 sql("update baths set type = null where id = 20"); sql("update baths set type = 'spa' where id = 21")
 rpc = lambda bath, t, token: req("POST", "/rest/v1/rpc/suggest_bath_type", {"p_bath": bath, "p_type": t}, token=token)[0]
