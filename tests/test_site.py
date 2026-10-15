@@ -370,6 +370,9 @@ with sync_playwright() as pw:
         # отзывы: второй не затирает первый, свой можно удалить
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
+        check("в карточке сначала то, что знаем о бане: формы цены и отзыва — по кнопке, «Я тут парился» внизу на виду",
+              s.js("() => document.getElementById('prForm').hidden && document.getElementById('rvForm').hidden && !!document.querySelector('#drawer .d-foot #dVisit')"))
+        s.page.click("#rvOpen")
         for t in ("Первый отзыв — проверка сайта", "Второй отзыв — проверка сайта"):
             s.page.fill("#rvText", t); s.page.click('#rvForm button[type="submit"]'); s.page.wait_for_timeout(900)
         my_reviews = f"select count(*) from reviews where bath_id = {bath} and player_id = '{player_id('Шурик')}' and text like '%— проверка сайта'"
@@ -378,6 +381,7 @@ with sync_playwright() as pw:
         check("свой отзыв можно удалить", sql(my_reviews) == "1", sql(my_reviews))
         # цена: новая запись, повтор той же цены не дублирует, другая цена — новая строка (история, не перезапись)
         price_rows = f"select count(*) from bath_prices where bath_id = {bath}"
+        s.page.click("#prOpen")   # дальше форма остаётся открытой, пока карточка та же
         s.page.fill("#prPrice", "500"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
         check("цена сохранилась", sql(price_rows) == "1", sql(price_rows))
         s.page.fill("#prPrice", "500"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
