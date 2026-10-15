@@ -241,7 +241,21 @@ put = lambda bath, inp: req("POST", "/functions/v1/bath-location", {"bath_id": b
 check("координаты текстом", put(10, "55.7558, 37.6173") == (200, {"lat": 55.7558, "lng": 37.6173}))
 check("ссылка Яндекс Карт", put(11, "https://yandex.ru/maps/?ll=37.6176%2C55.7558&z=16&pt=37.6176,55.7558")[1] == {"lat": 55.7558, "lng": 37.6176})
 check("ссылка Google Maps", put(12, "https://www.google.com/maps/place/X/@55.76,37.62,17z/data=!3d55.7640555!4d37.6245285")[1] == {"lat": 55.7640555, "lng": 37.6245285})
-check("точную точку участник не перезаписывает", put(10, "55.1111, 37.1111")[0] == 409)
+# точная уже стоит — участник не перезаписывает, а предлагает Комиссии (Рублевские стояли в Подольске, 14.10)
+sql("delete from bath_point_requests where bath_id = 10")
+s, r = put(10, "55.1111, 37.1111")
+check("точную точку участник не перезаписывает — предлагает Комиссии", s == 202 and r.get("requested") and r.get("km", 0) > 50, (s, r))
+check("точка бани прежняя, запрос ждёт Комиссию",
+      sql("select round(lat::numeric, 4) from baths where id = 10") == "55.7558"
+      and sql("select status || ' ' || source || ' ' || round(old_lat::numeric, 4) from bath_point_requests where bath_id = 10") == "pending site 55.7558")
+s, r = put(10, "55.1112, 37.1112")
+check("передумал — Комиссия решает по последней точке, прежний запрос снят",
+      s == 202 and sql("select count(*) || ' ' || round(max(lat)::numeric, 4) from bath_point_requests where bath_id = 10") == "1 55.1112", (s, r))
+s, r = put(10, "55.7560, 37.6174")
+check("та же точка (до 100 м) — нового запроса нет", s == 200 and r.get("same") and sql("select count(*) from bath_point_requests where bath_id = 10") == "1", (s, r))
+check("Комиссия переносит точную точку сама", req("POST", "/functions/v1/bath-location", {"bath_id": 10, "input": "55.7600, 37.6200"}, token=vitek)[0] == 200
+      and sql("select round(lat::numeric, 4) from baths where id = 10") == "55.7600")
+sql("delete from bath_point_requests where bath_id = 10")
 check("без входа нельзя", req("POST", "/functions/v1/bath-location", {"bath_id": 10, "input": "55.7,37.6"})[0] == 401)
 sql("update baths set country = null, region = null, precision = 'region' where id = 13")
 # страну и регион функция спрашивает у геокодера OSM — на стенде это заглушка (tests/stub.py) с ответом настоящего Nominatim

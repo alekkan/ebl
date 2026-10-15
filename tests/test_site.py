@@ -319,6 +319,21 @@ with sync_playwright() as pw:
         check("точка из формы похода сохранилась сразу", point == "exact 55.7558 37.6173", point)
         check("форма сказала, что точка стоит", s.js("() => document.querySelector('.geo-ask').innerText.includes('Точка поставлена')"))
         s.page.click("#visitModal .x")
+        # точная точка: участник её не меняет, а предлагает Комиссии (Рублевские стояли в Подольске, 14.10); переименовать не может
+        sql(f"update baths set lat = 55.7558, lng = 37.6173, precision = 'exact' where id = {bath}")
+        sql(f"delete from bath_point_requests where bath_id = {bath}")
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
+        check("участнику переименовать баню нельзя — карандаша нет", s.js("() => !document.getElementById('dRename')"))
+        s.page.click("#geoFixBtn"); s.page.fill("#geoFixInput", "55.783951, 37.354822"); s.page.click('#geoFixForm button[type="submit"]')
+        s.page.wait_for_function("() => /Передал Комиссии|Не нашёл|Войди/.test(document.querySelector('#drawer .geo-move')?.innerText || '')", timeout=15000)
+        req_row = sql(f"select status || ' ' || source || ' ' || round(lat::numeric, 4) from bath_point_requests where bath_id = {bath}")
+        check("точная точка — предложение Комиссии: запрос ждёт, точка прежняя",
+              req_row == "pending site 55.7840" and sql(f"select round(lat::numeric, 4) from baths where id = {bath}") == "55.7558", req_row)
+        check("в карточке — «Передал Комиссии … 17 км от нынешней»", s.js("() => /Передал Комиссии.*17 км от нынешней/.test(document.querySelector('#drawer .geo-move').innerText)"),
+              s.js("() => document.querySelector('#drawer .geo-move').innerText"))
+        sql(f"delete from bath_point_requests where bath_id = {bath}")
         lat, lng, prec = orig.split(",")
         sql(f"update baths set lat = {lat}, lng = {lng}, precision = '{prec}' where id = {bath}")
         # фото похода: лента в карточке бани и просмотр во весь экран (docs/photos.md); файлы — в заглушке хранилища

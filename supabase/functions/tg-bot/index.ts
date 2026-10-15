@@ -12,8 +12,9 @@
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { hasLocationHint, locate, looksLikeAddress, parseLocation, useDbGeocoder } from "../_shared/geo.ts";
+import { distKm, hasLocationHint, locate, looksLikeAddress, parseLocation, useDbGeocoder } from "../_shared/geo.ts";
 import { placeByPoint } from "../_shared/place.ts";
+import { requestPoint } from "../_shared/point-request.ts";
 import { greetLine } from "../_shared/greetings.ts";
 import { TELEGRAM_API } from "../_shared/hosts.ts";
 
@@ -1105,6 +1106,42 @@ async function claimNotice(accountId: string): Promise<boolean> {
   return true;
 }
 
+// участник предлагает перенести точную точку бани (зовёт триггер: ?pointreq=<id>) — Комиссии в личку обе точки и кнопки
+const mapLink = (lat: number, lng: number) => `<a href="https://yandex.ru/maps/?pt=${lng},${lat}&z=16&l=map">${lat.toFixed(5)}, ${lng.toFixed(5)}</a>`;
+const POINT_REQ = "id, bath_id, lat, lng, old_lat, old_lng, status, messages, tg_chat, tg_msg, baths(name, region, country), " +
+  "player:players!bath_point_requests_requested_by_fkey(nick)";
+async function pointRequestNotice(id: number): Promise<boolean> {
+  const { data: r } = await sb.from("bath_point_requests").select(POINT_REQ).eq("id", id).maybeSingle();
+  if (!r || r.status !== "pending" || (r.messages as Any[]).length) return false;   // решён или о нём уже написали
+  const rr = r as Any, far = rr.old_lat != null ? distKm({ lat: rr.old_lat, lng: rr.old_lng }, rr) : null;
+  const text = `📍 Перенести точку бани?\n<b>${esc(rr.baths?.name)}</b>${rr.baths?.region ? ` · ${esc(rr.baths.region)}` : ""}\n\n`
+    + `${esc(rr.player?.nick)} предлагает новую точку${far != null ? ` — в ${far < 1 ? `${Math.round(far * 1000)} м` : `${Math.round(far)} км`} от нынешней` : ""}.\n`
+    + (rr.old_lat != null ? `Сейчас: ${mapLink(rr.old_lat, rr.old_lng)}\n` : "") + `Новая: ${mapLink(rr.lat, rr.lng)}`;
+  const messages: Any[] = [];
+  for (const chat of await commissionChats()) {
+    const m = await send(chat, text, [[btn("✅ Перенести", `mv:${id}`), btn("✖️ Оставить", `mk:${id}`)]]);
+    if (m.ok) messages.push({ chat, msg: m.result.message_id });
+  }
+  await sb.from("bath_point_requests").update({ messages }).eq("id", id);
+  return messages.length > 0;
+}
+
+// «Перенести» / «Оставить»: решает тот из Комиссии, кто нажал первым; страну и регион не трогаем — точка уточняется
+async function decidePoint(cq: Any, me: Any, id: number, ok: boolean) {
+  if (!me?.is_commission) return answer(cq.id, "Это кнопка для Комиссии", true);
+  const { data: rows } = await sb.from("bath_point_requests")
+    .update({ status: ok ? "ok" : "rejected", decided_by: me.id, decided_at: new Date().toISOString() })
+    .eq("id", id).eq("status", "pending").select(POINT_REQ);
+  const r = rows?.[0] as Any;
+  if (!r) return answer(cq.id, "Уже решено или пришла новая точка");
+  if (ok) await sb.from("baths").update({ lat: r.lat, lng: r.lng, precision: "exact" }).eq("id", r.bath_id);
+  await answer(cq.id, ok ? "Точка перенесена" : "Оставили как было");
+  for (const m of r.messages ?? []) {
+    await edit(m.chat, m.msg, `📍 Точка бани <b>${esc(r.baths?.name)}</b> от ${esc(r.player?.nick)}\n\n${ok ? "✅ Перенесена" : "✖️ Оставили как было"} — ${esc(me.nick)}`);
+  }
+  if (r.tg_chat && r.tg_msg) await react(r.tg_chat, r.tg_msg, ok ? "👍" : "👌");
+}
+
 async function decideClaim(cq: Any, me: Any, accountId: string, ok: boolean) {
   if (!me?.is_commission) return answer(cq.id, "Это кнопка для Комиссии", true);
   const { data: n } = await sb.from("claim_notices").select("nick").eq("account_id", accountId).maybeSingle();
@@ -1165,9 +1202,12 @@ async function geoAnswer(msg: Any, post: Any, me: Any) {
   }
   const done = await setBathPoint(post.bath_id, p, me.is_commission);
   await sb.from("bot_posts").update({ geo_msg: null }).eq("visit_id", post.visit_id);
-  await react(msg.chat.id, msg.message_id, done ? "👍" : "👌");
+  // точная уже стоит — не отказываем, а передаём Комиссии: точки из первой выгрузки бывают неверными (Рублевские, 14.10)
+  const asked = done ? null : await requestPoint(sb, post.bath_id, p, me.id, "bot", { chat: msg.chat.id, msg: msg.message_id });
+  await react(msg.chat.id, msg.message_id, done ? "👍" : asked?.same ? "👌" : "👀");
   if (living) return refreshCard(post.visit_id);
-  return send(msg.chat.id, done ? `📍 «${esc(b?.name)}» теперь на карте точно — спасибо!` : "У этой бани уже стоит точная точка — поменять её может Комиссия.", undefined, msg.message_id);
+  return send(msg.chat.id, done ? `📍 «${esc(b?.name)}» теперь на карте точно — спасибо!`
+    : asked?.same ? "Точка бани и так здесь 👌" : "У бани уже стоит точка — передал Комиссии новую: перенесёт, если всё так.", undefined, msg.message_id);
 }
 
 // ответ без «Ответить»: следующее сообщение автора после вопроса про точку (15 мин)
@@ -1541,7 +1581,8 @@ async function onMessage(msg: Any) {
       }
       const geoish = !!(msg.location || msg.venue) || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text);
       // «долгая» ответом на карточку похода — долгая этого похода; ссылка, адрес, геопозиция — точка бани
-      if (post.geo_msg === replyTo && post.bath_id && geoish) return geoAnswer(msg, post, acc.players);
+      // точка ответом на карточку — даже если бот про неё не спрашивал (точная уже стояла, а она неверная — Рублевские, 14.10)
+      if ((post.geo_msg === replyTo || post.card_msg === replyTo) && post.bath_id && geoish) return geoAnswer(msg, post, acc.players);
       const claimed = post.card_msg === replyTo && longInReply(text);
       if (claimed || isLongClaim(text) || post.ask_msg === replyTo) return longAnswer(msg, post, acc.players, claimed);
       if (post.geo_msg === replyTo && post.bath_id) return geoAnswer(msg, post, acc.players);
@@ -1624,6 +1665,7 @@ async function onCallback(cq: Any) {
   const me = acc?.players as Any;
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
   if (data.startsWith("cl:") || data.startsWith("cn:")) return decideClaim(cq, me, data.slice(3), data.startsWith("cl:"));
+  if (data.startsWith("mv:") || data.startsWith("mk:")) return decidePoint(cq, me, Number(data.slice(3)), data.startsWith("mv:"));
   if (data.startsWith("gx:")) {
     if (!me) return answer(cq.id, "Кнопка для участников лиги");
     // просто закрываем этот вопрос: больше не ждём ответа на него
@@ -1727,6 +1769,9 @@ async function onCallback(cq: Any) {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   // решение Комиссии принято не кнопкой бота — зовёт триггер в базе; объявляет только настоящий статус и только один раз
+  if (url.searchParams.get("pointreq")) {
+    return new Response(JSON.stringify({ notified: await pointRequestNotice(Number(url.searchParams.get("pointreq"))) }), { headers: { "Content-Type": "application/json" } });
+  }
   if (url.searchParams.get("new")) {
     return new Response(JSON.stringify({ notified: await siteVisit(Number(url.searchParams.get("new"))) }), { headers: { "Content-Type": "application/json" } });
   }

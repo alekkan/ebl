@@ -854,6 +854,48 @@ sql(f"delete from visits where id = {gv}")
 sql(f"delete from baths where id = {gb}")
 sql("delete from player_accounts where tg_id = 909")
 
+print("Точка бани: точная, но неверная — запрос Комиссии")
+# 14.10: у Рублевских «точная» точка из первой выгрузки стояла в Подольске; Диман ответил координатами на карточку — бот промолчал
+rb = sql("insert into baths (name, status, lat, lng, precision) values ('Тест-Рублевские', 'ok', 55.37612, 37.53521, 'exact') returning id").splitlines()[0]
+rv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {rb}, now() - interval '1 hour', 60, id, 'bot' from players where nick = 'Шурик' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {rv}, id from players where nick = 'Шурик'")
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text) values ({rv}, {CHAT}, 8201, 8202, {rb}, 'Ушло в Комиссию ✅')")
+sql("delete from player_accounts where tg_id = 909")
+sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
+seen_pt = len(TELEGRAM.calls)
+req("POST", "/functions/v1/tg-bot", {"update_id": 9301, "message": {"message_id": 93, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
+    "from": {"id": 909, "is_bot": False, "first_name": "Шурик"}, "text": "55.783951, 37.354822",
+    "reply_to_message": {"message_id": 8202, "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": CHAT, "type": "supergroup"}, "text": "карточка"}}},
+    headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+rpt = lambda: sql(f"select coalesce(round(lat::numeric, 4)::text, '') from baths where id = {rb}")
+rq = lambda: sql(f"select coalesce(max(status), '') || ' ' || coalesce(max(source), '') || ' ' || coalesce(max(tg_msg)::text, '') from bath_point_requests where bath_id = {rb}")
+for _ in range(30):
+    if sql(f"select coalesce(max(jsonb_array_length(messages)), 0) from bath_point_requests where bath_id = {rb}") != "0": break
+    time.sleep(0.3)
+rid = sql(f"select coalesce(max(id), 0) from bath_point_requests where bath_id = {rb}")
+calls = TELEGRAM.calls[seen_pt:]
+check("точка ответом на карточку, хотя бот про неё не спрашивал — не молчим: точная не меняется, запрос Комиссии",
+      rpt() == "55.3761" and rq() == "pending bot 93", (rpt(), rq()))
+check("автору — 👀 на его сообщение, нового сообщения в чат нет",
+      any(m == "setMessageReaction" and str(p.get("message_id")) == "93" and "👀" in json.dumps(p.get("reaction"), ensure_ascii=False) for m, p in calls)
+      and not any(m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT for m, p in calls))
+notice = [p for m, p in calls if m == "sendMessage" and "Перенести точку бани?" in (p.get("text") or "")]
+check("Комиссии в личку — обе точки, расстояние и кнопки «Перенести» / «Оставить»",
+      notice and "Тест-Рублевские" in notice[0]["text"] and "47 км от нынешней" in notice[0]["text"] and f"mv:{rid}" in json.dumps(notice[0].get("reply_markup")),
+      [p.get("text") for p in notice])
+press(f"mv:{rid}", 909, 94)
+check("не Комиссия кнопкой точку не переносит", rpt() == "55.3761" and rq().startswith("pending"))
+seen_pt = len(TELEGRAM.calls)
+press(f"mv:{rid}", ME, 95)
+calls = TELEGRAM.calls[seen_pt:]
+check("Комиссия жмёт «Перенести» — точка новая, запрос решён", rpt() == "55.7840" and rq().startswith("ok"), (rpt(), rq()))
+check("уведомление Комиссии поправлено «✅ Перенесена — Леха», автору — 👍",
+      any(m == "editMessageText" and "✅ Перенесена — Леха" in (p.get("text") or "") for m, p in calls)
+      and any(m == "setMessageReaction" and str(p.get("message_id")) == "93" and "👍" in json.dumps(p.get("reaction"), ensure_ascii=False) for m, p in calls))
+press(f"mk:{rid}", ME, 96)
+check("второе нажатие уже решённое не переигрывает", rpt() == "55.7840" and rq().startswith("ok"))
+sql(f"delete from visits where id = {rv}"); sql(f"delete from baths where id = {rb}"); sql("delete from player_accounts where tg_id = 909")
+
 print("Действия бота по просьбе владельца (bot_actions)")
 from local import TELEGRAM
 seen = len(TELEGRAM.calls)

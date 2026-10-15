@@ -1,8 +1,10 @@
 // Уточнить точку бани с сайта: участник лиги присылает ссылку на карту или координаты.
-// Участник может поставить точку, только если сейчас она примерная; Комиссия — любую.
+// Участник ставит точку сам, только если сейчас она примерная; точную — предлагает Комиссии (bath_point_requests, 202).
+// Комиссия ставит любую сама.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { locate, useDbGeocoder } from "../_shared/geo.ts";
 import { placeByPoint } from "../_shared/place.ts";
+import { requestPoint } from "../_shared/point-request.ts";
 
 const ALLOWED = (Deno.env.get("ALLOWED_ORIGINS") ?? "https://ebl.su,https://www.ebl.su,http://ebl.su,http://www.ebl.su,https://alekkan.github.io,http://localhost:8765")
   .split(",").map((s) => s.trim());
@@ -39,8 +41,12 @@ Deno.serve(async (req) => {
   const maxKm = ({ city: 80, region: 400, country: 1500 } as Record<string, number>)[b.precision ?? ""] ?? 400;
   const p = await locate(String(body.input ?? ""), near, maxKm);
   if (!p) return fail(422, "Не нашёл, где это. Вставь ссылку на баню в Яндекс/Google Картах, адрес с номером дома или координаты вида 55.7558, 37.6173");
+  // точная уже стоит, а ставит не Комиссия — это запрос Комиссии: точки из первой выгрузки бывают неверными (Рублевские, 14.10)
   // deno-lint-ignore no-explicit-any
-  if (b.precision === "exact" && b.lat != null && !(acc.players as any)?.is_commission) return fail(409, "Точная точка уже стоит — поменять её может Комиссия");
+  if (b.precision === "exact" && b.lat != null && !(acc.players as any)?.is_commission) {
+    const r = await requestPoint(sb, b.id, p, acc.player_id, "site");
+    return new Response(JSON.stringify({ ...p, ...r }), { status: r.same ? 200 : 202, headers });
+  }
   // страну и регион не знали — берём по точке в написании Комиссии: без них не посчитать бонусы за регион и страну (п. 14)
   // только по координатам, через геокодер (_shared/place.ts); не ответил — пусто, ночью спросим снова
   const place = !b.country || !b.region ? await placeByPoint(sb, p, b) : {};
