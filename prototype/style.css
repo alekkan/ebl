@@ -342,6 +342,9 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .geo-fix { display: grid; gap: 8px; }
 .geo-fix form { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 .geo-fix .inp { height: 34px; font-size: 13px; }
+.geo-move .linkbtn { justify-self: start; }   /* точная точка: просто ссылка, без жёлтой плашки */
+.geo-move form { grid-template-columns: minmax(0, 1fr); }
+.geo-move form .btn { justify-self: start; }
 .note-soft { font-size: 13px; background: var(--honey-soft); color: color-mix(in srgb, var(--honey) 40%, var(--ink)); padding: 10px 12px; border-radius: 12px; }
 h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 0 0 10px; }
 .who { display: flex; flex-wrap: wrap; gap: 6px; }

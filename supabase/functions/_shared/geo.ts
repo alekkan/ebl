@@ -68,6 +68,7 @@ const km = (a: Point, b: Point) => {
   const r = Math.PI / 180, h = Math.sin((b.lat - a.lat) * r / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin((b.lng - a.lng) * r / 2) ** 2;
   return 12742 * Math.asin(Math.sqrt(h));
 };
+export const distKm = km;
 const STREET = /(ул\.?|улица|пр-т|проспект|просп\.|пер\.?|переулок|ш\.|шоссе|наб\.?|набережная|бульвар|б-р|пл\.?|площадь|проезд|тупик|аллея|мкр|микрорайон|street|st\.|avenue|ave|road|straße|strasse|str\.)/i;
 export const looksLikeAddress = (s: string) => (s ?? "").split(/\n/).some((l) => STREET.test(l) && /\d/.test(l));
 

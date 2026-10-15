@@ -414,6 +414,10 @@
           ${D.live && member ? `<button class="btn sm" id="geoFixBtn" type="button">📍 Знаю, где это</button>
           <form id="geoFixForm" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
           <button class="btn sm solid" type="submit">Поставить</button></form>` : D.live ? `<span class="hint">Войди — и сможешь поставить точную точку.</span>` : ""}
+        </div>` : D.live && member ? `<div class="geo-fix geo-move">
+          <button class="linkbtn" id="geoFixBtn" type="button">${canModerate ? "📍 Перенести точку на карте" : "📍 Точка на карте не там?"}</button>
+          <form id="geoFixForm" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
+          <button class="btn sm solid" type="submit">${canModerate ? "Перенести" : "Предложить Комиссии"}</button></form>
         </div>` : ""}
         <div class="d-actions">
           <button class="cta" id="dVisit">${icon("plus")}<span>Я тут парился</span></button>
@@ -522,6 +526,12 @@
       e.preventDefault();
       try {
         const p = await D.setBathLocation(id, $("#geoFixInput", d).value.trim());
+        // точная точка уже стояла — участник её не меняет, а предлагает: решит Комиссия (кнопки в личке у бота)
+        if (p.same) { toast("Точка бани и так здесь 👌"); $("#geoFixForm", d).hidden = true; return; }
+        if (p.requested) {
+          $("#geoFixForm", d).outerHTML = `<span class="hint">Передал Комиссии новую точку${p.km != null ? ` — в ${p.km < 1 ? Math.round(p.km * 1000) + " м" : Math.round(p.km) + " км"} от нынешней` : ""}. Перенесут, если всё так.</span>`;
+          return toast("📍 Передал Комиссии — спасибо!");
+        }
         b.lat = p.lat; b.lng = p.lng; b.precision = "exact"; hydrate(b);
         render(); openBath(id, true); toast("📍 Точка поставлена — спасибо!");
         refreshData().then(() => openId === id && openBath(id)).catch(() => {});   // страну и регион по точке сервер мог заполнить
