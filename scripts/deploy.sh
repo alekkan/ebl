@@ -14,13 +14,29 @@ tmp=$(mktemp -d); idxdir=$(mktemp -d); idx="$idxdir/index"   # индекс git 
 trap 'rm -rf "$tmp" "$idxdir"' EXIT
 cp -R prototype/. "$tmp/"
 find "$tmp" -name .DS_Store -delete
-sed -i '' -E "s/(style\.css|app\.js|db\.js|config\.js)\?v=[0-9]+/\1?v=$v/g" "$tmp/index.html"
+# версия скрипта или стиля — по его содержимому: не поменялся файл — тот же адрес, и браузер берёт его из кэша
+# даже после следующих выкладок (кэш на год, см. ниже); поменялся — новый адрес, старое из кэша не подхватится
+ASSETS="style.css app.js db.js config.js vendor/leaflet.min.css vendor/MarkerCluster.min.css vendor/leaflet.min.js vendor/leaflet.markercluster.min.js vendor/leaflet-heat.js vendor/supabase.js"
+for f in $ASSETS; do
+  h=$(shasum -a 256 "$tmp/$f" | cut -c1-10)
+  re=$(printf '%s' "$f" | sed 's/[.]/\\./g')
+  sed -i '' -E "s#\"$re(\\?v=[0-9a-z]+)?\"#\"$f?v=$h\"#g" "$tmp/index.html"
+  grep -q "\"$f?v=$h\"" "$tmp/index.html" || { echo "В index.html нет ссылки на $f — версия не проставлена" >&2; exit 1; }
+done
 
-# 1) Яндекс. Сначала всё, кроме страницы, потом страница: новая index.html не должна сослаться на ещё не залитый скрипт.
-#    Страница — без кэша (новая выкладка видна сразу), остальное — 10 минут: CSS и JS и так с ?v=.
-"$YC" storage s3 cp --recursive --only-show-errors --exclude "*.html" --exclude "CNAME" --exclude ".nojekyll" \
+# 1) Яндекс. Хранилище само не сжимает — отдаём заранее сжатое (gzip, Content-Encoding): файлы сайта ~700 КБ шли секундами
+#    до первого запроса к базе, заставка висела (15.10). Сначала всё, кроме страницы, потом страница: новая index.html
+#    не должна сослаться на ещё не залитый скрипт. Страница — без кэша (новая выкладка видна сразу); скрипты и стили
+#    с версией — на год (адрес меняется вместе с содержимым); остальное (иконки, данные витрины) — 10 минут.
+gz=$(mktemp -d); trap 'rm -rf "$tmp" "$idxdir" "$gz"' EXIT
+cp -R "$tmp/." "$gz/"
+find "$gz" -type f \( -name "*.js" -o -name "*.css" -o -name "*.html" -o -name "*.json" \) -exec gzip -9 -n {} \; -exec sh -c 'mv "$1.gz" "$1"' _ {} \;
+up() { "$YC" storage s3 cp --only-show-errors "$@"; }
+for f in $ASSETS; do up --content-encoding gzip --cache-control "public, max-age=31536000, immutable" "$gz/$f" "s3://ebl.su/$f"; done
+up --recursive --exclude "*.html" --exclude "CNAME" --exclude ".nojekyll" --exclude "*.js" --exclude "*.css" --exclude "*.json" \
   --cache-control "public, max-age=600" "$tmp/" s3://ebl.su/
-"$YC" storage s3 cp --only-show-errors --cache-control "no-cache" "$tmp/index.html" s3://ebl.su/index.html
+up --recursive --exclude "*" --include "data/*.json" --content-encoding gzip --cache-control "public, max-age=600" "$gz/" s3://ebl.su/
+up --content-encoding gzip --cache-control "no-cache" "$gz/index.html" s3://ebl.su/index.html
 
 # 2) GitHub Pages — резерв. gh-pages — только сборка; GitHub сам коммитит туда CNAME, поэтому перезаписываем
 GIT_INDEX_FILE="$idx" git --work-tree="$tmp" add -A
