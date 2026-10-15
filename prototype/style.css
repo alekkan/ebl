@@ -194,7 +194,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .leaflet-control-attribution { background: color-mix(in srgb, var(--panel) 80%, transparent) !important; color: var(--ink-3) !important; border-radius: 8px 0 0 0; font-size: 11px; }
 .leaflet-control-attribution a { color: var(--ink-2) !important; }
 #map .leaflet-top.leaflet-left { left: 392px; top: 4px; }   /* только на главной карте — справа от панели; мини-карта формы не трогается */
-#heatmap .leaflet-top.leaflet-left { left: 372px; }   /* на «Жаре» — справа от карточки, а не поверх её заголовка */
+#ownmap .leaflet-top.leaflet-left { left: 372px; }   /* на «Хозяевах» — справа от карточки, а не поверх её заголовка */
 
 .pin {
   border-radius: 50%; background: var(--c); border: 2px solid var(--panel); color: var(--panel);
@@ -432,52 +432,39 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 @media (max-width: 560px) { .sec-row .inp.sm { flex: 1 1 40%; width: auto; } }
 .post-pts small { font-family: var(--body); font-weight: 500; }
 
-/* ---------- тепловая карта ---------- */
-.view-heat { position: relative; --heat-bg: var(--bg); --heat-grad: linear-gradient(90deg, #fdd49e, #fdae6b, #f16913, #d7301f, #a50f15, #5c0010); --year-stroke: color-mix(in srgb, var(--ember) 45%, transparent); background: var(--heat-bg); }
-.view-heat[data-style="dark"], .view-heat[data-style="sat"] { --heat-bg: #07090a; --heat-grad: linear-gradient(90deg, #4a1203, #9c2a06, #e4561a, #f7962c, #fdd36a, #ffffff); --year-stroke: rgba(255, 170, 90, .4); }
-#heatmap { position: absolute; inset: 0; background: var(--heat-bg); }
-/* светлая: серая подложка, чтобы красные пятна читались; тёмная — «ночная» инверсия */
-.tiles-heat-light { filter: grayscale(1) brightness(1.03) contrast(.86); }
-.tiles-heat-dark { filter: invert(1) hue-rotate(180deg) grayscale(1) brightness(.62) contrast(1.3); }
-.tiles-heat-sat { filter: saturate(.7) brightness(.8); }
-.view-heat:not([data-style="light"]) .leaflet-control-attribution { background: rgba(0, 0, 0, .5) !important; color: #7d8680 !important; }
-.view-heat:not([data-style="light"]) .leaflet-control-attribution a { color: #a8b0aa !important; }
-.view-heat:not([data-style="light"]) .leaflet-control-zoom a { background: #161a18 !important; color: #e6ebe7 !important; border-color: #262b28 !important; }
-.mapstyle { position: absolute; z-index: 700; top: 8px; right: 16px; background: var(--panel); box-shadow: var(--shadow-s); }
-.mapstyle button { padding: 7px 12px; }
-.heat-year {
-  position: absolute; z-index: 450; right: 28px; bottom: 18px; pointer-events: none;
-  font: 800 clamp(64px, 12vw, 150px)/1 var(--display); letter-spacing: -.04em;
-  color: transparent; -webkit-text-stroke: 1.5px var(--year-stroke);
-}
-@media (prefers-reduced-motion: no-preference) { .heat-year.flash { animation: yearflash .6s var(--ease); } @keyframes yearflash { from { opacity: 0; transform: translateY(12px); } } }
-.heat-card {
+/* ---------- хозяева бань ---------- */
+.view-owners { position: relative; background: var(--bg); }
+#ownmap { position: absolute; inset: 0; background: var(--bg); }
+#ownmap .leaflet-tile-pane { filter: grayscale(1) brightness(1.04) contrast(.88); }   /* серая подложка — аватарки читаются */
+.own-card {
   position: absolute; z-index: 700; top: 8px; left: 16px; width: 340px; max-height: calc(100% - 24px); overflow: auto;
-  background: var(--panel); border-radius: var(--r-lg); box-shadow: 0 20px 50px -18px rgba(0, 0, 0, .8); padding: 18px; display: grid; gap: 12px; align-content: start;
+  background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 18px; display: grid; gap: 12px; align-content: start;
 }
-.heat-card h2 { font: 800 26px/1.05 var(--display); letter-spacing: -.02em; margin: -4px 0 2px; }
-.heat-card .seg button { padding: 7px 2px; }
-.heat-card h3 { margin: 6px 0 0; }
-.heat-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.heat-row .sel { height: 40px; }
-.heat-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.heat-kpis div { background: var(--panel-2); border-radius: 12px; padding: 10px; }
-.heat-kpis b { display: block; font: 700 20px/1 var(--display); letter-spacing: -.02em; }
-.heat-kpis span { font-size: 12px; color: var(--ink-2); }
-.heat-legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-3); }
-.heat-legend i { flex: 1; height: 8px; border-radius: 8px; background: var(--heat-grad); }
-.hot { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.hot li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
-@media (hover: hover) { .hot li:hover { background: var(--panel-2); } }
-.hot .hk { font: 700 12px var(--display); color: var(--ink-3); text-align: center; }
-.hot li:nth-child(1) .hk { color: #f36d1c; } .hot li:nth-child(2) .hk { color: #fb9a2c; } .hot li:nth-child(3) .hk { color: #fbb33c; }
-.hot .hn { display: block; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hot .hm { display: block; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hot .hv { font: 700 14px var(--display); color: var(--ember); }
-.heat-pop { font-family: var(--body); }
-.heat-pop b { display: block; font-size: 14px; }
-.heat-pop span { color: #666; font-size: 12px; }
-.heat-pop button { margin-top: 6px; border: 0; background: none; color: #3f6b35; font-weight: 700; padding: 0; }   /* попап Leaflet всегда белый — цвет не из темы */
+.own-card h2 { font: 800 24px/1.1 var(--display); letter-spacing: -.02em; margin: 0; }
+.own-card h3 { margin: 4px 0 0; }
+.own-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+.own-sum div { display: grid; gap: 4px; padding: 10px 0 10px 12px; }
+.own-sum div:first-child { padding-left: 0; }
+.own-sum div + div { border-left: 1px solid var(--line); }
+.own-sum b { font: 700 20px/1 var(--display); letter-spacing: -.02em; }
+.own-sum span { font-size: 12px; color: var(--ink-3); }
+.own-me { display: grid; gap: 2px; margin: 0; padding: 10px 12px; border-radius: var(--r); background: var(--honey-soft); font-size: 13px; }
+.own-me:empty { display: none; }
+.own-me span { color: var(--ink-2); }
+.own-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.own-list li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
+@media (hover: hover) { .own-list li:hover { background: var(--panel-2); } }
+.own-list .hn { display: block; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.own-list .hm { display: block; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.own-list .hv { font: 700 15px var(--display); }
+.own-list li[aria-pressed="true"] { background: var(--oak-soft); }
+.own-list .hv { color: var(--oak); }
+.own-pin { position: relative; display: flex; }
+.own-pin .ava { box-shadow: 0 0 0 2.5px var(--panel), 0 3px 10px rgba(20, 30, 20, .45); font-size: calc(var(--s) * .36); }
+.own-pin .ava + .ava { margin-left: calc(var(--s) * -.4); }
+.own-pin b { position: absolute; right: -7px; bottom: -5px; min-width: 18px; padding: 2px 5px; border-radius: 999px; background: var(--ink);
+  color: var(--panel); font: 700 10px/1.2 var(--display); text-align: center; box-shadow: 0 0 0 2px var(--panel); }
+.own-free { display: block; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; background: var(--panel); border: 2px solid var(--ink-3); }
 
 /* ---------- страницы ---------- */
 .page { overflow: auto; padding-inline: 20px; padding-block: 12px 72px;
@@ -758,14 +745,16 @@ tr.below { color: var(--ink-2); }
   .mark { width: 38px; height: 38px; }
   .brand .word { font-size: 22px; }
   .cta#addVisitBtn { margin-left: auto; padding: 10px 14px; }
-  /* высота нижнего меню — столько же отступ снизу у main: иначе низ вкладки (карта, карточка «Жара») уходит под меню */
+  /* высота нижнего меню — столько же отступ снизу у main: иначе низ вкладки (карта, карточка «Хозяев») уходит под меню */
   :root { --nav-h: 70px; }
   .nav {
     position: fixed; z-index: 1500; left: 0; right: 0; bottom: 0; margin: 0; border-radius: 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
     height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
     justify-content: space-around; box-shadow: 0 -1px 0 var(--line); background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(12px);
   }
-  .nav button { flex-direction: column; gap: 3px; padding: 8px 10px; font-size: 11px; border-radius: 12px; }
+  /* кнопки — поровну на всю ширину: у Комиссии их шесть, с «Хозяевами» последняя вылезала за экран (15.10) */
+  .nav button { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 3px; padding: 8px 2px; font-size: 11px; border-radius: 12px; }
+  .nav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .nav button .ic { width: 22px; height: 22px; }
   .nav button[aria-selected="true"] { background: none; color: var(--oak); }
   .nav .badge { position: absolute; top: 2px; right: 4px; }
@@ -789,10 +778,8 @@ tr.below { color: var(--ink-2); }
   .race-toggle { display: grid; place-items: center; border: 0; background: var(--panel-2); width: 30px; height: 30px; border-radius: 50%; flex: none; }
   .race.open .race-toggle .ic { transform: rotate(180deg); }
   .view-map:has(#drawer:not([hidden])) .race { display: none; }   /* открыта баня — карта нужнее гонки */
-  .heat-card { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 52%; border-radius: 22px 22px 0 0; padding: 16px; }
-  .heat-card h2 { font-size: 21px; }
-  .heat-year { top: 56px; bottom: auto; right: 16px; font-size: 56px; }
-  .mapstyle { top: 10px; right: 12px; left: 12px; }
+  .own-card { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 48%; border-radius: 22px 22px 0 0; padding: 16px; }
+  .own-card h2 { font-size: 20px; }
   .drawer { position: fixed; z-index: 1600; top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 62%; border-radius: 24px 24px 0 0; box-shadow: 0 -12px 32px -12px rgba(0, 0, 0, .35); }
 
   .page { padding-inline: 16px; }

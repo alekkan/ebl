@@ -21,7 +21,7 @@ LIVE_CONFIG = f'window.EBL_CONFIG = {{ supabaseUrl: "{API}", supabaseKey: "{KEY}
 SHOWCASE_CONFIG = 'window.EBL_CONFIG = { supabaseUrl: "", supabaseKey: "", telegramBot: "" };'
 # ключ, под которым supabase-js хранит сессию: sb-<первая часть адреса>-auth-token
 AUTH_KEY = "sb-" + API.split("//")[1].split(".")[0].split(":")[0] + "-auth-token"
-VIEWS = ["map", "heat", "table", "feed", "rules"]
+VIEWS = ["map", "owners", "table", "feed", "rules"]
 # всё, что не со стенда и не с локального сервера сайта
 EXTERNAL = re.compile(r"^https?://(?!(127\.0\.0\.1|localhost)[:/])")
 DEAD = "http://127.0.0.1:9"   # сюда не подключиться — как шлюз Яндекса за VPN, который его не пускает
@@ -194,9 +194,9 @@ def all_views(s, label, mobile=False):
         if mobile:
             s.no_clip(f"{label}: «{v}» на телефоне", f"#view-{v}")
             s.nav_free(f"{label}: «{v}» на телефоне")
-        elif v in ("map", "heat"):
+        elif v in ("map", "owners"):
             check(f"{label}: на «{v}» кнопки масштаба не лежат на карточке",
-                  not s.js(ZOOM_OVER_JS, ["#map", "#view-map .panel"] if v == "map" else ["#heatmap", "#view-heat .heat-card"]))
+                  not s.js(ZOOM_OVER_JS, ["#map", "#view-map .panel"] if v == "map" else ["#ownmap", "#view-owners .own-card"]))
     s.view("table")
     s.page.click('#tMode [data-m="week"]')
     s.page.wait_for_selector("#tWeek:not([hidden])", timeout=8000)
@@ -274,6 +274,16 @@ with sync_playwright() as pw:
         all_views(s, "участник")
         s.view("feed")
         check("участнику видна лента походов", s.js("() => !!document.querySelector('#feedFilter button')"))
+        # «Хозяева бань» (15.10, вместо «Жара»): хозяин — больше всех походов в бане за сезон, от двух
+        s.view("owners"); s.page.wait_for_timeout(500)
+        pins = lambda: s.js("() => document.querySelectorAll('#ownmap .own-pin').length")
+        before_pins = pins()
+        check("«Хозяева»: на карте аватарки хозяев, сбоку — кто сколькими владеет",
+              before_pins > 0 and s.js("() => document.querySelectorAll('#oList li[data-owner]').length > 0"))
+        check("«Хозяева»: участнику — где он хозяин и какую шапку ближе всего отжать", s.js("() => /хозяин/.test(document.getElementById('oMe').innerText)"))
+        owned = int(s.js("() => document.querySelector('#oList li[data-owner] .hv').innerText"))
+        s.page.click("#oList li[data-owner]"); s.page.wait_for_timeout(500)
+        check("нажал на хозяина — на карте только его бани", owned <= pins() < before_pins, (owned, pins(), before_pins))
         check("участнику (не Комиссии) вкладки «Бани» нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
         # поход через форму: баня из справочника + попутчик
         s.page.click("#addVisitBtn")
@@ -546,11 +556,11 @@ with sync_playwright() as pw:
         s = Site(browser, url, mobile=True, name="mobile-guest")
         s.no_clip("гость: шапка на телефоне", ".top")
         all_views(s, "гость на телефоне", mobile=True)
-        # «Жар»: пока карта летит к бане из списка (анимация приближения, 0,8 с), меню не перекрыто и нажимается
-        s.view("heat")
-        s.page.click("#hTop li[data-id]")
+        # «Хозяева»: пока карта летит к баням хозяина из списка, меню не перекрыто и нажимается
+        s.view("owners")
+        s.page.click("#oList li[data-owner]")
         s.page.wait_for_timeout(200)
-        s.nav_free("«Жар» на телефоне во время приближения")
+        s.nav_free("«Хозяева» на телефоне во время приближения")
         s.page.click('.nav [data-view="table"]', timeout=3000)
         check("…и меню переключает вкладку, не дожидаясь конца анимации", s.js("() => !document.getElementById('view-table').hidden"))
         s.close()

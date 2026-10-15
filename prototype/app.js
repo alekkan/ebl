@@ -160,7 +160,7 @@
     $$(".nav button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
     $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + view));
     if (view === "map") setTimeout(() => map.invalidateSize(), 0);
-    if (view === "heat") initHeat(); else stopPlay();
+    if (view === "owners") initOwners();
     if (view === "feed") renderFeed();
     if (view === "dir") renderDir();
     history.replaceState(null, "", "#" + view);
@@ -791,125 +791,78 @@
   $("#podium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player); });
   renderTable();
 
-  // ---------- тепловая карта ----------
-  let heatMap = null, heat = null, heatYear = 2026, playTimer = null;
-  // на светлой карте самое жаркое — насыщенно-красное (белое ядро там не видно), на тёмной и спутнике — «огонь» до белого
-  const GRAD = {
-    light: { 0.12: "#fdd49e", 0.3: "#fdae6b", 0.5: "#f16913", 0.7: "#d7301f", 0.88: "#a50f15", 1: "#5c0010" },
-    fire: { 0.12: "#4a1203", 0.3: "#9c2a06", 0.5: "#e4561a", 0.7: "#f7962c", 0.88: "#fdd36a", 1: "#ffffff" },
-  };
-  const SAT_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-  const SAT_LABELS = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
-  const heatLayers = {};
-  let heatStyle = store.get("heatStyle", "light");
-  $("#hPlayer").innerHTML += [...allPlayers].sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("");
-  function initHeat() {
-    if (heatMap) { setTimeout(() => heatMap.invalidateSize(), 0); return; }
-    heatMap = L.map("heatmap", { worldCopyJump: true, zoomSnap: 0.5 }).setView([52, 45], 3);
-    heatMap.attributionControl.setPrefix(false);
-    heatLayers.osm = L.tileLayer(TILE_URL, tileOpts);
-    heatLayers.sat = L.layerGroup([
-      L.tileLayer(SAT_URL, { maxZoom: 18, attribution: "Снимки &copy; Esri, Maxar, Earthstar Geographics" }),
-      L.tileLayer(SAT_LABELS, { maxZoom: 18, pane: "overlayPane" }),
-    ]);
-    // leaflet-heat дорисовывает кадр и тогда, когда вкладку «Жар» уже скрыли (холст 0×0) — getImageData падает; такой кадр пропускаем
-    if (!L.HeatLayer.prototype._eblGuard) {
-      const redraw = L.HeatLayer.prototype._redraw;
-      L.HeatLayer.prototype._redraw = function () { if (this._canvas?.width && this._canvas?.height) return redraw.call(this); this._frame = null; };
-      L.HeatLayer.prototype._eblGuard = true;
+  // ---------- хозяева бань ----------
+  // Хозяин бани — у кого больше всех походов в ней за сезон 2026, и не меньше двух: шапку держит тот, кто ходит чаще
+  // (как мэр в Swarm и Local Legend в Strava). Поровну у нескольких — шапку делят; все по разу — баня свободна.
+  // Пока по сезону: дат в таблице Комиссии нет, а портал хранит их с 26.09 — на скользящие 90 дней перейдём позже.
+  // На карте — только бани с точной точкой: примерные легли бы кучей в центр города (15.10).
+  function ownerOf(b) {
+    const e = Object.entries(b.v26 || {}); if (!e.length) return null;
+    const n = Math.max(...e.map(([, k]) => k));
+    const who = e.filter(([, k]) => k === n).map(([p]) => p).sort((x, y) => x.localeCompare(y, "ru"));
+    return { n, who, kind: n < 2 ? "free" : who.length > 1 ? "shared" : "owner" };
+  }
+  let ownMap = null, ownLayer = null, ownFocus = "";
+  function initOwners() {
+    if (!ownMap) {
+      ownMap = L.map("ownmap", { worldCopyJump: true, zoomSnap: 0.5 }).setView([55.75, 37.6], innerWidth > 760 ? 10 : 9);
+      ownMap.attributionControl.setPrefix(false);
+      L.tileLayer(TILE_URL, tileOpts).addTo(ownMap);
+      ownLayer = L.layerGroup().addTo(ownMap);
     }
-    heat = L.heatLayer([], { radius: 14, blur: 18, max: 1, minOpacity: 0.2, gradient: GRAD.light }).addTo(heatMap);
-    heatMap.on("zoomend", tuneHeat);
-    setHeatStyle(heatStyle);
-    renderHeat(true);
+    setTimeout(() => ownMap.invalidateSize(), 0);
+    renderOwners();
   }
-  function setHeatStyle(st) {
-    heatStyle = st; store.set("heatStyle", st);
-    $("#view-heat").dataset.style = st;
-    $$("#hStyle button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.s === st)));
-    if (!heatMap) return;
-    const base = st === "sat" ? heatLayers.sat : heatLayers.osm, other = st === "sat" ? heatLayers.osm : heatLayers.sat;
-    if (heatMap.hasLayer(other)) heatMap.removeLayer(other);
-    if (!heatMap.hasLayer(base)) heatMap.addLayer(base);
-    const pane = $("#heatmap .leaflet-tile-pane");
-    pane.classList.remove("tiles-heat-light", "tiles-heat-dark", "tiles-heat-sat");
-    pane.classList.add("tiles-heat-" + st);
-    heat.setOptions({ gradient: st === "light" ? GRAD.light : GRAD.fire, minOpacity: st === "light" ? 0.3 : 0.2 });
+  // хозяин — его аватарка (размер — сколько раз ходил), шапку делят — аватарки внахлёст, свободная — белая точка
+  function ownerIcon(o) {
+    if (o.kind === "free") return L.divIcon({ className: "", iconSize: [12, 12], html: '<i class="own-free"></i>' });
+    const size = Math.round(Math.min(30 + Math.sqrt(o.n) * 4, 58)), sz = o.kind === "owner" ? size : Math.round(size * 0.8);
+    const names = o.who.slice(0, 3), w = Math.round(sz + (names.length - 1) * sz * 0.6);
+    return L.divIcon({ className: "", iconSize: [w, sz], html: `<div class="own-pin" style="--s:${sz}px">${names.map((p) => ava(p)).join("")}<b>${o.n}</b></div>` });
   }
-  $("#hStyle").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setHeatStyle(b.dataset.s); });
-  setHeatStyle(heatStyle);
-  // интенсивность не должна тухнуть при отдалении — держим maxZoom слоя равным текущему зуму
-  function tuneHeat() {
-    const z = heatMap.getZoom();
-    heat.setOptions({ maxZoom: z, radius: Math.round(Math.min(34, 10 + z * 1.5)), blur: Math.round(Math.min(36, 12 + z * 1.6)) });
-    aggregateHeat();
-  }
-  // как в Strava: походы складываются по ячейкам экрана при текущем зуме, яркость — по логарифмической шкале
-  // от самой жаркой ячейки: места силы горят заметно ярче, но Москва не гасит остальные города,
-  // а баня с парой походов остаётся бледным, но видимым пятном
-  let heatPts = [];
-  function aggregateHeat() {
-    if (!heatPts.length) { heat.setLatLngs([]); return; }
-    const z = heatMap.getZoom(), cell = (heat.options.radius + heat.options.blur) / 2, grid = new Map();
-    for (const [lat, lng, n] of heatPts) {
-      const p = heatMap.project([lat, lng], z), key = Math.floor(p.x / cell) + ":" + Math.floor(p.y / cell);
-      const g = grid.get(key);
-      if (g) { g.x += p.x * n; g.y += p.y * n; g.n += n; } else grid.set(key, { x: p.x * n, y: p.y * n, n });
+  function renderOwners() {
+    if (!ownMap) return;
+    const rows = baths.filter((b) => b.ll && b.prec === "exact").map((b) => [b, ownerOf(b)]).filter(([, o]) => o);
+    const hidden = baths.filter((b) => (!b.ll || b.prec !== "exact") && ownerOf(b)?.kind === "owner").length;
+    const kingdoms = new Map();
+    for (const [b, o] of rows) if (o.kind === "owner") kingdoms.set(o.who[0], [...(kingdoms.get(o.who[0]) || []), [b, o.n]]);
+    ownLayer.clearLayers();
+    const shown = rows.filter(([, o]) => !ownFocus || o.who.includes(ownFocus));
+    for (const [b, o] of shown) {
+      L.marker(b.ll, { icon: ownerIcon(o), zIndexOffset: o.kind === "free" ? -1000 : o.n * 10, title: b.name })
+        .bindTooltip(`<b>${esc(b.name)}</b><br>${o.kind === "free" ? "свободна — все по разу" : `${esc(o.who.join(", "))}${o.kind === "shared" ? " делят" : ""} · ${o.n} ${plural(o.n, "поход", "похода", "походов")}`}`, { direction: "top", offset: [0, -14] })
+        .on("click", () => { show("map"); openBath(b.id, true); })
+        .addTo(ownLayer);
     }
-    const cells = [...grid.values()], maxN = Math.max(...cells.map((c) => c.n));
-    heat.setLatLngs(cells.map((c) => {
-      const ll = heatMap.unproject([c.x / c.n, c.y / c.n], z);
-      return [ll.lat, ll.lng, Math.pow(Math.log1p(c.n) / Math.log1p(maxN), 0.8)];
-    }));
+    if (ownFocus && shown.length) ownMap.fitBounds(L.latLngBounds(shown.map(([b]) => b.ll)).pad(0.2), { maxZoom: 12, paddingTopLeft: innerWidth > 760 ? [360, 0] : [0, 0] });
+    const count = (k) => rows.filter(([, o]) => o.kind === k).length;
+    $("#oSum").innerHTML = [[count("owner"), "с хозяином"], [count("shared"), "шапку делят"], [count("free"), "свободны"]]
+      .map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join("");
+    $("#oMe").innerHTML = myNick ? ownMine(rows, kingdoms) : "";
+    const top = [...kingdoms].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0], "ru"));
+    $("#oList").innerHTML = top.map(([p, bs]) => `<li data-owner="${esc(p)}" aria-pressed="${ownFocus === p}">${ava(p, "sm")}<span><span class="hn">${esc(p)}</span>`
+      + `<span class="hm">${bs.sort((x, y) => y[1] - x[1]).slice(0, 2).map(([b, n]) => `${esc(b.name)} · ${n}`).join(", ")}</span></span><span class="hv">${bs.length}</span></li>`).join("")
+      || `<li><span></span><span class="hm">Пока у бань нет хозяев</span></li>`;
+    $("#oNote").textContent = `Хозяин — больше всех походов в бане за сезон, от двух. Ещё ${hidden} ${plural(hidden, "баня", "бани", "бань")} с хозяином без точной точки — их на карте нет.`;
   }
-  function renderHeat(fit) {
-    const player = $("#hPlayer").value;
-    const rows = baths.map((b) => [b, countFor(b, heatYear, player)]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
-    // точки «по центру страны» не рисуем — они дали бы ложное пятно посреди страны
-    const pts = rows.filter(([b]) => b.ll && b.prec !== "country").map(([b, n]) => [b.ll[0], b.ll[1], n]);
-    heatPts = pts;
-    tuneHeat();
-    const visitsN = rows.reduce((a, [, n]) => a + n, 0), ctry = new Set(rows.map(([b]) => b.country).filter(Boolean));
-    $("#hKpis").innerHTML = [[visitsN, plural(visitsN, "поход", "похода", "походов")], [rows.length, plural(rows.length, "баня", "бани", "бань")], [ctry.size, plural(ctry.size, "страна", "страны", "стран")]]
-      .map(([n, l]) => `<div><b>${n.toLocaleString("ru-RU")}</b><span>${l}</span></div>`).join("");
-    $("#hTop").innerHTML = rows.slice(0, 7).map(([b, n], i) => `<li data-id="${b.id}"><span class="hk">${i + 1}</span><span><span class="hn">${esc(b.name)}</span><span class="hm">${esc(where(b))}</span></span><span class="hv">${n}</span></li>`).join("")
-      || `<li><span></span><span class="hm">${player ? `${esc(player)} в этом году не парился` : "Пусто"}</span></li>`;
-    $("#hNote").textContent = heatYear === 2026 ? `Сезон 2026 — ${DATA_NOTE}.` : "Походы прошлых лет привязаны к баням по названию, около 2% не нашли пару в справочнике.";
-    const mark = $("#heatYearMark");
-    mark.textContent = heatYear === "all" ? "2023–26" : heatYear;
-    mark.classList.remove("flash"); void mark.offsetWidth; mark.classList.add("flash");
-    // вся лига — стартуем с европейской части России, где основной жар; участник — по его баням
-    // на телефоне низ карты под шторкой — центр ниже, чтобы Европа и Россия попали в видимую часть
-    if (fit && !player) heatMap.setView(innerWidth > 760 ? [55.4, 32] : [43, 30], innerWidth > 760 ? 5 : 3);
-    else if (fit && pts.length) heatMap.fitBounds(L.latLngBounds(pts.map((p) => [p[0], p[1]])).pad(0.1), { maxZoom: 9, paddingTopLeft: innerWidth > 760 ? [360, 0] : [0, 0] });
+  // где я хозяин и ближайшая шапка, которую можно отжать: где я уже был и до хозяина меньше всего походов
+  function ownMine(rows, kingdoms) {
+    const mine = kingdoms.get(myNick)?.length || 0;
+    let near = null;
+    for (const [b, o] of rows) {
+      const k = b.v26?.[myNick] || 0;
+      if (!k || (o.kind === "owner" && o.who[0] === myNick)) continue;
+      const need = Math.max(2, o.n + 1) - k;
+      if (!near || need < near.need) near = { b, o, need };
+    }
+    return `<b>${mine ? `Ты хозяин ${mine} ${plural(mine, "бани", "бань", "бань")}` : "Ты пока не хозяин ни одной бани"}</b>`
+      + (near ? `<span>Ближе всего — «${esc(near.b.name)}»${near.o.kind === "owner" ? ` у ${esc(near.o.who[0])}` : ""}: ещё ${near.need} ${plural(near.need, "поход", "похода", "походов")}</span>` : "");
   }
-  function setYear(y) {
-    heatYear = y === "all" ? "all" : +y;
-    $$("#hYear button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.y === String(y))));
-    renderHeat(false);
-  }
-  $("#hYear").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { stopPlay(); setYear(b.dataset.y); } });
-  $("#hPlayer").addEventListener("change", () => renderHeat(true));
-  $("#hTop").addEventListener("click", (e) => {
-    const li = e.target.closest("li[data-id]"); if (!li) return;
-    const b = byId.get(+li.dataset.id); if (!b?.ll) return;
-    heatMap.flyTo(b.ll, b.prec === "exact" ? 14 : 11, { duration: calm ? 0 : 0.8 });
-    const pop = L.popup({ closeButton: false, offset: [0, -4] }).setLatLng(b.ll)
-      .setContent(`<div class="heat-pop"><b>${esc(b.name)}</b><span>${esc(where(b))} · ${b.nAll} ${plural(b.nAll, "поход", "похода", "походов")} с 2023</span><br><button type="button" data-open="${b.id}">Открыть карточку →</button></div>`);
-    heatMap.once("moveend", () => pop.openOn(heatMap));
-  });
-  document.addEventListener("click", (e) => { const o = e.target.closest("[data-open]"); if (o) { show("map"); openBath(+o.dataset.open, true); } });
-  function stopPlay() {
-    if (!playTimer) return;
-    clearInterval(playTimer); playTimer = null;
-    $("#hPlay").innerHTML = `${icon("play")}<span>Годы</span>`;
-  }
-  $("#hPlay").addEventListener("click", () => {
-    if (playTimer) return stopPlay();
-    let i = 0;
-    $("#hPlay").innerHTML = `${icon("pause")}<span>Пауза</span>`;
-    const step = () => { if (i < YEARS.length) setYear(YEARS[i++]); else { stopPlay(); setYear("all"); } };
-    step(); playTimer = setInterval(step, 1700);
+  $("#oList").addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-owner]"); if (!li) return;
+    ownFocus = ownFocus === li.dataset.owner ? "" : li.dataset.owner;
+    if (!ownFocus) ownMap.setView([55.75, 37.6], innerWidth > 760 ? 10 : 9);
+    renderOwners();
   });
 
   // ---------- профиль участника ----------
@@ -1776,5 +1729,5 @@
   updateBadge();
   render("home");
   const h = location.hash.slice(1);
-  if (["heat", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
+  if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
 })();
