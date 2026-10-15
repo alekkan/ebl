@@ -175,7 +175,8 @@ vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by) se
 sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id) values ({vid}, {CHAT}, 777, 778, 5)")
 announced = lambda: sql(f"select coalesce(announced, '') from bot_posts where visit_id = {vid}")
 def wait_announced(want):
-    for _ in range(30):
+    # решение объявляет бот, которого зовёт триггер через pg_net (ждёт до 30 с): 9 с на занятом стенде не хватало (15.10)
+    for _ in range(100):
         if announced() == want: return True
         time.sleep(0.3)
     return False
@@ -597,7 +598,7 @@ check("Telegram попросил подождать — отметка всё р
       '<a href="tg://user?id=910">участник</a>' in txt and "🧖" not in txt, txt)
 check("сообщение сбора запомнено — его можно поправить", sql(f"select cardinality(msgs) from rollcalls where chat_id = {CHAT}") == "1")
 def edited(name):
-    for _ in range(30):
+    for _ in range(60):   # имя бот дозаполняет фоном с паузами на 429 — 15 с на занятом стенде не хватало (08.10)
         if any(m == "editMessageText" and name in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]): return True
         time.sleep(0.5)
     return False
@@ -869,7 +870,7 @@ req("POST", "/functions/v1/tg-bot", {"update_id": 9301, "message": {"message_id"
     headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
 rpt = lambda: sql(f"select coalesce(round(lat::numeric, 4)::text, '') from baths where id = {rb}")
 rq = lambda: sql(f"select coalesce(max(status), '') || ' ' || coalesce(max(source), '') || ' ' || coalesce(max(tg_msg)::text, '') from bath_point_requests where bath_id = {rb}")
-for _ in range(30):
+for _ in range(100):   # уведомление Комиссии шлёт бот по триггеру (pg_net, до 30 с)
     if sql(f"select coalesce(max(jsonb_array_length(messages)), 0) from bath_point_requests where bath_id = {rb}") != "0": break
     time.sleep(0.3)
 rid = sql(f"select coalesce(max(id), 0) from bath_point_requests where bath_id = {rb}")
