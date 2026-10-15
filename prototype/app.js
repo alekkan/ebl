@@ -1434,6 +1434,7 @@
     visits = fresh.visits;
     Object.keys(reviews).forEach((k) => delete reviews[k]); Object.assign(reviews, fresh.reviews);
     Object.keys(prices).forEach((k) => delete prices[k]); Object.assign(prices, fresh.prices);
+    Object.keys(beerPrices).forEach((k) => delete beerPrices[k]); Object.assign(beerPrices, fresh.beerPrices);
     rankTable(); renderKpis(); render(); renderRace(); renderTable(); updateBadge();
     if (!$("#tWeek").hidden) renderWeek();
     if (!$("#view-feed").hidden) renderFeed();
