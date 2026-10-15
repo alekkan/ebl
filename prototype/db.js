@@ -31,6 +31,11 @@ window.EBLData = (() => {
   }
   const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey,
     { ...(cfg.authKey ? { auth: { storageKey: cfg.authKey } } : {}), global: { fetch: viaBest } }) : null;
+  // Общее для всех (бани, таблица, отзывы, цены) — отдельным клиентом без входа. Клиент со входом каждый свой запрос
+  // пускает только после проверки сессии, а ключ входа живёт час: зашёл позже — сначала круг через шлюз на его обновление,
+  // и только потом бани и таблица (15.10). Этим данным вход не нужен — права у гостя те же.
+  const pub = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey,
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "ebl-public" }, global: { fetch: viaBest } }) : null;
   // фото участников лежат в Storage Supabase: ссылки на *.supabase.co ведём тем же путём, что и API
   const viaApi = (u) => (u && base ? u.replace(/^https:\/\/[a-z0-9]+\.supabase\.co(?=\/storage\/)/, base) : u);
   const YEARS_HIST = [2023, 2024, 2025];
@@ -46,10 +51,10 @@ window.EBLData = (() => {
   const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
   // постранично по 1000; порядок обязателен — без него строки на стыке страниц могут задвоиться или потеряться
-  async function all(table, select, filter, order = ["id"]) {
+  async function all(table, select, filter, order = ["id"], db = sb) {
     const out = [];
     for (let from = 0; ; from += 1000) {
-      let q = sb.from(table).select(select);
+      let q = db.from(table).select(select);
       for (const col of order) q = q.order(col);
       q = q.range(from, from + 999);
       if (filter) q = filter(q);
@@ -111,15 +116,15 @@ window.EBLData = (() => {
 
   async function loadLive() {
     const [baths, counts, standings, reviews, prices, beerPrices, players, me, rows] = await Promise.all([
-      sb.rpc("baths_all", {}, { get: true }).then(check),   // больше тысячи — одним запросом, а не двумя страницами подряд
+      pub.rpc("baths_all", {}, { get: true }).then(check),   // больше тысячи — одним запросом, а не двумя страницами подряд
       // одним запросом, а не страницами по 1000: каждый лишний запрос через шлюз — шанс попасть на его плохую минуту;
       // GET, а не POST — такой клиент Supabase сам повторит при 503
-      sb.rpc("bath_counts_all", {}, { get: true }).then(check).then((rows) => rows.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }))),
-      all("standings", "*", null, ["nick"]),
-      all("reviews", "id, bath_id, rating, text, created_at, player_id, players(nick)", null, ["id"]),
-      all("bath_prices", "id, bath_id, price, currency, duration_min, is_weekend, before_time, price_date", null, ["bath_id", "price_date"]),
-      all("bath_beer_prices", "id, bath_id, price, currency, price_date", null, ["bath_id", "price_date"]),
-      all("players", "id, nick, is_commission, photo_url"),
+      pub.rpc("bath_counts_all", {}, { get: true }).then(check).then((rows) => rows.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }))),
+      all("standings", "*", null, ["nick"], pub),
+      all("reviews", "id, bath_id, rating, text, created_at, player_id, players(nick)", null, ["id"], pub),
+      all("bath_prices", "id, bath_id, price, currency, duration_min, is_weekend, before_time, price_date", null, ["bath_id", "price_date"], pub),
+      all("bath_beer_prices", "id, bath_id, price, currency, price_date", null, ["bath_id", "price_date"], pub),
+      all("players", "id, nick, is_commission, photo_url", null, ["id"], pub),
       whoami(),
       journal(),
     ]);
