@@ -382,24 +382,36 @@
     const lastV = visits.filter((v) => v.bathId === id && v.status === "ok").sort((x, y) => y.date.localeCompare(x.date))[0];
     const hist = Object.entries(b.hist || {}).sort();
     const d = $("#drawer");
+    // точка: нет / примерная / точная — одна строка под регионом и действие для участника (Комиссия ставит сразу,
+    // участник точную только предлагает — bath_point_requests)
+    const exact = !!b.ll && b.prec === "exact";
+    const geoNote = !b.ll ? "ещё нет на карте" : exact ? "" : `точка примерная — ${PREC_LABEL[b.prec] || "по названию"}`;
+    const geoAct = D.live && member ? (!exact ? "знаю, где это" : canModerate ? "перенести точку" : "точка не там?") : "";
+    const geoSubmit = !exact ? "Поставить" : canModerate ? "Перенести" : "Предложить Комиссии";
+    // флажки — текстом в строке типа, без плашек; «место силы» и «ультрауникальная» — то, ради чего стоит сходить
+    const flags = [b.isNew && "новая, на модерации", !b.n26 && !b.nHist && !b.isNew && "кандидат в ультрауникальные", b.n26 >= 15 && "🔥 место силы"].filter(Boolean);
+    const long = b.name.length > 18;   // длинное название — обычным жирным: широкий шрифт его рвёт на три строки
+    if (cardFor !== id) { cardFor = id; cardOpen.clear(); }
     d.innerHTML = `
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
-      <div class="d-hero t-${b.t}">
-        <div class="pills">
-          ${canModerate && D.live
-            ? `<label class="pill pill-sel">${tdot(b.t)}<select id="dType" aria-label="Тип бани — меняет Комиссия">${b.t === "unknown" ? '<option value="" selected>Тип не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([t, l]) => `<option value="${t}" ${b.t === t ? "selected" : ""}>${l}</option>`).join("")}</select></label>`
-            : `<span class="pill">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
-          ${b.t === "public" ? '<span class="pill oak">+1 очко</span>' : ""}
-          ${b.isNew ? '<span class="pill ember">новая, на модерации</span>' : ""}
-          ${!b.n26 && !b.nHist && !b.isNew ? '<span class="pill ember">кандидат в ультрауникальные</span>' : ""}
-          ${b.n26 >= 15 ? `<span class="pill ember">${icon("flame").replace('class="ic"', 'class="ic" style="width:14px;height:14px"')}место силы</span>` : ""}
-        </div>
-        <h2>${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="linkbtn rename" id="dRename" title="Поправить название — Комиссия">✏️</button>` : ""}</h2>
-        <div class="where">${icon("pin")}${esc(where(b))}</div>
-      </div>
       <div class="d-body">
+        <div class="d-hero t-${b.t}">
+          <div class="d-meta">
+            ${canModerate && D.live
+              ? `<label class="t t-sel">${tdot(b.t)}<select id="dType" aria-label="Тип бани — меняет Комиссия">${b.t === "unknown" ? '<option value="" selected>Тип не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([t, l]) => `<option value="${t}" ${b.t === t ? "selected" : ""}>${l}</option>`).join("")}</select><span aria-hidden="true">▾</span></label>`
+              : `<span class="t">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
+            ${b.t === "public" ? '<span class="plus">+1 очко</span>' : ""}
+            ${flags.map((f) => `<span class="flag">${f}</span>`).join("")}
+          </div>
+          <h2 class="${long ? "long" : ""}">${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="rename" id="dRename" title="Поправить название — Комиссия" aria-label="Поправить название">✏️</button>` : ""}</h2>
+          <div class="geo-move">
+            <p class="where">${icon("pin")}<span>${esc(where(b))}${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${geoAct ? ` · <button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>` : ""}</span></p>
+            ${geoAct ? `<form id="geoFixForm" class="geo-form" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
+              <button class="btn sm solid" type="submit">${geoSubmit}</button></form>` : ""}
+          </div>
+        </div>
         <div class="d-photos" id="dPhotos" hidden></div>
-        <div class="stats">
+        <div class="facts">
           <div><b>${b.n26}</b><span>${plural(b.n26, "поход", "похода", "походов")} в 2026</span></div>
           <div><b>${who.length}</b><span>${plural(who.length, "участник", "участника", "участников")}</span></div>
           <div><b>${avg ? fmt(avg) : "—"}</b><span>${avg ? leaves(avg) : "нет оценок"}</span></div>
@@ -407,38 +419,25 @@
         ${(() => {
           const who = $("#fPlayer").value || myNick; if (!who) return "";
           const parts = potentialFor(who)(b); if (!parts) return "";
-          return `<div class="note-soft pot-line"><span>🎯 ${who === myNick ? "Тебе" : esc(who)} за первый поход в 2026:</span><b>+${parts.length}</b><span class="hint">${parts.join(" · ")}</span></div>`;
+          return `<div class="pot"><b>+${parts.length}</b><div><span>${who === myNick ? "тебе" : esc(who)} за первый поход в 2026</span><small>${parts.join(" · ")}</small></div></div>`;
         })()}
-        ${!b.ll || b.prec !== "exact" ? `<div class="note-soft geo-fix">
-          <span>${b.ll ? `Точка на карте примерная — ${PREC_LABEL[b.prec] || "по названию"}.` : "Этой бани ещё нет на карте."}</span>
-          ${D.live && member ? `<button class="btn sm" id="geoFixBtn" type="button">📍 Знаю, где это</button>
-          <form id="geoFixForm" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
-          <button class="btn sm solid" type="submit">Поставить</button></form>` : D.live ? `<span class="hint">Войди — и сможешь поставить точную точку.</span>` : ""}
-        </div>` : D.live && member ? `<div class="geo-fix geo-move">
-          <button class="linkbtn" id="geoFixBtn" type="button">${canModerate ? "📍 Перенести точку на карте" : "📍 Точка на карте не там?"}</button>
-          <form id="geoFixForm" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
-          <button class="btn sm solid" type="submit">${canModerate ? "Перенести" : "Предложить Комиссии"}</button></form>
-        </div>` : ""}
-        <div class="d-actions">
-          <button class="cta" id="dVisit">${icon("plus")}<span>Я тут парился</span></button>
-          <a class="btn" target="_blank" rel="noopener" href="${b.prec === "exact" && b.ll
-            ? `https://yandex.ru/maps/?rtext=~${b.ll[0]},${b.ll[1]}&rtt=auto`   /* точка есть — маршрут прямо до неё */
-            : `https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}`}">${icon("route")}Маршрут</a>
-        </div>
         <section>
           <h3>Цена</h3>
-          ${lastP ? `<p class="hint" style="margin:0"><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` / ${lastP.duration_min} мин` : ""}${schedLabel(lastP) ? ` · ${schedLabel(lastP)}` : ""} <small>— ${dayLabel(lastP.price_date)}</small></p>
-            ${olderP.length ? `<p class="hint" style="margin:6px 0 0">Раньше: ${olderP.map((p) => `${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` / ${p.duration_min} мин` : ""}${schedLabel(p) ? ` · ${schedLabel(p)}` : ""} (${dayLabel(p.price_date)})`).join(" · ")}</p>` : ""}`
-            : `<p class="hint" style="margin:0">Цену пока никто не указал.</p>`}
-          ${lastBeer ? `<p class="hint" style="margin:6px 0 0">🍺 <b>${fmt(lastBeer.price)} ${curSign(lastBeer.currency)}</b> <small>— ${dayLabel(lastBeer.price_date)}</small></p>
-            ${olderBeer.length ? `<p class="hint" style="margin:6px 0 0">Раньше: ${olderBeer.map((p) => `${fmt(p.price)} ${curSign(p.currency)} (${dayLabel(p.price_date)})`).join(" · ")}</p>` : ""}` : ""}
-          ${member ? `<form class="prform" id="prForm">
+          <div class="price-now">
+            ${lastP ? `<p><span><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` · ${lastP.duration_min} мин` : ""}${schedLabel(lastP) ? ` · ${schedLabel(lastP)}` : ""}</span><small>${dayLabel(lastP.price_date)}</small></p>` : ""}
+            ${lastBeer ? `<p><span>🍺 <b>${fmt(lastBeer.price)} ${curSign(lastBeer.currency)}</b> пиво</span><small>${dayLabel(lastBeer.price_date)}</small></p>` : ""}
+            ${!lastP && !lastBeer ? `<p class="hint">Цену пока никто не указал${member ? "" : "."}</p>` : ""}
+          </div>
+          ${olderP.length || olderBeer.length ? `<details class="price-old"><summary>Раньше · ${olderP.length + olderBeer.length}</summary>
+            ${olderP.map((p) => `<p><span>${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` · ${p.duration_min} мин` : ""}${schedLabel(p) ? ` · ${schedLabel(p)}` : ""}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}
+            ${olderBeer.map((p) => `<p><span>🍺 ${fmt(p.price)} ${curSign(p.currency)}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}</details>` : ""}
+          ${member ? `<button type="button" class="addbtn" id="prOpen" ${cardOpen.has("pr") ? "hidden" : ""}>+ Указать цену</button>
+          <form class="prform" id="prForm" ${cardOpen.has("pr") ? "" : "hidden"}>
             <div class="row">
               <input class="inp" id="prPrice" type="number" min="1" step="1" placeholder="♨️ Цена входа, ₽" required>
               <input class="inp" id="prBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽">
             </div>
-            <button class="btn solid" type="submit" style="justify-self:start">Добавить</button>
-            <button type="button" class="linkbtn" id="prMore">ещё: продолжительность сеанса · будни/выходной · валюта →</button>
+            <button type="button" class="linkbtn" id="prMore">ещё: сеанс · будни/выходной · валюта</button>
             <div class="row" id="prExtra" hidden>
               <input class="inp" id="prDur" type="number" min="1" placeholder="Продолжительность сеанса, мин">
               <div class="seg" id="prWeekend" role="radiogroup" aria-label="Будни или выходной">
@@ -449,6 +448,7 @@
               <label class="hint" style="display:flex;align-items:center;gap:6px">Скидка до <input class="inp" id="prBefore" type="time" style="flex:0 0 auto"></label>
               <input class="inp" id="prCurrency" placeholder="Валюта — код (USD, EUR…)">
             </div>
+            <button class="btn solid" type="submit" style="justify-self:start">Добавить</button>
           </form>` : ""}
         </section>
         <section>
@@ -458,7 +458,7 @@
                 ? "С 2023 года здесь никого из лиги не было — первые, кто сходит, возьмут +1 за ультрауникальную и +1 за уникальную."
                 : "В этом сезоне здесь ещё никого не было — каждому, кто сходит, +1 за уникальную."}</p>`}
           ${lastV ? `<p class="hint last-visit" style="margin:10px 0 0">Последний раз — <b>${dayLabel(lastV.date)}</b>: ${esc([lastV.player, ...(lastV.companions || [])].join(", "))}</p>` : ""}
-          ${hist.length ? `<p class="hint" style="margin:10px 0 0">Прошлые сезоны: ${hist.map(([y, n]) => `${y} — ${n}`).join(" · ")} · всего с 2023 — <b>${b.nAll}</b></p>` : ""}
+          ${hist.length ? `<p class="hint" style="margin:6px 0 0">Прошлые сезоны: ${hist.map(([y, n]) => `${y} — ${n}`).join(" · ")} · всего с 2023 — <b>${b.nAll}</b></p>` : ""}
           ${pending ? `<p class="hint" style="margin:6px 0 0">Ещё ${pending} на модерации</p>` : ""}
         </section>
         <section>
@@ -468,17 +468,24 @@
               <div class="rh"><b>${esc(r.author)}${r.sample ? '<span class="sample">пример</span>' : ""}</b>${leaves(r.rate)}${r.at ? `<small class="hint">${dayLabel(mskIso(r.at))}</small>` : ""}</div>
               <p>${esc(r.text)}</p>${r.id && (r.mine || canModerate) ? `<button type="button" class="linkbtn" data-rvdel="${r.id}">удалить</button>` : ""}</div></div>`).join("") : `<p class="hint" style="margin:0">Отзывов пока нет — расскажи про пар первым.</p>`}
           </div>
+          ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Отзывы пишут участники лиги.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>` : `
+          <button type="button" class="addbtn" id="rvOpen" ${cardOpen.has("rv") ? "hidden" : ""}>+ ${iWrote ? "Ещё отзыв" : "Написать отзыв"}</button>
+          <form class="rvform" id="rvForm" ${cardOpen.has("rv") ? "" : "hidden"}>
+            <div class="row">
+              <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === myRate}" aria-label="${n} из 5">${leafSvg(n <= myRate).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
+              ${D.live ? `<span class="hint">от имени <b>${esc(me.nick)}</b></span>` : `<select id="rvAuthor" class="sel" aria-label="Автор">${players.map((p) => `<option ${p === store.get("me", "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`}
+            </div>
+            <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва"></textarea>
+            <button class="btn solid" type="submit" style="justify-self:start">${iWrote ? "Добавить ещё отзыв" : "Опубликовать отзыв"}</button>
+            ${iWrote ? '<span class="hint">Прошлый отзыв останется — это будет ещё один.</span>' : ""}
+          </form>`}
         </section>
-        ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Отзывы пишут участники лиги.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>` : `
-        <form class="rvform" id="rvForm">
-          <div class="row">
-            <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === myRate}" aria-label="${n} из 5">${leafSvg(n <= myRate).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
-            ${D.live ? `<span class="hint">от имени <b>${esc(me.nick)}</b></span>` : `<select id="rvAuthor" class="sel" aria-label="Автор">${players.map((p) => `<option ${p === store.get("me", "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`}
-          </div>
-          <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва"></textarea>
-          <button class="btn solid" type="submit" style="justify-self:start">${iWrote ? "Добавить ещё отзыв" : "Опубликовать отзыв"}</button>
-          ${iWrote ? '<span class="hint">Прошлый отзыв останется — это будет ещё один.</span>' : ""}
-        </form>`}
+      </div>
+      <div class="d-foot">
+        <button class="cta" id="dVisit">${icon("plus")}<span>Я тут парился</span></button>
+        <a class="btn" target="_blank" rel="noopener" href="${exact
+          ? `https://yandex.ru/maps/?rtext=~${b.ll[0]},${b.ll[1]}&rtt=auto`   /* точка есть — маршрут прямо до неё */
+          : `https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}`}">${icon("route")}Маршрут</a>
       </div>`;
     d.hidden = false;
     if (D.live && member) {
@@ -521,7 +528,13 @@
     const rateBtns = $$("#rvRate button", d);
     const setRate = (n) => rateBtns.forEach((x) => { const on = +x.dataset.r <= n; x.setAttribute("aria-checked", String(+x.dataset.r === n)); $(".leaf", x).classList.toggle("on", on); });
     rateBtns.forEach((x) => (x.onclick = () => setRate(+x.dataset.r)));
-    $("#geoFixBtn", d)?.addEventListener("click", () => { $("#geoFixBtn", d).hidden = true; $("#geoFixForm", d).hidden = false; $("#geoFixInput", d).focus(); });
+    $("#geoFixBtn", d)?.addEventListener("click", () => { const f = $("#geoFixForm", d); f.hidden = !f.hidden; if (!f.hidden) $("#geoFixInput", d).focus(); });
+    // формы цены и отзыва — по кнопке: сначала то, что уже знаем о бане; открытая остаётся открытой, пока карточка та же
+    const openForm = (key, btn, form, focus) => $(btn, d)?.addEventListener("click", () => {
+      cardOpen.add(key); $(btn, d).hidden = true; $(form, d).hidden = false; $(focus, d)?.focus();
+    });
+    openForm("pr", "#prOpen", "#prForm", "#prPrice");
+    openForm("rv", "#rvOpen", "#rvForm", "#rvText");
     $("#geoFixForm", d)?.addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
@@ -566,6 +579,8 @@
   // фото походов в карточке бани (docs/photos.md): лента, свежие походы первыми; дата — на первом фото похода, между походами
   // промежуток шире; имён нет. Грузим, когда карточку открыли, и держим до перезагрузки — карточка перерисовывается часто
   const photoCache = new Map();
+  let cardFor = null;
+  const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv») — до перехода к другой бане
   function renderPhotos(id, ps) {
     const box = $("#dPhotos"); if (!box || openId !== id || !ps.length) return;
     box.innerHTML = `<div class="ph-strip">${ps.map((p, i) => {

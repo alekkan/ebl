@@ -299,7 +299,15 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 }
 .x:hover { background: var(--panel); }
 .x .ic { width: 18px; height: 18px; }
-.d-hero { padding: 22px 22px 18px; background: linear-gradient(180deg, var(--tint), transparent); }
+/* ---------- карточка бани: шапка прокручивается вместе со всем, внизу закреплены «Я тут парился» и «Маршрут» ---------- */
+.d-hero { margin: 0 -22px; padding: 20px 22px 2px; background: linear-gradient(180deg, var(--tint), transparent 92%); }
+.d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 36px; padding-right: 48px; font-size: 13px; color: var(--ink-2); }
+.d-meta .t { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink); }
+.d-meta .t-sel { position: relative; cursor: pointer; }
+.d-meta .t-sel select { appearance: none; -webkit-appearance: none; field-sizing: content; border: 0; background: none; font: inherit; color: inherit; padding: 0; cursor: pointer; }   /* ширина — по выбранному, а не по самому длинному варианту */
+.d-meta .t-sel span { font-size: 10px; color: var(--ink-3); pointer-events: none; }
+.d-meta .plus { color: var(--oak); font-weight: 700; }
+.d-meta .flag { color: var(--ember); font-weight: 600; }
 .d-hero.t-public { --tint: var(--oak-soft); } .d-hero.t-spa { --tint: color-mix(in srgb, var(--t-spa) 14%, var(--panel)); }
 .d-hero.t-private { --tint: var(--honey-soft); } .d-hero.t-unknown { --tint: var(--panel-2); }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; padding-right: 40px; }
@@ -314,10 +322,43 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .geo-ask .geo-row { grid-template-columns: minmax(0, 1fr) auto; }
 .pill.ember { background: var(--ember-soft); color: var(--ember); }
 .pill.oak { background: var(--oak); color: var(--oak-ink); }
-.d-hero h2 { font: 700 22px/1.2 var(--display); letter-spacing: -.01em; margin: 12px 0 6px; text-wrap: balance; }
-.where { display: flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 14px; }
-.where .ic { width: 16px; height: 16px; color: var(--ink-3); }
-.d-body { flex: 1; min-height: 0; overflow: auto; padding: 4px 22px 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; grid-auto-rows: max-content; overscroll-behavior: contain; }
+.d-hero h2 { font: 700 25px/1.15 var(--display); letter-spacing: -.02em; margin: 6px 0 8px; text-wrap: balance; }
+.d-hero h2.long { font: 750 22px/1.25 var(--body); letter-spacing: -.01em; }   /* длинное название широким шрифтом рвётся на три строки */
+.d-hero h2 .rename { border: 0; background: none; padding: 0 2px; font-size: 14px; vertical-align: .2em; opacity: .45; cursor: pointer; }
+.d-hero h2 .rename:hover { opacity: 1; }
+.where { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
+.where .ic { flex: none; width: 15px; height: 15px; margin-top: 3px; color: var(--ink-3); }
+.where .muted { color: var(--ink-3); }
+.where .linkbtn { font-size: inherit; color: var(--oak); font-weight: 600; text-decoration: none; }
+.where .linkbtn:hover { text-decoration: underline; }
+.geo-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 10px 0 2px 21px; }
+.geo-form .inp { height: 38px; font-size: 14px; }
+.geo-form .btn { justify-self: start; }
+.d-body { flex: 1; min-height: 0; overflow: auto; padding: 0 22px 24px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; grid-auto-rows: max-content; overscroll-behavior: contain; }
+.d-foot { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px 22px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--panel); }
+.d-foot .cta, .d-foot .btn { justify-content: center; }
+/* цифры бани — одной строкой с тонкими разделителями, без плиток */
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+.facts > div { display: grid; gap: 5px; align-content: start; padding: 13px 0 13px 14px; }
+.facts > div:first-child { padding-left: 0; }
+.facts > div + div { border-left: 1px solid var(--line); }
+.facts b { font: 700 21px/1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.facts span { font-size: 12px; line-height: 1.3; color: var(--ink-3); }
+/* сколько даст первый поход — единственный яркий акцент карточки */
+.pot { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: var(--r); background: var(--honey-soft); }
+.pot > b { font: 700 24px/1 var(--display); color: var(--ember); letter-spacing: -.02em; }
+.pot div { display: grid; gap: 2px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.pot small { font-size: 12px; font-weight: 400; color: var(--ink-2); }
+.price-now p, .price-old p { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 7px 0; font-size: 15px; }
+.price-now p + p, .price-old p + p { border-top: 1px solid var(--line); }
+.price-now small, .price-old small { flex: none; font-size: 12px; color: var(--ink-3); }
+.price-now .hint { padding: 0; font-size: 14px; }
+.price-old { margin-top: 4px; font-size: 14px; color: var(--ink-2); }
+.price-old summary { cursor: pointer; font-size: 13px; color: var(--ink-3); padding: 4px 0; }
+.price-old p { font-size: 14px; }
+.addbtn { justify-self: start; margin-top: 8px; border: 0; background: none; padding: 4px 0; font: 600 14px/1.2 var(--body); color: var(--oak); cursor: pointer; }
+.addbtn:hover { text-decoration: underline; }
+section > .prform, section > .rvform { margin-top: 10px; }
 /* фото походов: лента во всю ширину карточки; ширина плитки — по пропорциям снимка (размеры в базе — вёрстка не прыгает) */
 .d-photos { margin: 0 -22px; }
 .ph-strip { display: flex; gap: 4px; overflow-x: auto; padding: 0 22px; scroll-snap-type: x proximity; scroll-padding: 0 22px; scrollbar-width: none; overscroll-behavior-x: contain; }
@@ -342,9 +383,6 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .geo-fix { display: grid; gap: 8px; }
 .geo-fix form { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 .geo-fix .inp { height: 34px; font-size: 13px; }
-.geo-move .linkbtn { justify-self: start; }   /* точная точка: просто ссылка, без жёлтой плашки */
-.geo-move form { grid-template-columns: minmax(0, 1fr); }
-.geo-move form .btn { justify-self: start; }
 .note-soft { font-size: 13px; background: var(--honey-soft); color: color-mix(in srgb, var(--honey) 40%, var(--ink)); padding: 10px 12px; border-radius: 12px; }
 h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 0 0 10px; }
 .who { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -352,7 +390,6 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 @media (hover: hover) { .who button:hover { background: var(--oak-soft); } }
 .who button b { color: var(--ember); font-weight: 700; }
 .who .ava { box-shadow: none; }
-.d-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .reviews { display: grid; gap: 14px; }
 .review { display: grid; grid-template-columns: 32px 1fr; gap: 10px; }
 .review .rh { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
@@ -691,7 +728,6 @@ tr.below { color: var(--ink-2); }
 @media (hover: hover) { .blist button:hover { color: var(--oak); } }
 .blist b { font: 700 13px var(--display); color: var(--ember); flex: none; }
 .blist button > span:first-child { min-width: 0; }
-.d-hero h2 .rename { font-size: 16px; vertical-align: middle; margin-left: 4px; text-decoration: none; }
 .review .rh small { margin-left: auto; }
 .blist .bl-r { display: flex; align-items: baseline; gap: 8px; flex: none; }
 .blist time { min-width: 4.8em; text-align: right; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
