@@ -17,6 +17,10 @@ find "$tmp" -name .DS_Store -delete
 # версия скрипта или стиля — по его содержимому: не поменялся файл — тот же адрес, и браузер берёт его из кэша
 # даже после следующих выкладок (кэш на год, см. ниже); поменялся — новый адрес, старое из кэша не подхватится
 ASSETS="style.css app.js db.js config.js vendor/leaflet.min.css vendor/MarkerCluster.min.css vendor/leaflet.min.js vendor/leaflet.markercluster.min.js vendor/leaflet-heat.js vendor/supabase.js"
+# новый скрипт или стиль, которого нет в списке, ниже не зальётся вовсе (сайт сломается молча) — останавливаемся сразу
+for f in $(cd "$tmp" && find . -type f \( -name "*.js" -o -name "*.css" \) | sed 's#^\./##'); do
+  case " $ASSETS " in *" $f "*) ;; *) echo "Новый файл $f — допиши его в ASSETS в scripts/deploy.sh (версия, сжатие, кэш)" >&2; exit 1 ;; esac
+done
 for f in $ASSETS; do
   h=$(shasum -a 256 "$tmp/$f" | cut -c1-10)
   re=$(printf '%s' "$f" | sed 's/[.]/\\./g')
