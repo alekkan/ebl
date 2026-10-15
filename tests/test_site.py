@@ -246,11 +246,17 @@ with sync_playwright() as pw:
         check("шлюз отвечает — работаем через него, прямой путь не нужен", s.js("() => document.querySelectorAll('#list .item').length > 0"))
         s.close()
         # 08.10: в плохую минуту связи Яндекса с Cloudflare шлюз на первый же запрос ответил 503, сайт счёл его недоступным
-        # и ушёл напрямую — а без VPN там режутся большие ответы, и сайт висел на заставке
-        busy = ("**/rest/v1/settings?*", lambda r: r.fulfill(status=503, body='{"message":"upstream"}', headers={"Access-Control-Allow-Origin": "*"}))
-        s = Site(browser, url, config=cfg2(API, dead), name="gateway-503", route=busy, noise="/rest/v1/settings")
-        check("шлюз ответил 503 (Supabase за ним не ответил) — остаёмся на шлюзе, а не уходим напрямую",
-              s.js("() => document.querySelectorAll('#list .item').length > 0"))
+        # и ушёл напрямую — а без VPN там режутся большие ответы, и сайт висел на заставке. Отдельной проверки шлюза с 15.10 нет:
+        # первый же запрос (бани) получает 503 — сайт должен повторить его через шлюз, а не уходить на мёртвый прямой путь
+        busy_once = {"left": 1}
+        def busy(route):
+            if busy_once["left"]:
+                busy_once["left"] -= 1
+                return route.fulfill(status=503, body='{"message":"upstream"}', headers={"Access-Control-Allow-Origin": "*"})
+            return route.continue_()
+        s = Site(browser, url, config=cfg2(API, dead), name="gateway-503", route=("**/rest/v1/rpc/baths_all*", busy), noise="/rest/v1/rpc/baths_all")
+        check("шлюз ответил 503 (Supabase за ним не ответил) — повторяем через шлюз, а не уходим напрямую",
+              s.js("() => document.querySelectorAll('#list .item').length > 0") and busy_once["left"] == 0)
         s.close()
 
         print("Гость")

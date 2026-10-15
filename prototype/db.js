@@ -7,22 +7,30 @@ window.EBLData = (() => {
   const broken = configured && !window.supabase;
   const live = configured && !broken;
   // Два пути к базе. Основной — шлюз в Яндексе (supabaseUrl): Supabase за Cloudflare, а его в России режут провайдеры.
-  // Запасной — напрямую (directUrl): у части VPN до *.yandexcloud.net не достучаться (28.09). Шлюз не ответил вовсе за 6 с — напрямую.
-  // Ответ с ошибкой — не повод уходить: 503 значит, что Supabase не ответил самому шлюзу в плохую минуту связи Яндекса с Cloudflare,
-  // а путь к Яндексу есть. Напрямую без VPN режутся большие ответы — сайт так и висел на заставке (08.10); 503 клиент повторит сам.
-  // По скорости не выбираем: без VPN маленький запрос напрямую проходит — режутся только большие ответы.
-  let sb = null, base = cfg.supabaseUrl;
-  const clientFor = (url) => window.supabase.createClient(url, cfg.supabaseKey, cfg.authKey ? { auth: { storageKey: cfg.authKey } } : undefined);
-  async function pickBase() {
-    if (!cfg.directUrl) return cfg.supabaseUrl;
+  // Запасной — напрямую (directUrl): у части VPN до *.yandexcloud.net не достучаться (28.09).
+  // Отдельной проверки шлюза перед загрузкой нет — это был лишний круг до первых данных, заставка висела дольше (15.10):
+  // идём сразу в шлюз, а если до него не достучаться (сетевая ошибка или 6 с без ответа) — насовсем переходим напрямую
+  // и повторяем запрос там. Ответ с ошибкой — не повод уходить: 503 значит, что Supabase не ответил самому шлюзу в плохую
+  // минуту, а путь к Яндексу есть; напрямую без VPN режутся большие ответы — сайт так и висел на заставке (08.10).
+  // 503 клиент Supabase повторяет сам. По скорости не выбираем: без VPN маленький запрос напрямую проходит, большие — нет.
+  let base = cfg.supabaseUrl;
+  async function viaBest(input, init = {}) {
+    const url = String(input);
+    const direct = (u) => u.replace(cfg.supabaseUrl, cfg.directUrl);
+    if (!cfg.directUrl || !url.startsWith(cfg.supabaseUrl)) return fetch(input, init);
+    if (base === cfg.directUrl) return fetch(direct(url), init);
+    const ctl = new AbortController(), stop = setTimeout(() => ctl.abort(), 6000);
+    init.signal?.addEventListener?.("abort", () => ctl.abort());
     try {
-      await fetch(cfg.supabaseUrl + "/rest/v1/settings?select=key&limit=1",
-        { headers: { apikey: cfg.supabaseKey }, ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(6000) } : {}) });
-      return cfg.supabaseUrl;
-    } catch { /* шлюз недоступен — идём запасным путём */ }
-    return cfg.directUrl;
+      return await fetch(url, { ...init, signal: ctl.signal });   // 6 с — до ответа шлюза, само тело качается сколько нужно
+    } catch (e) {
+      if (init.signal?.aborted) throw e;   // отменил сам вызывающий — путь тут ни при чём
+      base = cfg.directUrl;
+      return fetch(direct(url), init);
+    } finally { clearTimeout(stop); }
   }
-  const ready = live ? pickBase().then((b) => { base = b; sb = clientFor(b); api.sb = sb; }) : Promise.resolve();
+  const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey,
+    { ...(cfg.authKey ? { auth: { storageKey: cfg.authKey } } : {}), global: { fetch: viaBest } }) : null;
   // фото участников лежат в Storage Supabase: ссылки на *.supabase.co ведём тем же путём, что и API
   const viaApi = (u) => (u && base ? u.replace(/^https:\/\/[a-z0-9]+\.supabase\.co(?=\/storage\/)/, base) : u);
   const YEARS_HIST = [2023, 2024, 2025];
@@ -77,13 +85,17 @@ window.EBLData = (() => {
       claimedNick: acc.claimed_nick, tgUsername: acc.tg_username };
   }
 
-  async function loadVisits(playersById) {
-    const rows = check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, visit_players(player_id)")
+  // журнал (последние 300 походов) — сразу с очками: одним запросом и параллельно со всем остальным, а не после
+  // (раньше — два запроса подряд в конце загрузки). Гостю журнал закрыт — и не спрашиваем.
+  async function journal() {
+    if (sessionUser() === "guest") return [];
+    return check(await sb.from("visits")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, visit_players(player_id), visit_points(nick, total, lines)")
       .order("posted_at", { ascending: false }).limit(300));
-    const pts = await all("visit_points", "visit_id, nick, total, lines", (q) => q.in("visit_id", rows.map((r) => r.id)), ["visit_id", "nick"]);
+  }
+  function loadVisits(rows, playersById) {
     const ptsBy = {};
-    for (const p of pts) (ptsBy[p.visit_id] ||= {})[p.nick] = p;
+    for (const v of rows) for (const p of v.visit_points ?? []) (ptsBy[v.id] ||= {})[p.nick] = p;
     return rows.map((v) => {
       const author = playersById[v.created_by];
       const vp = v.visit_players.map((x) => ({ ...x, nick: playersById[x.player_id] }));
@@ -98,8 +110,8 @@ window.EBLData = (() => {
   }
 
   async function loadLive() {
-    const [baths, counts, standings, reviews, prices, beerPrices, players, me] = await Promise.all([
-      all("baths", "id, name, type, country, region, lat, lng, precision, status, created_by", (q) => q.neq("status", "rejected")),
+    const [baths, counts, standings, reviews, prices, beerPrices, players, me, rows] = await Promise.all([
+      sb.rpc("baths_all", {}, { get: true }).then(check),   // больше тысячи — одним запросом, а не двумя страницами подряд
       // одним запросом, а не страницами по 1000: каждый лишний запрос через шлюз — шанс попасть на его плохую минуту;
       // GET, а не POST — такой клиент Supabase сам повторит при 503
       sb.rpc("bath_counts_all", {}, { get: true }).then(check).then((rows) => rows.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }))),
@@ -109,6 +121,7 @@ window.EBLData = (() => {
       all("bath_beer_prices", "id, bath_id, price, currency, price_date", null, ["bath_id", "price_date"]),
       all("players", "id, nick, is_commission, photo_url"),
       whoami(),
+      journal(),
     ]);
     const byId = new Map(baths.map((b) => [b.id, Object.assign(b, { v26: {}, hist: {}, histBy: {}, isNew: b.status === "pending" })]));
     for (const c of counts) {
@@ -128,7 +141,7 @@ window.EBLData = (() => {
     const bpr = {};
     for (const p of beerPrices) (bpr[p.bath_id] ||= []).push(p);
     const playersById = Object.fromEntries(players.map((p) => [p.id, p.nick]));
-    const visits = me?.playerId ? await loadVisits(playersById) : [];
+    const visits = me?.playerId ? loadVisits(rows, playersById) : [];
     return {
       baths,
       standings: standings.map((s) => ({ name: s.nick, total: +s.total, baths: s.baths, u: s.u, uu: s.uu, long: s.long, k: s.k, pub: s.pub, reg: s.reg,
@@ -139,6 +152,10 @@ window.EBLData = (() => {
     };
   }
 
+  // кто вошёл (без сети — из сохранённой сессии): гостю журнал не запрашиваем
+  const authKey = () => cfg.authKey || `sb-${new URL(cfg.supabaseUrl).hostname.split(".")[0]}-auth-token`;
+  const sessionUser = () => { try { return JSON.parse(localStorage.getItem(authKey()))?.user?.id || "guest"; } catch { return "guest"; } };
+
   let cache = null;
   const api = {
     live, sb, LINE_LABEL,
@@ -146,7 +163,7 @@ window.EBLData = (() => {
 
     // вход: данные Telegram Login Widget → edge-функция → сессия Supabase
     async login(tgUser) {
-      const r = await fetch(base + "/functions/v1/tg-login", {
+      const r = await viaBest(cfg.supabaseUrl + "/functions/v1/tg-login", {
         method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey }, body: JSON.stringify(tgUser),
       });
       const body = await r.json();
@@ -253,7 +270,7 @@ window.EBLData = (() => {
     },
     async recompute() {
       if (!live) return;
-      const r = await fetch(base + "/functions/v1/recompute", { method: "POST", headers: { apikey: cfg.supabaseKey } });
+      const r = await viaBest(cfg.supabaseUrl + "/functions/v1/recompute", { method: "POST", headers: { apikey: cfg.supabaseKey } });
       if (!r.ok) throw new Error("Таблица не пересчиталась");
     },
 
@@ -281,7 +298,7 @@ window.EBLData = (() => {
     async uploadPhotos(visitId, items, progress) {
       const { data: { session } } = await sb.auth.getSession();
       const call = async (what, body) => {
-        const r = await fetch(base + "/functions/v1/photos?" + what, {
+        const r = await viaBest(cfg.supabaseUrl + "/functions/v1/photos?" + what, {
           method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: "Bearer " + (session?.access_token ?? "") },
           body: JSON.stringify(body),
         });
@@ -308,7 +325,7 @@ window.EBLData = (() => {
     },
     async setBathLocation(bathId, input) {
       const { data: { session } } = await sb.auth.getSession();
-      const r = await fetch(base + "/functions/v1/bath-location", {
+      const r = await viaBest(cfg.supabaseUrl + "/functions/v1/bath-location", {
         method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: "Bearer " + (session?.access_token ?? "") },
         body: JSON.stringify({ bath_id: bathId, input }),
       });
@@ -325,9 +342,5 @@ window.EBLData = (() => {
     store,
     broken,
   };
-  // любой вызов в боевом режиме сначала ждёт, пока выбран путь к базе
-  if (live) for (const [k, f] of Object.entries(api)) {
-    if (f?.constructor?.name === "AsyncFunction") api[k] = async (...a) => { await ready; return f.apply(api, a); };
-  }
   return api;
 })();
