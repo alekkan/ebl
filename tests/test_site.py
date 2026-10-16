@@ -550,6 +550,37 @@ with sync_playwright() as pw:
         sql(f"delete from visits where id = {fv}")
         s.clean("Комиссия")
         s.close()
+        # Радар (16.10): места из прогона агентов, решает Комиссия; участнику и гостю его нет
+        sql("delete from radar_places where key like 'test:%'")
+        hint = sql("select id from baths where name = 'Василевские' limit 1")
+        sql(f"""insert into radar_places (key, name, region, city, address, lat, lng, kind, public_index, note, league_hint, website) values
+              ('test:new', 'Тестовые общественные бани', 'Московская обл', 'Тестово', 'ул. Пара, 1', 55.9, 37.9, 'public', 93, 'Билет на сеанс, мужские и женские дни', null, 'https://example.org'),
+              ('test:ours', 'Василевские бани', 'Москва', 'Москва', 'ул. Пара, 2', 55.75, 37.6, 'public', 90, 'Похоже на нашу', {hint}, null),
+              ('test:rest', 'Сауна у Тестового', 'Москва', 'Москва', null, null, null, 'private', 5, 'Почасовая аренда', null, null)""")
+        s = Site(browser, url, sess=vitek, name="commission-radar")
+        s.view("dir"); s.page.click('#dirMode [data-mode="radar"]')
+        s.page.wait_for_selector("#radarList .radar-row", timeout=8000)
+        check("Радар у Комиссии: новые общественные и «похоже, наши» — сверху, аренда свёрнута",
+              s.js("""() => { const t = [...document.querySelectorAll('#radarList .radar-group h2')].map((h) => h.innerText);
+                return /нет в лиге/.test(t[0]) && /наши/.test(t[1]) && document.querySelectorAll('#radarList .radar-row').length === 2; }"""))
+        check("у места — ссылки на сайт, Яндекс Карты и 2ГИС, на нашу — кнопка «Это „Василевские“»",
+              s.js("() => document.querySelectorAll('#radarList .radar-links a').length >= 5 && /Это «Василевские»/.test(document.getElementById('radarList').innerText)"))
+        rid = sql("select id from radar_places where key = 'test:new'")
+        s.page.click(f'#radarList .radar-row[data-id="{rid}"] [data-radar="hide"]'); s.page.wait_for_timeout(1200)
+        check("«Скрыть» — место уходит в «Решено»", sql(f"select status from radar_places where id = {rid}") == "hidden")
+        ours = sql("select id from radar_places where key = 'test:ours'")
+        s.page.click(f'#radarList .radar-row[data-id="{ours}"] [data-radar="add"]')
+        check("«В лигу» — сначала спрашивает «Точно завести?», ничего не заводя", s.js("() => /Точно завести/.test(document.getElementById('radarList').innerText)")
+              and sql("select status from radar_places where key = 'test:ours'") == "new")
+        s.no_clip("Радар у Комиссии")
+        s.clean("Радар")
+        s.close()
+        s = Site(browser, url, sess=vitek, mobile=True, name="commission-radar-phone")
+        s.view("dir"); s.page.click('#dirMode [data-mode="radar"]')
+        s.page.wait_for_selector("#radarList .radar-row", timeout=8000)
+        s.no_clip("Радар на телефоне")
+        s.close()
+        sql("delete from radar_places where key like 'test:%'")
         # второй поход в ту же баню в те же сутки: Комиссия должна видеть до решения, что очков не будет (п. 5)
         dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
         sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")
