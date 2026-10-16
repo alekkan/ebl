@@ -432,9 +432,9 @@ sql(f"delete from visits where id = {dup}")
 sql("delete from bot_sessions")
 
 def wait(q, want):
-    # триггер → pg_net → функция → правка: сразу после перезапуска supabase functions serve это бывает дольше 9 с
-    # (30.09 и 07.10 так останавливалась выкладка) — ждём до 20 с, проверка та же
-    for _ in range(50):
+    # триггер → pg_net → функция → правка: сразу после перезапуска supabase functions serve или на занятом стенде это
+    # бывает дольше 20 с (30.09, 07.10 и 16.10 так останавливалась выкладка) — ждём до 40 с, проверка та же
+    for _ in range(100):
         if sql(q) == want: return True
         time.sleep(0.4)
     return False
@@ -543,9 +543,9 @@ for tg, name in ((NEW1, "Хвост Тест"), (NEW2, "Даня Тест"), (NE
     sql(f"insert into player_accounts (tg_id, tg_username, tg_name) values ({tg}, 'new{tg}', '{name}')")
 acc = lambda tg: sql(f"select id from player_accounts where tg_id = {tg}")
 def wait(q, want):
-    # триггер → pg_net → функция → правка: сразу после перезапуска supabase functions serve это бывает дольше 9 с
-    # (30.09 и 07.10 так останавливалась выкладка) — ждём до 20 с, проверка та же
-    for _ in range(50):
+    # триггер → pg_net → функция → правка: сразу после перезапуска supabase functions serve или на занятом стенде это
+    # бывает дольше 20 с (30.09, 07.10 и 16.10 так останавливалась выкладка) — ждём до 40 с, проверка та же
+    for _ in range(100):
         if sql(q) == want: return True
         time.sleep(0.4)
     return False
@@ -807,8 +807,8 @@ req("POST", "/functions/v1/recompute", {})
 sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text, verdict_text) values ({tv}, {CHAT}, 7101, 7102, {tb}, "
     f"E'Ушло в Комиссию ✅ <b>Леха</b>\\n\\nстарая сводка: 🏷 Хуитнес', '👍 Засчитано — Витёк: Леха +1')")
 sql(f"update baths set type = 'public' where id = {tb}")
-def wait_long(q, want):   # триггер → tg-bot?bath → пересчёт таблицы → правка карточки: несколько секунд
-    for _ in range(60):
+def wait_long(q, want):   # триггер → tg-bot?bath → пересчёт таблицы → правка карточки: несколько секунд, на занятом стенде — дольше
+    for _ in range(90):
         if sql(q) == want: return True
         time.sleep(0.5)
     return False
