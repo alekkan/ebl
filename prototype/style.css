@@ -419,6 +419,13 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .tg-widget { min-height: 48px; display: flex; align-items: center; }
 .tg-btn { background: #2aabee; box-shadow: 0 8px 20px -8px rgba(42, 171, 238, .6); color: #fff; }
 .login-err:not(:empty) { color: var(--ember); font-weight: 600; font-size: 13px; }
+.login-way { display: grid; gap: 12px; }
+a.cta { text-decoration: none; }
+/* QR — всегда чёрным по белому (так его читают камеры), и в тёмной теме тоже */
+.login-qr { justify-self: center; width: min(220px, 100%); aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: #fff; border: 1px solid var(--line); }
+.login-qr svg { display: block; width: 100%; height: 100%; }
+.login-code { font-variant-numeric: tabular-nums; letter-spacing: .08em; color: var(--ink); white-space: nowrap; }
+.login-alt { margin: 0; }
 .p-mini { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
 .linkbtn { border: 0; background: none; padding: 0; color: var(--ink-3); text-decoration: underline; font-size: 13px; }
 .post.sec { margin-bottom: 12px; border: 1.5px dashed var(--honey); }

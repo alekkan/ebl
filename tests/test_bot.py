@@ -907,6 +907,58 @@ check("запись в bot_actions — бот ставит реакцию на �
 check("гость в bot_actions не пишет", req("POST", "/rest/v1/bot_actions", {"kind": "react", "chat_id": 1, "message_id": 1})[0] in (401, 403))
 sql("delete from bot_actions")
 
+print("Вход на сайт кодом из бота")
+NEWBIE = 950
+sql(f"delete from player_accounts where tg_id = {NEWBIE}")
+IPHONE = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"}
+login_code = lambda: req("POST", "/functions/v1/tg-login?code=new", {}, headers=IPHONE)[1]
+
+
+def press_dm(data, who, mid):
+    """Кнопка под сообщением бота в личке."""
+    update = {"update_id": 5000 + mid, "callback_query": {"id": str(mid), "from": {"id": who, "is_bot": False, "first_name": "Новичок", "username": "novichok_tg"},
+              "data": data, "message": {"message_id": mid, "chat": {"id": who, "type": "private"}, "text": "🔑 Войти на сайт?"}}}
+    s, _ = req("POST", "/functions/v1/tg-bot", update, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+    assert s == 200, s
+
+
+def dm_sent(seen):
+    return [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage"]
+
+
+c = login_code()
+seen = len(TELEGRAM.calls)
+post(f"/start login_{c['code']}", 1201, who=NEWBIE, chat=NEWBIE, chat_type="private")
+ask = dm_sent(seen)
+check("ссылка с сайта (/start login_…) — даже тому, кого лига не знает: «Войти на сайт?», код, откуда входят и кнопки",
+      len(ask) == 1 and "Войти на сайт" in ask[0]["text"] and f"{c['code'][:3]}-{c['code'][3:]}" in ask[0]["text"]
+      and "Safari, iPhone" in ask[0]["text"] and f"lg:{c['code']}" in json.dumps(ask[0].get("reply_markup")), [p.get("text") for p in ask])
+seen = len(TELEGRAM.calls)
+press_dm(f"lg:{c['code']}", NEWBIE, 1202)
+check("«✅ Да, это я» — в коде записано, кто подтвердил, сообщение — «вернись на сайт»",
+      sql(f"select tg_id from login_codes where code = '{c['code']}' and confirmed_at is not null") == str(NEWBIE)
+      and any(m == "editMessageText" and "вернись на сайт" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]))
+s, r = req("POST", "/functions/v1/tg-login?code=poll", {"code": c["code"], "secret": c["secret"]})
+check("…и сайт своим секретом входит: новичку дальше — выбрать ник", s == 200 and r.get("token_hash") and r.get("nick") is None, (s, r))
+press_dm(f"lx:{c['code']}", NEWBIE, 1203)
+check("кнопка на старом сообщении уже ничего не меняет", sql(f"select denied_at is null from login_codes where code = '{c['code']}'") == "t")
+c = login_code()
+seen = len(TELEGRAM.calls)
+post(f"{c['code'][:3].lower()} {c['code'][3:].lower()}", 1204, chat=ME, chat_type="private")
+ask = dm_sent(seen)
+press_dm(f"lx:{c['code']}", ME, 1205)
+check("код текстом в личку (любой регистр, с пробелом) — тот же вопрос; «✖️ Нет» — сайт перестанет ждать",
+      len(ask) == 1 and "Войти на сайт" in ask[0]["text"] and sql(f"select denied_at is not null from login_codes where code = '{c['code']}'") == "t",
+      [p.get("text") for p in ask])
+seen = len(TELEGRAM.calls)
+post("/start login_ZZZZZZ", 1206, who=NEWBIE, chat=NEWBIE, chat_type="private")
+check("ссылка с устаревшим кодом — бот так и говорит", any("Код устарел" in (p.get("text") or "") for p in dm_sent(seen)))
+sql("delete from bot_sessions")
+seen = len(TELEGRAM.calls)
+st = post("Banya1", 1207, chat=ME, chat_type="private")
+check("шесть латинских букв, но не код — обычный пост про баню", st is not None and not any("Войти" in (p.get("text") or "") for p in dm_sent(seen)), st)
+sql("delete from bot_sessions"); sql(f"delete from player_accounts where tg_id = {NEWBIE}")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)

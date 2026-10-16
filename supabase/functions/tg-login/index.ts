@@ -1,7 +1,9 @@
-// Вход через Telegram Login Widget.
-// 1) проверяем подпись данных от Telegram (HMAC-SHA256 с ключом sha256(bot_token));
-// 2) находим аккаунт участника по telegram id или заранее вписанному Комиссией username;
-// 3) заводим пользователя Supabase Auth и отдаём одноразовый token_hash — сайт меняет его на сессию через verifyOtp.
+// Вход на сайт через Telegram — два пути, сессия выдаётся одинаково (issue):
+// • код из бота (16.10): ?code=new — сайт заводит одноразовый код и секрет; человек подтверждает код в боте
+//   («✅ Да, это я», tg-bot); ?code=poll — сайт опрашивает код своим секретом и после подтверждения получает сессию;
+// • Telegram Login Widget (запасной, «другие способы»): проверяем подпись данных от Telegram (HMAC-SHA256 с ключом sha256(bot_token)).
+// Дальше: находим аккаунт участника по telegram id или заранее вписанному Комиссией username, заводим пользователя
+// Supabase Auth и отдаём одноразовый token_hash — сайт меняет его на сессию через verifyOtp.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { syncAvatar } from "../_shared/avatar.ts";
 
@@ -15,6 +17,11 @@ const cors = (origin: string | null) => ({
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Vary": "Origin",
 });
+
+const CODE_ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // без 0/O и 1/I — код могут переписывать с экрана
+const CODE_TTL_MIN = 10;
+const CONFIRMED_TTL_MIN = 10;   // подтвердил в боте, а сайт был в фоне (телефон) — забрать сессию можно ещё 10 минут
+const MAX_PENDING = 300;        // кодов за 10 минут — больше не заводим: таблицу не засыпать
 
 const FRESH_SEC = 3600; // данные входа живут час: утёкшей ссылкой #tgAuthResult (история браузера, скриншот) потом не войти
 
@@ -38,21 +45,79 @@ Deno.serve(async (req) => {
   const headers = { ...cors(req.headers.get("Origin")), "Content-Type": "application/json" };
   if (req.method === "OPTIONS") return new Response("ok", { headers });
   const fail = (status: number, error: string) => new Response(JSON.stringify({ error }), { status, headers });
+  const ok = (body: unknown) => new Response(JSON.stringify(body), { headers });
 
-  let tg: Record<string, string>;
+  let body: Record<string, unknown>;
   try {
-    const body = await req.json();
-    tg = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => [k, String(v)]));
+    body = await req.json() ?? {};
   } catch {
     return fail(400, "Пустой запрос");
   }
-  if (!(await validTelegram(tg))) return fail(401, "Telegram не подтвердил вход — попробуй ещё раз");
-
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-  const tgId = Number(tg.id);
-  const username = tg.username ?? null;
-  const name = [tg.first_name, tg.last_name].filter(Boolean).join(" ");
+  const mode = new URL(req.url).searchParams.get("code");
+  try {
+    if (mode === "new") return await newCode(sb, req.headers.get("User-Agent") ?? "", ok, fail);
+    if (mode === "poll") return await pollCode(sb, String(body.code ?? ""), String(body.secret ?? ""), ok, fail);
 
+    const tg = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => [k, String(v)]));
+    if (!(await validTelegram(tg))) return fail(401, "Telegram не подтвердил вход — попробуй ещё раз");
+    const name = [tg.first_name, tg.last_name].filter(Boolean).join(" ");
+    return ok(await issue(sb, Number(tg.id), tg.username ?? null, name, tg.photo_url));
+  } catch (e) {
+    return fail(500, (e as Error).message);
+  }
+});
+
+type Reply = (body: unknown) => Response;
+type Fail = (status: number, error: string) => Response;
+
+const hex = (b: ArrayBuffer | Uint8Array) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+const sha256 = async (s: string) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+
+// «Chrome, Mac» из User-Agent — бот показывает, куда входят (подсказка, не защита: заголовок задаёт сам браузер)
+function deviceOf(ua: string) {
+  const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android"
+    : /Mac OS X|Macintosh/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "";
+  const br = /YaBrowser/.test(ua) ? "Яндекс Браузер" : /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera"
+    : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
+  return [br, os].filter(Boolean).join(", ") || null;
+}
+
+// deno-lint-ignore no-explicit-any
+async function newCode(sb: any, ua: string, ok: Reply, fail: Fail) {
+  const since = new Date(Date.now() - CODE_TTL_MIN * 60_000).toISOString();
+  const { count } = await sb.from("login_codes").select("code", { count: "exact", head: true }).gt("created_at", since);
+  if ((count ?? 0) >= MAX_PENDING) return fail(429, "Слишком много входов разом — попробуй через минуту");
+  const secret = hex(crypto.getRandomValues(new Uint8Array(32)));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = [...crypto.getRandomValues(new Uint8Array(6))].map((b) => CODE_ABC[b & 31]).join("");
+    const expires = new Date(Date.now() + CODE_TTL_MIN * 60_000).toISOString();
+    const { error } = await sb.from("login_codes").insert({ code, secret_hash: await sha256(secret), device: deviceOf(ua), expires_at: expires });
+    if (!error) return ok({ code, secret, expires_at: expires });
+    if (error.code !== "23505") throw new Error(error.message);   // 23505 — такой код уже есть, берём другой
+  }
+  throw new Error("Не получилось завести код — попробуй ещё раз");
+}
+
+// deno-lint-ignore no-explicit-any
+async function pollCode(sb: any, code: string, secret: string, ok: Reply, fail: Fail) {
+  code = code.toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(code) || !/^[0-9a-f]{64}$/.test(secret)) return fail(400, "Нет кода");
+  const { data: row } = await sb.from("login_codes").select("*").eq("code", code).maybeSingle();
+  if (!row || row.secret_hash !== await sha256(secret)) return fail(404, "Код не найден — начни вход заново");
+  if (row.used_at) return fail(410, "По этому коду уже вошли — начни вход заново");
+  if (row.denied_at) return fail(403, "Вход отменён в боте");
+  if (!row.confirmed_at) return new Date(row.expires_at) < new Date() ? fail(410, "Код устарел") : ok({ pending: true });
+  if (Date.now() - new Date(row.confirmed_at).getTime() > CONFIRMED_TTL_MIN * 60_000) return fail(410, "Код устарел");
+  // забираем код одним запросом: два опроса разом (вкладка проснулась) сессию получат только один раз
+  const { data: taken } = await sb.from("login_codes").update({ used_at: new Date().toISOString() }).eq("code", code).is("used_at", null).select("code");
+  if (!taken?.length) return fail(410, "По этому коду уже вошли — начни вход заново");
+  return ok(await issue(sb, Number(row.tg_id), row.tg_username, row.tg_name ?? ""));
+}
+
+// аккаунт участника → пользователь Supabase Auth → одноразовый token_hash
+// deno-lint-ignore no-explicit-any
+async function issue(sb: any, tgId: number, username: string | null, name: string, photoUrl?: string) {
   // аккаунт: по telegram id, иначе по username, который Комиссия вписала заранее
   let { data: acc } = await sb.from("player_accounts").select("*").eq("tg_id", tgId).maybeSingle();
   if (!acc && username) {
@@ -62,7 +127,7 @@ Deno.serve(async (req) => {
   }
   if (!acc) {
     const { data, error } = await sb.from("player_accounts").insert({ tg_id: tgId, tg_username: username, tg_name: name }).select().single();
-    if (error) return fail(500, error.message);
+    if (error) throw new Error(error.message);
     acc = data;
   }
 
@@ -79,23 +144,23 @@ Deno.serve(async (req) => {
         authId = list?.users.find((u) => u.email === email)?.id ?? null;
         if (!list?.users.length) break;
       }
-      if (!authId) return fail(500, error.message);
+      if (!authId) throw new Error(error.message);
     }
   }
   // фото профиля — в наше хранилище, если в Telegram оно поменялось (фото есть не у всех и не всем открыто)
-  const avatar = await syncAvatar(sb, { tg_id: tgId, tg_photo_src: acc.tg_photo_src }, tg.photo_url).catch(() => null);
+  const avatar = await syncAvatar(sb, { tg_id: tgId, tg_photo_src: acc.tg_photo_src }, photoUrl).catch(() => null);
   await sb.from("player_accounts").update({
     tg_id: tgId, tg_username: username, tg_name: name, auth_user: authId,
     ...(avatar ? { tg_photo: avatar.url, tg_photo_src: avatar.src } : {}),
   }).eq("id", acc.id);
 
   const { data: link, error: linkErr } = await sb.auth.admin.generateLink({ type: "magiclink", email });
-  if (linkErr) return fail(500, linkErr.message);
+  if (linkErr) throw new Error(linkErr.message);
 
   let nick: string | null = null;
   if (acc.player_id) {
     const { data: p } = await sb.from("players").select("nick").eq("id", acc.player_id).single();
     nick = p?.nick ?? null;
   }
-  return new Response(JSON.stringify({ token_hash: link.properties.hashed_token, nick, claimed_nick: acc.claimed_nick }), { headers });
-});
+  return { token_hash: link.properties.hashed_token, nick, claimed_nick: acc.claimed_nick };
+}

@@ -1545,21 +1545,112 @@
 
   // ---------- вход через Telegram ----------
   // вход полноценной страницей Telegram (без всплывающих окон): Telegram возвращает на сайт с #tgAuthResult=…
+  // Вход (16.10) — кодом из бота: виджет Telegram просит номер телефона и подтверждение на своей странице, это долго.
+  // Телефон — кнопка сразу в бота; компьютер — QR для камеры телефона и код, который можно прислать боту. В боте
+  // «✅ Да, это я» — и сайт, который опрашивает код раз в 2 с, входит сам. Код с секретом лежит в браузере до 10 минут:
+  // Telegram, открытый со ссылки, бывает, перезапускает страницу — вернулся, и вход подхватывается (resumeCodeLogin).
+  // Виджет остался «другими способами».
+  const TG_ICON = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.5 4.5 2.8 11.7c-1 .4-1 1.8.1 2.1l4.6 1.4 1.8 5.5c.3.8 1.3 1 1.9.4l2.6-2.5 4.7 3.4c.8.6 1.9.1 2.1-.9L23 5.9c.2-1.1-.8-1.9-1.5-1.4Z" style="fill:currentColor;stroke:none"/></svg>`;
+  const LOGIN_KEY = "ebl-login-code";
+  let loginRun = 0, qrReady = null;
+  const savedCode = () => { try { const c = JSON.parse(localStorage.getItem(LOGIN_KEY)); return c && Date.parse(c.expires_at) > Date.now() + 60e3 ? c : null; } catch { return null; } };
+  const saveCode = (c) => { try { c ? localStorage.setItem(LOGIN_KEY, JSON.stringify(c)) : localStorage.removeItem(LOGIN_KEY); } catch { /* приватный режим — просто без подхвата */ } };
+  // библиотека QR нужна только здесь — грузим при открытии окна; адрес с версией ставит deploy.sh (meta в index.html)
+  const loadQr = () => (qrReady ??= new Promise((ok, no) => {
+    const el = document.createElement("script");
+    el.src = document.querySelector('meta[name="ebl-qr"]')?.content || "vendor/qrcode.js";
+    el.onload = ok; el.onerror = () => { qrReady = null; no(new Error("QR не загрузился")); };
+    document.head.append(el);
+  }));
+  // пауза между опросами; вернулся на страницу (из Telegram) — опрашиваем сразу
+  const nap = (ms) => new Promise((ok) => {
+    const done = () => { clearTimeout(t); document.removeEventListener("visibilitychange", vis); ok(); };
+    const vis = () => { if (!document.hidden) done(); };
+    const t = setTimeout(done, ms);
+    document.addEventListener("visibilitychange", vis);
+  });
+
   function openLogin() {
     if (!D.live) return;
     const cfg = window.EBL_CONFIG;
-    if (!cfg.telegramBot || !cfg.telegramBotId) return toast("Вход через Telegram откроется совсем скоро");
+    if (!cfg.telegramBot) return toast("Вход через Telegram откроется совсем скоро");
     $("#loginBody").innerHTML = `<div class="eyebrow">Для участников лиги</div><h2>Вход в ЕБЛ</h2>
-      <p class="lead">Входи через Telegram тем же аккаунтом, что в группе. Мы видим имя, username и фото профиля — телефон остаётся у Telegram.</p>
-      <button class="cta big tg-btn" id="tgLogin"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.5 4.5 2.8 11.7c-1 .4-1 1.8.1 2.1l4.6 1.4 1.8 5.5c.3.8 1.3 1 1.9.4l2.6-2.5 4.7 3.4c.8.6 1.9.1 2.1-.9L23 5.9c.2-1.1-.8-1.9-1.5-1.4Z" style="fill:currentColor;stroke:none"/></svg><span>Войти через Telegram</span></button>
-      <p class="hint">Откроется страница Telegram — подтверди вход, и тебя вернёт сюда.</p>
-      <p class="hint login-err" id="loginErr"></p>`;
+      <div class="login-way" id="loginWay"><p class="hint">Готовлю вход…</p></div>
+      <p class="hint login-err" id="loginErr"></p>
+      ${cfg.telegramBotId ? `<p class="hint login-alt"><button class="linkbtn" id="loginAlt">Другие способы входа</button></p>` : ""}`;
+    if ($("#loginAlt")) $("#loginAlt").onclick = widgetLogin;
+    $("#loginModal").hidden = false;
+    codeLogin(++loginRun, 0);
+  }
+
+  async function codeLogin(run, renewed) {
+    const cfg = window.EBL_CONFIG, way = $("#loginWay");
+    const alive = () => run === loginRun && !$("#loginModal").hidden && way.isConnected;
+    let c = renewed ? null : savedCode();
+    if (!c) {
+      try { c = await D.loginCode(); } catch (err) { if (alive()) $("#loginErr").textContent = "Не получилось начать вход: " + err.message; return; }
+      saveCode(c);
+    }
+    if (!alive()) return;
+    const link = `https://t.me/${cfg.telegramBot}?start=login_${c.code}`;
+    const shown = `<b class="login-code">${c.code.slice(0, 3)}-${c.code.slice(3)}</b>`;
+    const phone = matchMedia("(pointer: coarse)").matches;
+    way.innerHTML = phone
+      ? `<p class="lead">Откроется наш бот в Telegram — нажми «Старт» и «✅ Да, это я». Сайт войдёт сам.</p>
+        <a class="cta big tg-btn" id="botLogin" href="${esc(link)}">${TG_ICON}<span>Войти через бота</span></a>
+        <p class="hint">Код входа ${shown} · ждём подтверждения в боте</p>`
+      : `<p class="lead">Наведи камеру телефона на QR-код — откроется наш бот в Telegram. Нажми «Старт» и «✅ Да, это я», сайт войдёт сам.</p>
+        <div class="login-qr" id="loginQr" role="img" aria-label="QR-код для входа через бота"></div>
+        <p class="hint">Или пришли боту <a href="${esc(link)}" target="_blank" rel="noopener">@${esc(cfg.telegramBot)}</a> код ${shown} · ждём подтверждения</p>`;
+    if (!phone) loadQr().then(() => {
+      if (!alive()) return;
+      const q = window.qrcode(0, "M");
+      q.addData(link); q.make();
+      $("#loginQr").innerHTML = q.createSvgTag({ cellSize: 4, margin: 3, scalable: true });
+    }).catch(() => $("#loginQr")?.remove());
+
+    while (alive()) {
+      await nap(2000);
+      if (!alive()) return;
+      if (document.hidden) continue;
+      try {
+        if (await D.loginPoll(c.code, c.secret)) { saveCode(null); toast("Входим…"); location.reload(); return; }
+      } catch (err) {
+        if (!alive()) return;
+        if (!err.status || err.status >= 500 || err.status === 429) continue;   // связь моргнула — спросим ещё раз
+        saveCode(null);
+        // код устарел — выдаём новый, пока окно открыто (до часа); «Нет» в боте или чужой код — начать заново
+        if (err.status === 410 && renewed < 6) return codeLogin(run, renewed + 1);
+        way.innerHTML = `<p class="lead">${esc(err.status === 403 ? "Вход отменён в боте." : err.message)}</p>
+          <button class="cta" id="loginAgain"><span>Начать заново</span></button>`;
+        $("#loginAgain").onclick = () => codeLogin(++loginRun, 1);
+        return;
+      }
+    }
+  }
+
+  // подтвердил в боте, а страницу Telegram перезапустил — входим, не дожидаясь, пока снова откроют окно
+  async function resumeCodeLogin() {
+    const c = savedCode();
+    if (!c || me) return;
+    try { if (await D.loginPoll(c.code, c.secret)) { saveCode(null); location.reload(); } }
+    catch (err) { if (err.status && err.status < 500 && err.status !== 429) saveCode(null); }
+  }
+
+  // «Другие способы» — прежний вход через страницу Telegram (oauth.telegram.org → #tgAuthResult)
+  function widgetLogin() {
+    const cfg = window.EBL_CONFIG;
+    loginRun++;   // код больше не опрашиваем
+    $("#loginWay").innerHTML = `<p class="lead">Через страницу Telegram тем же аккаунтом, что в группе. Мы видим имя, username и фото профиля — телефон остаётся у Telegram.</p>
+      <button class="cta big tg-btn" id="tgLogin">${TG_ICON}<span>Войти через Telegram</span></button>
+      <p class="hint">Откроется страница Telegram — подтверди вход, и тебя вернёт сюда.</p>`;
+    $("#loginAlt").textContent = "Войти через бота";
+    $("#loginAlt").onclick = () => { $("#loginAlt").textContent = "Другие способы входа"; $("#loginAlt").onclick = widgetLogin; codeLogin(++loginRun, 0); };
     $("#tgLogin").onclick = () => {
       const back = location.origin + location.pathname;
       location.href = "https://oauth.telegram.org/auth?bot_id=" + cfg.telegramBotId + "&origin=" + encodeURIComponent(location.origin)
         + "&request_access=write&return_to=" + encodeURIComponent(back);
     };
-    $("#loginModal").hidden = false;
   }
   // возврат от Telegram: #tgAuthResult=<base64 JSON>
   async function finishTelegramLogin() {
@@ -1618,6 +1709,7 @@
   if (D.live) finishTelegramLogin().then((back) => {
     // вошёл, но ник не выбрал — без этого шага Комиссии нечего подтверждать; раньше его пропускали, не заметив кнопку в углу
     if (!back && me && !me.nick && !me.claimedNick) openClaim();
+    if (!back) resumeCodeLogin();
   });
 
   // пара примерных отзывов на самую посещаемую баню, чтобы в витрине было видно, как это выглядит
