@@ -64,6 +64,11 @@ print("Права")
 req("POST", "/functions/v1/recompute", {})  # после db reset таблица пустая — считаем её из остатка
 me, vit, leha = player_id("Шурик"), player_id("Витёк"), player_id("Леха")
 check("аноним видит таблицу", len(req("GET", "/rest/v1/standings?select=nick")[1]) > 0)
+s, bp = req("GET", "/rest/v1/rpc/boot_public")
+check("всё общее для первого экрана — одним запросом и гостю: бани, посещения, таблица, отзывы, цены, пиво, участники",
+      s == 200 and isinstance(bp, dict) and set(bp) == {"baths", "counts", "standings", "reviews", "prices", "beer", "players"}
+      and len(bp["baths"]) > 100 and len(bp["counts"]) > 100 and len(bp["standings"]) > 0 and len(bp["players"]) > 0, (s, list(bp)[:9] if isinstance(bp, dict) else bp))
+check("…отклонённые бани в нём гостю не видны, как и в обычном запросе", all(b["status"] != "rejected" for b in bp["baths"]))
 s, counts = req("GET", "/rest/v1/rpc/bath_counts_all")
 check("посещения бань для карты — одним запросом, все строки представления",
       s == 200 and len(counts) == int(sql("select count(*) from bath_counts")) > 1000, (s, len(counts) if isinstance(counts, list) else counts))
