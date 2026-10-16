@@ -93,7 +93,7 @@ def serve():
 class Site:
     """Страница сайта с собранными ошибками консоли; config.js — локальный стенд или витрина."""
 
-    def __init__(self, browser, url, *, config=LIVE_CONFIG, sess=None, mobile=False, name="site", route=None, noise=None):
+    def __init__(self, browser, url, *, config=LIVE_CONFIG, sess=None, mobile=False, name="site", route=None, noise=None, init=None):
         self.name = name
         self.noise = noise   # ещё одна нарочная ошибка сценария (подстрока адреса), кроме мёртвого DEAD
         self.ctx = browser.new_context(viewport={"width": 375, "height": 812} if mobile else {"width": 1280, "height": 860},
@@ -108,6 +108,8 @@ class Site:
             self.page.route(*route)
         if sess:
             self.page.add_init_script(f"localStorage.setItem({json.dumps(AUTH_KEY)}, {json.dumps(json.dumps(sess))})")
+        if init:   # скрипт до загрузки страницы — подменить поведение сети в сценарии
+            self.page.add_init_script(init)
         self.page.on("dialog", lambda d: d.accept("проверка сайта"))   # причина отказа и т. п.
         self.page.goto(url)
         # загрузка кончается либо сайтом, либо плашкой «Не получилось загрузить данные: …» — её текст и есть причина
@@ -254,9 +256,31 @@ with sync_playwright() as pw:
                 busy_once["left"] -= 1
                 return route.fulfill(status=503, body='{"message":"upstream"}', headers={"Access-Control-Allow-Origin": "*"})
             return route.continue_()
-        s = Site(browser, url, config=cfg2(API, dead), name="gateway-503", route=("**/rest/v1/rpc/baths_all*", busy), noise="/rest/v1/rpc/baths_all")
+        s = Site(browser, url, config=cfg2(API, dead), name="gateway-503", route=("**/rest/v1/rpc/boot_public*", busy), noise="/rest/v1/rpc/boot_public")
         check("шлюз ответил 503 (Supabase за ним не ответил) — повторяем через шлюз, а не уходим напрямую",
               s.js("() => document.querySelectorAll('#list .item').length > 0") and busy_once["left"] == 0)
+        s.close()
+        # 16.10: через шлюз примерно каждый десятый запрос застревает на 1–4 с, а заставка ждёт самый медленный. Всё общее —
+        # одним запросом (boot_public), и чтение, не ответившее за секунду, сайт дублирует и берёт первый ответ.
+        # Здесь первый запрос общих данных «застревает» на 6 с — заставка его ждать не должна
+        stuck = """(() => {
+          const real = window.fetch; let first = true; window.__boot = 0;
+          window.fetch = (u, o = {}) => {
+            if (!String(u).includes('/rest/v1/rpc/boot_public')) return real(u, o);
+            window.__boot++;
+            if (!first) return real(u, o);
+            first = false;
+            return new Promise((ok, no) => {
+              const t = setTimeout(() => real(u, o).then(ok, no), 6000);
+              o.signal?.addEventListener('abort', () => { clearTimeout(t); no(new DOMException('отменён', 'AbortError')); });
+            });
+          };
+        })()"""
+        s = Site(browser, url, name="gateway-stuck", init=stuck)
+        took = s.js("() => performance.now()")
+        check("общие данные — одним запросом; застрял — через секунду дубль, заставка не ждёт застрявший",
+              s.js("() => window.__boot") == 2 and took < 4500 and s.js("() => document.querySelectorAll('#list .item').length > 0"), (s.js("() => window.__boot"), round(took)))
+        s.clean("дубль застрявшего запроса")
         s.close()
 
         print("Гость")

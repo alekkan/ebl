@@ -17,17 +17,44 @@ window.EBLData = (() => {
   async function viaBest(input, init = {}) {
     const url = String(input);
     const direct = (u) => u.replace(cfg.supabaseUrl, cfg.directUrl);
-    if (!cfg.directUrl || !url.startsWith(cfg.supabaseUrl)) return fetch(input, init);
-    if (base === cfg.directUrl) return fetch(direct(url), init);
-    const ctl = new AbortController(), stop = setTimeout(() => ctl.abort(), 6000);
-    init.signal?.addEventListener?.("abort", () => ctl.abort());
+    if (!url.startsWith(cfg.supabaseUrl)) return fetch(input, init);
+    if (cfg.directUrl && base === cfg.directUrl) return fetch(direct(url), init);
     try {
-      return await fetch(url, { ...init, signal: ctl.signal });   // 6 с — до ответа шлюза, само тело качается сколько нужно
+      return await hedged(url, init, cfg.directUrl ? 6000 : 0);   // 6 с — до ответа шлюза, само тело качается сколько нужно
     } catch (e) {
-      if (init.signal?.aborted) throw e;   // отменил сам вызывающий — путь тут ни при чём
+      if (init.signal?.aborted || !cfg.directUrl) throw e;   // отменил сам вызывающий — путь тут ни при чём
       base = cfg.directUrl;
       return fetch(direct(url), init);
-    } finally { clearTimeout(stop); }
+    }
+  }
+  // Шлюз обычно отвечает за 0,3–0,5 с, но примерно каждый десятый запрос застревает на 1–4 с — и с узлов в России, и с
+  // компьютера владельца (16.10). Чтение не ответило за секунду — шлём такой же запрос ещё раз и берём ответ, который придёт
+  // первым, второй отменяем. Только GET: его можно повторить без вреда. Обновление ключа входа не повторяем — второй
+  // запрос со старым ключом Supabase может счесть кражей ключа и выйти из аккаунта.
+  const HEDGE_MS = 1000;
+  function hedged(url, init, giveUpMs) {
+    return new Promise((resolve, reject) => {
+      const ctls = [];
+      let done = false, pending = 0, hedge = null, stop = null;
+      const finish = (fn, v, keep) => {
+        if (done) return;
+        done = true;
+        clearTimeout(hedge); clearTimeout(stop);
+        ctls.forEach((c) => c !== keep && c.abort());
+        fn(v);
+      };
+      const launch = () => {
+        const ctl = new AbortController();
+        ctls.push(ctl); pending++;
+        fetch(url, { ...init, signal: ctl.signal }).then((r) => finish(resolve, r, ctl), (e) => { if (--pending === 0) finish(reject, e); });
+      };
+      // вызывающий отменил — отменяем всё, в том числе уже ответивший (его тело ещё качается)
+      init.signal?.addEventListener?.("abort", () => { ctls.forEach((c) => c.abort()); finish(reject, new DOMException("Отменено", "AbortError")); });
+      if (init.signal?.aborted) return finish(reject, new DOMException("Отменено", "AbortError"));
+      launch();
+      if (/^(GET|HEAD)$/i.test(init.method || "GET")) hedge = setTimeout(() => done || launch(), HEDGE_MS);
+      if (giveUpMs) stop = setTimeout(() => finish(reject, new Error("шлюз не ответил")), giveUpMs);
+    });
   }
   const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey,
     { ...(cfg.authKey ? { auth: { storageKey: cfg.authKey } } : {}), global: { fetch: viaBest } }) : null;
@@ -49,20 +76,6 @@ window.EBLData = (() => {
   // «2026-09-26T11:42» по Москве
   const mskLocal = (iso) => new Date(new Date(iso).getTime() + 3 * 3600e3).toISOString().slice(0, 16);
   const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
-
-  // постранично по 1000; порядок обязателен — без него строки на стыке страниц могут задвоиться или потеряться
-  async function all(table, select, filter, order = ["id"], db = sb) {
-    const out = [];
-    for (let from = 0; ; from += 1000) {
-      let q = db.from(table).select(select);
-      for (const col of order) q = q.order(col);
-      q = q.range(from, from + 999);
-      if (filter) q = filter(q);
-      const rows = check(await q);
-      out.push(...rows);
-      if (rows.length < 1000) return out;
-    }
-  }
 
   // ---------- витрина ----------
   async function loadStatic() {
@@ -115,19 +128,12 @@ window.EBLData = (() => {
   }
 
   async function loadLive() {
-    const [baths, counts, standings, reviews, prices, beerPrices, players, me, rows] = await Promise.all([
-      pub.rpc("baths_all", {}, { get: true }).then(check),   // больше тысячи — одним запросом, а не двумя страницами подряд
-      // одним запросом, а не страницами по 1000: каждый лишний запрос через шлюз — шанс попасть на его плохую минуту;
-      // GET, а не POST — такой клиент Supabase сам повторит при 503
-      pub.rpc("bath_counts_all", {}, { get: true }).then(check).then((rows) => rows.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }))),
-      all("standings", "*", null, ["nick"], pub),
-      all("reviews", "id, bath_id, rating, text, created_at, player_id, players(nick)", null, ["id"], pub),
-      all("bath_prices", "id, bath_id, price, currency, duration_min, is_weekend, before_time, price_date", null, ["bath_id", "price_date"], pub),
-      all("bath_beer_prices", "id, bath_id, price, currency, price_date", null, ["bath_id", "price_date"], pub),
-      all("players", "id, nick, is_commission, photo_url", null, ["id"], pub),
-      whoami(),
-      journal(),
-    ]);
+    // всё общее — одним запросом (rpc boot_public, 16.10): было семь, и заставка ждала самый медленный, а через шлюз
+    // примерно каждый десятый застревает на секунды. GET, а не POST — такой клиент Supabase сам повторит при 503,
+    // а viaBest продублирует, если шлюз задумается
+    const [common, me, rows] = await Promise.all([pub.rpc("boot_public", {}, { get: true }).then(check), whoami(), journal()]);
+    const { baths, standings, reviews, prices, beer: beerPrices, players } = common;
+    const counts = common.counts.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }));
     const byId = new Map(baths.map((b) => [b.id, Object.assign(b, { v26: {}, hist: {}, histBy: {}, isNew: b.status === "pending" })]));
     for (const c of counts) {
       const b = byId.get(c.bath_id); if (!b) continue;
