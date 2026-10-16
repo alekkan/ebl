@@ -4,10 +4,10 @@
 Запуск:          python3 tests/test_backend.py
 Тест пишет в локальную базу; после него удобно сделать `supabase db reset`.
 """
-import json, re, urllib.request, urllib.error, time
+import json, re, urllib.parse, urllib.request, urllib.error, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from local import check, link, login, now, player_id, req, sql, tg_payload
+from local import KEY, check, link, login, now, player_id, req, sql, tg_payload
 
 print("Вход через Telegram")
 bad = tg_payload(1, "x"); bad["hash"] = "0" * 64
@@ -69,6 +69,8 @@ check("всё общее для первого экрана — одним за�
       s == 200 and isinstance(bp, dict) and set(bp) == {"baths", "counts", "standings", "reviews", "prices", "beer", "players"}
       and len(bp["baths"]) > 100 and len(bp["counts"]) > 100 and len(bp["standings"]) > 0 and len(bp["players"]) > 0, (s, list(bp)[:9] if isinstance(bp, dict) else bp))
 check("…отклонённые бани в нём гостю не видны, как и в обычном запросе", all(b["status"] != "rejected" for b in bp["baths"]))
+s2, bp2 = req("GET", "/rest/v1/rpc/boot_public?apikey=" + urllib.parse.quote(KEY))
+check("…и с ключом в адресе (ранний запрос из index.html, 16.10) — тот же ответ", s2 == 200 and isinstance(bp2, dict) and set(bp2) == set(bp), s2)
 s, counts = req("GET", "/rest/v1/rpc/bath_counts_all")
 check("посещения бань для карты — одним запросом, все строки представления",
       s == 200 and len(counts) == int(sql("select count(*) from bath_counts")) > 1000, (s, len(counts) if isinstance(counts, list) else counts))

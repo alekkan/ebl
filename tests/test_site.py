@@ -286,6 +286,11 @@ with sync_playwright() as pw:
         print("Гость")
         s = Site(browser, url, name="guest")
         check("сайт загрузился, кнопка «Войти» на месте", s.js("() => document.getElementById('meBtn').innerText.includes('Войти')"))
+        # 16.10: запрос данных уходит из самой страницы, пока качаются скрипты, а ключ — в адресе (без проверки CORS);
+        # db.js берёт этот ответ, второго такого же запроса нет
+        boots = s.js("() => performance.getEntriesByType('resource').filter((e) => e.name.includes('/rpc/boot_public')).map((e) => e.name)")
+        check("данные первого экрана — одним ранним запросом из страницы (ключ в адресе), без второго такого же",
+              len(boots) == 1 and "apikey=" in boots[0], boots)
         all_views(s, "гость")
         s.page.click("#addVisitBtn")
         check("гость на «Добавить баню» — окно входа", s.js("() => !document.getElementById('loginModal').hidden"))

@@ -127,11 +127,22 @@ window.EBLData = (() => {
     });
   }
 
+  // первый раз — ответ раннего запроса из index.html (EBL_BOOT): он ушёл, пока качались скрипты (16.10). Шлюз недоступен
+  // (сетевая ошибка или 6 с без ответа) — сразу запасной путь напрямую, без второго ожидания в 6 с; ошибка ответа (503) —
+  // обычный запрос через шлюз (клиент Supabase сам повторит). Обновления после действий — всегда обычным запросом.
+  async function bootPublic() {
+    const early = window.EBL_BOOT; window.EBL_BOOT = null;
+    const r = early ? await early : null;
+    if (r?.data) return r.data;
+    if (r?.fail === "net" && cfg.directUrl) base = cfg.directUrl;
+    return pub.rpc("boot_public", {}, { get: true }).then(check);
+  }
+
   async function loadLive() {
     // всё общее — одним запросом (rpc boot_public, 16.10): было семь, и заставка ждала самый медленный, а через шлюз
     // примерно каждый десятый застревает на секунды. GET, а не POST — такой клиент Supabase сам повторит при 503,
     // а viaBest продублирует, если шлюз задумается
-    const [common, me, rows] = await Promise.all([pub.rpc("boot_public", {}, { get: true }).then(check), whoami(), journal()]);
+    const [common, me, rows] = await Promise.all([bootPublic(), whoami(), journal()]);
     const { baths, standings, reviews, prices, beer: beerPrices, players } = common;
     const counts = common.counts.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }));
     const byId = new Map(baths.map((b) => [b.id, Object.assign(b, { v26: {}, hist: {}, histBy: {}, isNew: b.status === "pending" })]));
