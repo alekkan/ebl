@@ -1552,6 +1552,8 @@
   // Виджет остался «другими способами».
   const TG_ICON = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.5 4.5 2.8 11.7c-1 .4-1 1.8.1 2.1l4.6 1.4 1.8 5.5c.3.8 1.3 1 1.9.4l2.6-2.5 4.7 3.4c.8.6 1.9.1 2.1-.9L23 5.9c.2-1.1-.8-1.9-1.5-1.4Z" style="fill:currentColor;stroke:none"/></svg>`;
   const LOGIN_KEY = "ebl-login-code";
+  const LOGIN_LEAD = "Через нашего бота в Telegram — без паролей и номера телефона.";
+  const loginSteps = (list) => `<ol class="login-steps">${list.map((t) => `<li><span>${t}</span></li>`).join("")}</ol>`;
   let loginRun = 0, qrReady = null;
   const savedCode = () => { try { const c = JSON.parse(localStorage.getItem(LOGIN_KEY)); return c && Date.parse(c.expires_at) > Date.now() + 60e3 ? c : null; } catch { return null; } };
   const saveCode = (c) => { try { c ? localStorage.setItem(LOGIN_KEY, JSON.stringify(c)) : localStorage.removeItem(LOGIN_KEY); } catch { /* приватный режим — просто без подхвата */ } };
@@ -1575,7 +1577,7 @@
     const cfg = window.EBL_CONFIG;
     if (!cfg.telegramBot) return toast("Вход через Telegram откроется совсем скоро");
     $("#loginBody").innerHTML = `<div class="eyebrow">Для участников лиги</div><h2>Вход в ЕБЛ</h2>
-      <div class="login-way" id="loginWay"><p class="hint">Готовлю вход…</p></div>
+      <div class="login-way" id="loginWay"><p class="lead">${LOGIN_LEAD}</p><p class="login-wait"><i aria-hidden="true"></i>Готовлю вход…</p></div>
       <p class="hint login-err" id="loginErr"></p>
       ${cfg.telegramBotId ? `<p class="hint login-alt"><button class="linkbtn" id="loginAlt">Другие способы входа</button></p>` : ""}`;
     if ($("#loginAlt")) $("#loginAlt").onclick = widgetLogin;
@@ -1593,20 +1595,25 @@
     }
     if (!alive()) return;
     const link = `https://t.me/${cfg.telegramBot}?start=login_${c.code}`;
-    const shown = `<b class="login-code">${c.code.slice(0, 3)}-${c.code.slice(3)}</b>`;
+    const chip = `<button type="button" class="login-code" id="loginCopy" title="Скопировать код">${c.code.slice(0, 3)}-${c.code.slice(3)}</button>`;
     const phone = matchMedia("(pointer: coarse)").matches;
-    way.innerHTML = phone
-      ? `<p class="lead">Откроется наш бот в Telegram — нажми «Старт» и «✅ Да, это я». Сайт войдёт сам.</p>
-        <a class="cta big tg-btn" id="botLogin" href="${esc(link)}">${TG_ICON}<span>Войти через бота</span></a>
-        <p class="hint">Код входа ${shown} · ждём подтверждения в боте</p>`
-      : `<p class="lead">Наведи камеру телефона на QR-код — откроется наш бот в Telegram. Нажми «Старт» и «✅ Да, это я», сайт войдёт сам.</p>
-        <div class="login-qr" id="loginQr" role="img" aria-label="QR-код для входа через бота"></div>
-        <p class="hint">Или пришли боту <a href="${esc(link)}" target="_blank" rel="noopener">@${esc(cfg.telegramBot)}</a> код ${shown} · ждём подтверждения</p>`;
+    way.innerHTML = `<p class="lead">${LOGIN_LEAD}</p>` + (phone
+      ? `<a class="cta big tg-btn" id="botLogin" href="${esc(link)}">${TG_ICON}<span>Войти через Telegram</span></a>
+        ${loginSteps(["Откроется наш бот — нажми «Старт»", "Потом «✅ Да, это я»", "Вернись сюда — ты уже внутри"])}
+        <p class="login-wait"><i aria-hidden="true"></i>Ждём подтверждения · код ${chip}</p>`
+      : `<div class="login-scan">
+          <div class="login-qr" id="loginQr" role="img" aria-label="QR-код для входа через бота"></div>
+          ${loginSteps(["Наведи камеру телефона на код", "В Telegram нажми «Старт»", "«✅ Да, это я» — и сайт войдёт сам"])}
+        </div>
+        <p class="login-wait"><i aria-hidden="true"></i>Ждём подтверждения в боте</p>
+        <p class="hint login-more">Telegram открыт на этом компьютере? <a href="${esc(link)}" target="_blank" rel="noopener">Открой бота здесь</a> —
+          код подставится сам. Или пришли боту @${esc(cfg.telegramBot)} код ${chip}</p>`);
+    $("#loginCopy").onclick = () => navigator.clipboard?.writeText(c.code).then(() => toast("Код скопирован"), () => toast("Код: " + c.code));
     if (!phone) loadQr().then(() => {
       if (!alive()) return;
       const q = window.qrcode(0, "M");
       q.addData(link); q.make();
-      $("#loginQr").innerHTML = q.createSvgTag({ cellSize: 4, margin: 3, scalable: true });
+      $("#loginQr").innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
     }).catch(() => $("#loginQr")?.remove());
 
     while (alive()) {
@@ -1614,7 +1621,13 @@
       if (!alive()) return;
       if (document.hidden) continue;
       try {
-        if (await D.loginPoll(c.code, c.secret)) { saveCode(null); toast("Входим…"); location.reload(); return; }
+        if (await D.loginPoll(c.code, c.secret)) {
+          saveCode(null);
+          way.innerHTML = `<p class="login-done">✅ Готово — входим…</p>`;
+          $("#loginAlt")?.remove();
+          location.reload();
+          return;
+        }
       } catch (err) {
         if (!alive()) return;
         if (!err.status || err.status >= 500 || err.status === 429) continue;   // связь моргнула — спросим ещё раз
@@ -1622,7 +1635,7 @@
         // код устарел — выдаём новый, пока окно открыто (до часа); «Нет» в боте или чужой код — начать заново
         if (err.status === 410 && renewed < 6) return codeLogin(run, renewed + 1);
         way.innerHTML = `<p class="lead">${esc(err.status === 403 ? "Вход отменён в боте." : err.message)}</p>
-          <button class="cta" id="loginAgain"><span>Начать заново</span></button>`;
+          <button class="cta" id="loginAgain" style="justify-self:start"><span>Начать заново</span></button>`;
         $("#loginAgain").onclick = () => codeLogin(++loginRun, 1);
         return;
       }
@@ -1641,9 +1654,9 @@
   function widgetLogin() {
     const cfg = window.EBL_CONFIG;
     loginRun++;   // код больше не опрашиваем
-    $("#loginWay").innerHTML = `<p class="lead">Через страницу Telegram тем же аккаунтом, что в группе. Мы видим имя, username и фото профиля — телефон остаётся у Telegram.</p>
-      <button class="cta big tg-btn" id="tgLogin">${TG_ICON}<span>Войти через Telegram</span></button>
-      <p class="hint">Откроется страница Telegram — подтверди вход, и тебя вернёт сюда.</p>`;
+    $("#loginWay").innerHTML = `<p class="lead">Обычный вход Telegram: откроется его страница — подтверди вход, и тебя вернёт сюда.</p>
+      <button class="cta big tg-btn" id="tgLogin">${TG_ICON}<span>Войти через страницу Telegram</span></button>
+      <p class="hint">Тем же аккаунтом, что в группе. Мы видим имя, username и фото профиля — телефон остаётся у Telegram.</p>`;
     $("#loginAlt").textContent = "Войти через бота";
     $("#loginAlt").onclick = () => { $("#loginAlt").textContent = "Другие способы входа"; $("#loginAlt").onclick = widgetLogin; codeLogin(++loginRun, 0); };
     $("#tgLogin").onclick = () => {
