@@ -412,7 +412,7 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .me-btn .ava { --s: 30px; box-shadow: none; }
 .me-btn .ic { width: 18px; height: 18px; margin-left: 8px; }
 .me-btn:hover { border-color: var(--ink-3); }
-.sheet.sheet-narrow { width: min(480px, 100%); }   /* .sheet ниже по файлу задаёт 720px — без .sheet здесь окно входа было широким */
+.sheet.sheet-narrow { width: min(500px, 100%); }   /* .sheet ниже по файлу задаёт 720px — без .sheet здесь окно входа было широким */
 .login { padding: 30px 28px 28px; display: grid; gap: 12px; }
 .login h2 { font: 800 28px/1.05 var(--display); margin: 0; letter-spacing: -.02em; }
 .login .lead { margin: 0; font-size: 15px; }
@@ -425,9 +425,9 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .login-way { display: grid; gap: 14px; }
 .login-way .lead { color: var(--ink-2); }
 a.cta { text-decoration: none; }
-.login-scan { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 20px; align-items: center; padding: 16px; background: var(--panel-2); border-radius: var(--r); }
+.login-scan { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 20px; align-items: center; padding: 16px; background: var(--panel-2); border-radius: var(--r); }
 /* QR — всегда чёрным по белому (так его читают камеры), и в тёмной теме тоже */
-.login-qr { width: 168px; max-width: 100%; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: var(--shadow-s); }
+.login-qr { width: 156px; max-width: 100%; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: var(--shadow-s); }
 .login-qr svg { display: block; width: 100%; height: 100%; }
 .login-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; counter-reset: step; }
 .login-steps li { counter-increment: step; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 14px; line-height: 1.4; }

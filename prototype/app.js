@@ -1599,11 +1599,11 @@
     const phone = matchMedia("(pointer: coarse)").matches;
     way.innerHTML = `<p class="lead">${LOGIN_LEAD}</p>` + (phone
       ? `<a class="cta big tg-btn" id="botLogin" href="${esc(link)}">${TG_ICON}<span>Войти через Telegram</span></a>
-        ${loginSteps(["Откроется наш бот — нажми «Старт»", "Потом «✅ Да, это я»", "Вернись сюда — ты уже внутри"])}
+        ${loginSteps(["Откроется наш бот — нажми «Старт»", "Потом «Да, это я»", "Вернись сюда — ты уже внутри"])}
         <p class="login-wait"><i aria-hidden="true"></i>Ждём подтверждения · код ${chip}</p>`
       : `<div class="login-scan">
           <div class="login-qr" id="loginQr" role="img" aria-label="QR-код для входа через бота"></div>
-          ${loginSteps(["Наведи камеру телефона на код", "В Telegram нажми «Старт»", "«✅ Да, это я» — и сайт войдёт сам"])}
+          ${loginSteps(["Наведи камеру телефона на код", "В Telegram нажми «Старт»", "Нажми «Да, это я» — сайт войдёт сам"])}
         </div>
         <p class="login-wait"><i aria-hidden="true"></i>Ждём подтверждения в боте</p>
         <p class="hint login-more">Telegram открыт на этом компьютере? <a href="${esc(link)}" target="_blank" rel="noopener">Открой бота здесь</a> —
