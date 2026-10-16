@@ -22,7 +22,20 @@
   const boot = (html) => { const el = $("#boot"); if (el) { el.innerHTML = html; el.classList.add("err"); } };
   if (D.broken) { boot("Не загрузилась связь с базой. Проверь интернет и обнови страницу."); return; }
   let data;
-  try { data = await D.load(); } catch (e) {
+  const loading = D.load();
+  // карта и подложка — сразу, пока идут данные: тайлы качаются параллельно, а не после заставки (16.10)
+  const dark = () => document.documentElement.dataset.theme === "dark" ||
+    (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+  const map = L.map("map", { zoomControl: true, worldCopyJump: true }).setView([55.75, 37.62], 5);
+  map.attributionControl.setPrefix(false);
+  const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileOpts = { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' };
+  L.tileLayer(TILE_URL, tileOpts).addTo(map);
+  const syncTheme = () => $$("#map .leaflet-tile-pane, #pickmap .leaflet-tile-pane, #radarmap .leaflet-tile-pane").forEach((p) => { p.classList.toggle("tiles-dark", dark()); p.classList.toggle("tiles-soft", !dark()); });
+  syncTheme();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
+  new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  try { data = await loading; } catch (e) {
     boot(`Не получилось загрузить данные: ${esc(e.message)}. Обнови страницу.`);
     throw e;
   }
@@ -168,18 +181,7 @@
   }
   $$(".nav button").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
 
-  // ---------- карта ----------
-  const dark = () => document.documentElement.dataset.theme === "dark" ||
-    (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-  const map = L.map("map", { zoomControl: true, worldCopyJump: true }).setView([55.75, 37.62], 5);
-  map.attributionControl.setPrefix(false);
-  const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-  const tileOpts = { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' };
-  L.tileLayer(TILE_URL, tileOpts).addTo(map);
-  const syncTheme = () => $$("#map .leaflet-tile-pane, #pickmap .leaflet-tile-pane, #radarmap .leaflet-tile-pane").forEach((p) => { p.classList.toggle("tiles-dark", dark()); p.classList.toggle("tiles-soft", !dark()); });
-  syncTheme();
-  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
-  new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  // ---------- карта ---------- (сама карта и подложка — в начале, до данных)
   const cluster = L.markerClusterGroup({ disableClusteringAtZoom: 13, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true });
   map.addLayer(cluster);
   const markers = new Map();
