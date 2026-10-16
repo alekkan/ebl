@@ -234,9 +234,18 @@
       <div class="page-head">
         <div>
           <div class="eyebrow">Для Комиссии</div>
-          <h1>Справочник бань</h1>
+          <h1 id="dirTitle">Справочник бань</h1>
+        </div>
+        <div class="seg" id="dirMode" role="group" aria-label="Раздел">
+          <button type="button" data-mode="dir" aria-pressed="true">Справочник</button>
+          <button type="button" data-mode="radar" aria-pressed="false">Радар<span class="radar-n" id="radarN"></span></button>
         </div>
       </div>
+      <div id="radarBox" hidden>
+        <p class="lead">Бани, которые нашёл еженедельный прогон агентов: OpenStreetMap, 2ГИС, Яндекс и сайты самих бань. Индекс общественности 0–100 — насколько похоже, что там вход по билету в общую парную. Решает Комиссия: без её кнопки на карту лиги ничего не попадает.</p>
+        <div id="radarList"><p class="hint">Загружаю радар…</p></div>
+      </div>
+      <div id="dirBox">
       <p class="lead">Все бани лиги: тип, где, сколько походов и кто где был (зелёным — кто был в 2026). Тип меняется прямо в строке — таблица пересчитается, а бот поправит свои сообщения в чате.</p>
       <div class="dir-tools">
         <input class="inp" id="dirQ" type="search" placeholder="Название, город или ник" aria-label="Поиск по бане, месту или нику">
@@ -263,6 +272,7 @@
       <p class="note" id="dirCount"></p>
       <div class="tablecard"><div class="tablewrap"><table id="dirTable" class="dir-table"></table></div></div>
       <button type="button" class="btn" id="dirMore" hidden>Показать ещё</button>
+      </div>
     </div>
   </section>
 

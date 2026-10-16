@@ -911,6 +911,27 @@ tr.below { color: var(--ink-2); }
   #feedFilter { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }   /* четыре фильтра в одну строку не влезают */
 }
 
+/* ---------- радар (Комиссия): места из еженедельного прогона, группы по решению ---------- */
+#dirMode { min-width: 240px; }
+.radar-n { font-variant-numeric: tabular-nums; }
+#radarList { display: grid; gap: 28px; margin-top: 8px; }
+.radar-group h2 { font: 600 18px/1.25 var(--display); margin: 0 0 2px; }
+.radar-group > .hint { margin: 0 0 10px; }
+.radar-count { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.radar-list { list-style: none; margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
+.radar-row { padding: 13px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 3px; min-width: 0; }
+.radar-row:last-child { border-bottom: 0; }
+.radar-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.radar-head b { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.radar-ix { flex: none; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; color: var(--oak); background: var(--oak-soft); border-radius: 999px; padding: 1px 9px; }
+.radar-meta { color: var(--ink-2); font-size: 14px; overflow-wrap: anywhere; }
+.radar-note { font-size: 14px; }
+.radar-links { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; }
+.radar-links a { color: var(--oak); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.radar-links a:hover { text-decoration: underline; }
+.radar-acts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 6px; }
+.radar-acts .btn[data-armed] { border-color: var(--oak); color: var(--oak); }
+
 /* ---------- справочник бань (Комиссия) ---------- */
 /* одна строка на баню, чтобы на экран влезало больше: длинное — троеточием, полностью — в подсказке (title) */
 .dir-tools { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 4px 0 8px; }

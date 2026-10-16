@@ -156,6 +156,7 @@
   $("#curWeek").textContent = "W" + curWeek;
 
   // ---------- вкладки ----------
+  let radarMode = "dir";   // во вкладке «Бани» у Комиссии: справочник или радар (ниже, «Радар»)
   function show(view) {
     $$(".nav button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
     $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + view));
@@ -163,7 +164,7 @@
     if (view === "owners") initOwners();
     if (view === "feed") renderFeed();
     if (view === "dir") renderDir();
-    history.replaceState(null, "", "#" + view);
+    history.replaceState(null, "", "#" + (view === "dir" && radarMode === "radar" ? "radar" : view));
   }
   $$(".nav button").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
 
@@ -1847,8 +1848,111 @@
     } catch (err) { toast("Не получилось: " + err.message); renderDir(); }
   });
 
+  // ---------- Радар — только Комиссии (16.10) ----------
+  // Бани, которые нашёл еженедельный локальный прогон агентов (OSM, 2ГИС, Яндекс, сайты бань), с индексом общественности.
+  // Решает Комиссия: «В лигу» — новая общественная баня с точной точкой; «Это наша» — точку нашей бани переносим сюда
+  // (у неё была неточная); «Скрыть» — не баня, аренда, дубль. Без её кнопки на карту лиги ничего не попадает.
+  let radar = null;
+  const radarOpen = new Set();
+  const AQUA_RX = /(аквапарк|аква|термол|термы|терм[ао]|фитнес|бассейн)/i;
+  function radarGroup(p) {
+    if (p.status !== "new") return "done";
+    const x = p.public_index ?? 0;
+    if (p.kind === "closed" || p.kind === "other") return "rest";
+    if (p.league_hint && (p.kind === "public" || x >= 60)) return "ours";
+    if (p.kind === "public" && x >= 70) return "new";
+    if ((p.kind === "public" && x >= 40) || (p.ticket_per_person && p.kind !== "private" && !AQUA_RX.test(p.name + " " + (p.note || "")))) return "review";
+    if (p.kind === "unknown" && x >= 40) return "search";
+    return "rest";
+  }
+  const RADAR_GROUPS = [
+    ["new", "Общественные — нет в лиге", "Индекс 70 и выше: вход по билету в общую парную. Проверь по ссылкам и заводи."],
+    ["ours", "Похоже, это наши бани", "Название совпало с баней лиги, а наша точка неточная или далеко. Если это она — перенеси точку сюда."],
+    ["review", "На решение", "Вход по билету есть, но на грани хуитнеса или данных мало."],
+    ["search", "Ждут поиска", "Похоже на баню, но подробностей агент не нашёл — разберёт следующий прогон."],
+    ["rest", "Аренда, спа и прочее", "Сауны в аренду, термы, закрытые и не бани."],
+    ["done", "Решено", ""],
+  ];
+  const RADAR_FOLDED = new Set(["rest", "done"]);
+  const radarDone = { added: "заведена в лигу", matched: "привязана к нашей бане", hidden: "скрыта" };
+  function radarRow(p) {
+    const hint = p.league_hint && byId.get(p.league_hint);
+    const where = [p.city, p.address].filter(Boolean).filter((x, i, a) => !(i && a[0] && x.includes(a[0]))).join(", ");
+    const q = encodeURIComponent([p.name, where || p.region].filter(Boolean).join(", "));
+    const ll = p.lat != null ? `${p.lng.toFixed(5)},${p.lat.toFixed(5)}` : "";
+    const ya = /yandex|yango/.test(p.map_url || "") ? p.map_url : `https://yandex.ru/maps/?text=${q}${ll ? `&ll=${ll}&z=15` : ""}`;
+    const dg = /2gis/.test(p.map_url || "") ? p.map_url : `https://2gis.ru/search/${q}${ll ? `?m=${ll}/15` : ""}`;
+    const site = p.website && !/yandex|2gis|zoon|yell/.test(p.website)
+      ? `<a href="${esc(p.website)}" target="_blank" rel="noopener">${esc(p.website.replace(/^https?:\/\/(www\.)?/, "").split("/")[0])}</a>` : "";
+    const bath = p.bath_id && byId.get(p.bath_id);
+    const acts = p.status === "new"
+      ? `<button type="button" class="btn sm" data-radar="add" data-id="${p.id}">В лигу</button>`
+        + (hint ? `<button type="button" class="btn sm" data-radar="match" data-id="${p.id}">Это «${esc(hint.name)}»</button>` : "")
+        + `<button type="button" class="linkbtn" data-radar="hide" data-id="${p.id}">Скрыть</button>`
+      : `<span class="hint">${radarDone[p.status] || ""}${bath ? ` — «${esc(bath.name)}»` : ""}</span><button type="button" class="linkbtn" data-radar="reopen" data-id="${p.id}">вернуть</button>`;
+    return `<li class="radar-row" data-id="${p.id}"><div class="radar-head"><b>${esc(p.name)}</b><span class="radar-ix" title="индекс общественности">${p.public_index ?? "—"}</span></div>
+      <div class="radar-meta">${esc(where || p.region || "")}${p.price_example ? " · " + esc(p.price_example) : ""}</div>
+      ${p.note ? `<div class="radar-note">${esc(p.note)}</div>` : ""}
+      <div class="radar-links">${site}<a href="${esc(ya)}" target="_blank" rel="noopener">Яндекс Карты</a><a href="${esc(dg)}" target="_blank" rel="noopener">2ГИС</a></div>
+      <div class="radar-acts">${acts}</div></li>`;
+  }
+  function renderRadar() {
+    if (!radar) {
+      D.radar().then((rows) => { radar = rows; renderRadar(); })
+        .catch((err) => { $("#radarList").innerHTML = `<p class="hint">Радар не загрузился: ${esc(err.message)}</p>`; });
+      return;
+    }
+    const by = {};
+    for (const p of radar) (by[radarGroup(p)] ||= []).push(p);
+    const todo = (by.new?.length || 0) + (by.ours?.length || 0) + (by.review?.length || 0);
+    $("#radarN").textContent = todo ? ` · ${todo}` : "";
+    $("#radarList").innerHTML = !radar.length ? '<p class="hint">Пока пусто: радар наполняет еженедельный прогон.</p>'
+      : RADAR_GROUPS.filter(([g]) => by[g]?.length).map(([g, title, sub]) => {
+        const folded = RADAR_FOLDED.has(g) && !radarOpen.has(g);
+        return `<section class="radar-group"><h2>${title} <span class="radar-count">${by[g].length}</span></h2>${sub ? `<p class="hint">${sub}</p>` : ""}
+          ${folded ? `<button type="button" class="linkbtn" data-radar="unfold" data-g="${g}">показать</button>` : `<ul class="radar-list">${by[g].map(radarRow).join("")}</ul>`}</section>`;
+      }).join("");
+  }
+  function setDirMode(mode) {
+    radarMode = mode;
+    $$("#dirMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+    $("#dirBox").hidden = mode !== "dir";
+    $("#radarBox").hidden = mode !== "radar";
+    $("#dirTitle").textContent = mode === "radar" ? "Радар" : "Справочник бань";
+    if (mode === "radar") renderRadar();
+    history.replaceState(null, "", "#" + (mode === "radar" ? "radar" : "dir"));
+  }
+  $("#dirMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-mode]"); if (b) setDirMode(b.dataset.mode); });
+  const RADAR_STATUS = { add: "added", match: "matched", hide: "hidden", reopen: "new" };
+  $("#radarList").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-radar]"); if (!b) return;
+    const act = b.dataset.radar;
+    if (act === "unfold") { radarOpen.add(b.dataset.g); return renderRadar(); }
+    const p = radar.find((x) => x.id === Number(b.dataset.id)); if (!p) return;
+    // заводить и переносить точку — с подтверждением вторым нажатием: это меняет карту лиги
+    if ((act === "add" || act === "match") && !b.dataset.armed) {
+      b.dataset.armed = "1"; b.dataset.label = b.textContent;
+      b.textContent = act === "add" ? "Точно завести?" : "Перенести точку?";
+      setTimeout(() => { if (b.isConnected && b.dataset.armed) { delete b.dataset.armed; b.textContent = b.dataset.label; } }, 4000);
+      return;
+    }
+    $$("button", b.closest(".radar-acts")).forEach((x) => (x.disabled = true));
+    try {
+      if (act === "match" && p.lat != null) await D.setBathLocation(p.league_hint, `${p.lat}, ${p.lng}`);
+      const id = await D.radarDecide(p.id, act, act === "match" ? p.league_hint : null);
+      Object.assign(p, { status: RADAR_STATUS[act], bath_id: act === "add" ? id : act === "match" ? p.league_hint : null });
+      toast({ add: `«${p.name}» заведена в лигу`, match: p.lat != null ? "Точка перенесена" : "Привязано — точку поправь на карте", hide: "Скрыто", reopen: "Вернули в радар" }[act]);
+      if (act === "add" || act === "match") refreshData().then(renderRadar).catch(() => {});
+      renderRadar();
+    } catch (err) {
+      $$("button", b.closest(".radar-acts")).forEach((x) => (x.disabled = false));
+      toast("Не получилось: " + err.message);
+    }
+  });
+
   updateBadge();
   render("home");
   const h = location.hash.slice(1);
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
+  if (h === "radar" && canModerate && D.live) { show("dir"); setDirMode("radar"); }
 })();

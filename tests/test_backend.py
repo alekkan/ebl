@@ -332,4 +332,33 @@ sql(f"delete from visit_photos where visit_id = {vid}")
 sql(f"delete from visits where id = {vid}")
 sql("update settings set value = '40' where key = 'cutover_week'")
 req("POST", "/functions/v1/recompute", {})
+
+print("Радар — только Комиссии")
+import subprocess, tempfile, pathlib
+sql("delete from radar_places where key like 'test:%'")
+places = [{"key": "test:1", "name": "Тестовые бани", "region": "Московская обл", "city": "Тестово", "lat": 55.9, "lng": 37.9, "kind": "public",
+           "public_index": 92, "confidence": "high", "note": "Билет на сеанс, мужские и женские дни", "evidence": [{"quote": "Мужской день — суббота", "url": "https://example.org"}]}]
+def push(pl):
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d, "radar.json"); f.write_text(json.dumps(pl, ensure_ascii=False))
+        out = subprocess.run(["python3", "scripts/radar/push.py", str(f)], capture_output=True, text=True, check=True).stdout
+    r = subprocess.run(["docker", "exec", "-i", "supabase_db_ebl", "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1"], input=out, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+push(places)
+rid = int(sql("select id from radar_places where key = 'test:1'"))
+check("заливка прогона (scripts/radar/push.py) кладёт место в радар", sql(f"select kind || ' ' || public_index from radar_places where id = {rid}") == "public 92")
+check("гость радар не видит", req("GET", "/rest/v1/radar_places?select=id")[0] in (401, 403))
+check("участник радар не видит", req("GET", "/rest/v1/radar_places?select=id", token=shurik)[1] == [])
+check("Комиссия радар видит", any(x["id"] == rid for x in req("GET", "/rest/v1/radar_places?select=id", token=vitek)[1]))
+check("участник решать по радару не может", req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "add"}, token=shurik)[0] >= 400)
+s, bid = req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "add"}, token=vitek)
+check("Комиссия: «В лигу» — общественная баня с точной точкой", s == 200 and sql(f"select type || ',' || precision || ',' || status from baths where id = {bid}") == "public,exact,ok", (s, bid))
+check("второе нажатие «В лигу» — та же баня, без дубля", req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "add"}, token=vitek)[1] == bid)
+places[0]["public_index"] = 95; push(places)
+check("повторная заливка обновляет место, но решение Комиссии не трогает",
+      sql(f"select public_index || ' ' || status || ' ' || bath_id from radar_places where id = {rid}") == f"95 added {bid}")
+req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "hide"}, token=vitek)
+check("«Скрыть» и «вернуть»", sql(f"select status from radar_places where id = {rid}") == "hidden"
+      and req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "reopen"}, token=vitek)[0] == 200 and sql(f"select status from radar_places where id = {rid}") == "new")
+sql("delete from radar_places where key like 'test:%'"); sql(f"delete from baths where id = {bid}")
 print("Готово.")

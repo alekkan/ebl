@@ -359,6 +359,12 @@ window.EBLData = (() => {
       return body;
     },
     async moderateBath(bathId, patch) { check(await sb.from("baths").update(patch).eq("id", bathId)); },
+    // Радар (16.10) — только Комиссии: места из еженедельного прогона агентов и её решения по ним
+    async radar() {
+      if (!live) return [];
+      return check(await sb.from("radar_places").select("*").order("public_index", { ascending: false, nullsFirst: false }).limit(3000));
+    },
+    async radarDecide(id, action, bathId = null) { return check(await sb.rpc("radar_decide", { p_id: id, p_action: action, p_bath: bathId })); },
     // Комиссия: баня оказалась дублем — походы переезжают в оригинал, дубль отклоняется
     async mergeBath(dupId, origId) {
       check(await sb.from("visits").update({ bath_id: origId }).eq("bath_id", dupId));
