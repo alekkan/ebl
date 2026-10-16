@@ -423,7 +423,8 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 /* окно входа: акцент один — синий Telegram (кнопка, статус, ссылка), остальное нейтральное */
 .login { --tg: #2aabee; }
 .login-way { display: grid; gap: 14px; }
-.login-way .lead { color: var(--ink-2); }
+.login-way .lead { color: var(--ink-2); text-wrap: pretty; }
+.login-steps span, .login-more { text-wrap: pretty; }
 a.cta { text-decoration: none; }
 .login-scan { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 20px; align-items: center; padding: 16px; background: var(--panel-2); border-radius: var(--r); }
 /* QR — всегда чёрным по белому (так его читают камеры), и в тёмной теме тоже */
