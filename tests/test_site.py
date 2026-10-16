@@ -563,6 +563,8 @@ with sync_playwright() as pw:
         check("Радар у Комиссии: новые общественные и «похоже, наши» — сверху, аренда свёрнута",
               s.js("""() => { const t = [...document.querySelectorAll('#radarList .radar-group h2')].map((h) => h.innerText);
                 return /нет в лиге/.test(t[0]) && /наши/.test(t[1]) && document.querySelectorAll('#radarList .radar-row').length === 2; }"""))
+        check("над списком — карта: точки мест с координатами (аренда без точки — не на карте)",
+              s.js("() => !document.getElementById('radarMapWrap').hidden && document.querySelectorAll('#radarmap path.rd').length === 2"))
         check("у места — ссылки на сайт, Яндекс Карты и 2ГИС, на нашу — кнопка «Это „Василевские“»",
               s.js("() => document.querySelectorAll('#radarList .radar-links a').length >= 5 && /Это «Василевские»/.test(document.getElementById('radarList').innerText)"))
         rid = sql("select id from radar_places where key = 'test:new'")

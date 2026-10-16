@@ -176,7 +176,7 @@
   const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
   const tileOpts = { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' };
   L.tileLayer(TILE_URL, tileOpts).addTo(map);
-  const syncTheme = () => $$("#map .leaflet-tile-pane, #pickmap .leaflet-tile-pane").forEach((p) => { p.classList.toggle("tiles-dark", dark()); p.classList.toggle("tiles-soft", !dark()); });
+  const syncTheme = () => $$("#map .leaflet-tile-pane, #pickmap .leaflet-tile-pane, #radarmap .leaflet-tile-pane").forEach((p) => { p.classList.toggle("tiles-dark", dark()); p.classList.toggle("tiles-soft", !dark()); });
   syncTheme();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
   new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -1890,11 +1890,44 @@
         + (hint ? `<button type="button" class="btn sm" data-radar="match" data-id="${p.id}">Это «${esc(hint.name)}»</button>` : "")
         + `<button type="button" class="linkbtn" data-radar="hide" data-id="${p.id}">Скрыть</button>`
       : `<span class="hint">${radarDone[p.status] || ""}${bath ? ` — «${esc(bath.name)}»` : ""}</span><button type="button" class="linkbtn" data-radar="reopen" data-id="${p.id}">вернуть</button>`;
-    return `<li class="radar-row" data-id="${p.id}"><div class="radar-head"><b>${esc(p.name)}</b><span class="radar-ix" title="индекс общественности">${p.public_index ?? "—"}</span></div>
+    const title = p.lat != null && RADAR_ON_MAP.has(radarGroup(p))
+      ? `<button type="button" class="radar-name" data-radar="fly" data-id="${p.id}" title="Показать на карте">${esc(p.name)}</button>` : `<b>${esc(p.name)}</b>`;
+    return `<li class="radar-row" data-id="${p.id}"><div class="radar-head">${title}<span class="radar-ix" title="индекс общественности">${p.public_index ?? "—"}</span></div>
       <div class="radar-meta">${esc(where || p.region || "")}${p.price_example ? " · " + esc(p.price_example) : ""}</div>
       ${p.note ? `<div class="radar-note">${esc(p.note)}</div>` : ""}
       <div class="radar-links">${site}<a href="${esc(ya)}" target="_blank" rel="noopener">Яндекс Карты</a><a href="${esc(dg)}" target="_blank" rel="noopener">2ГИС</a></div>
       <div class="radar-acts">${acts}</div></li>`;
+  }
+  // карта радара: точки мест, цвет — группа; клик по точке — к строке в списке, по названию в списке — к точке
+  let radarMap = null, radarLayer = null, radarFitted = false;
+  const RADAR_ON_MAP = new Set(["new", "ours", "review", "search"]);
+  function renderRadarMap(by) {
+    if (!radarMap) {
+      radarMap = L.map("radarmap", { zoomSnap: 0.5 }).setView([55.75, 37.6], 8);
+      radarMap.attributionControl.setPrefix(false);
+      L.tileLayer(TILE_URL, tileOpts).addTo(radarMap); syncTheme();
+      radarLayer = L.layerGroup().addTo(radarMap);
+    }
+    setTimeout(() => radarMap.invalidateSize(), 0);
+    radarLayer.clearLayers();
+    const pts = [];
+    for (const [g] of RADAR_GROUPS) {
+      if (!RADAR_ON_MAP.has(g)) continue;
+      for (const p of by[g] || []) {
+        if (p.lat == null) continue;
+        pts.push([p.lat, p.lng]);
+        L.circleMarker([p.lat, p.lng], { radius: g === "search" ? 5 : 7, className: `rd rd-${g}`, weight: 2 })
+          .bindTooltip(`<b>${esc(p.name)}</b>${p.public_index != null ? ` · ${p.public_index}` : ""}${p.city ? `<br>${esc(p.city)}` : ""}`, { direction: "top", offset: [0, -6] })
+          .on("click", () => {
+            const row = $(`#radarList .radar-row[data-id="${p.id}"]`);
+            if (!row) return;
+            row.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
+            row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1600);
+          })
+          .addTo(radarLayer);
+      }
+    }
+    if (!radarFitted && pts.length) { radarMap.fitBounds(pts, { padding: [24, 24], maxZoom: 12, animate: false }); radarFitted = true; }
   }
   function renderRadar() {
     if (!radar) {
@@ -1912,6 +1945,8 @@
         return `<section class="radar-group"><h2>${title} <span class="radar-count">${by[g].length}</span></h2>${sub ? `<p class="hint">${sub}</p>` : ""}
           ${folded ? `<button type="button" class="linkbtn" data-radar="unfold" data-g="${g}">показать</button>` : `<ul class="radar-list">${by[g].map(radarRow).join("")}</ul>`}</section>`;
       }).join("");
+    $("#radarMapWrap").hidden = !radar.some((p) => p.lat != null && RADAR_ON_MAP.has(radarGroup(p)));
+    if (!$("#radarMapWrap").hidden) renderRadarMap(by);
   }
   function setDirMode(mode) {
     radarMode = mode;
@@ -1929,6 +1964,11 @@
     const act = b.dataset.radar;
     if (act === "unfold") { radarOpen.add(b.dataset.g); return renderRadar(); }
     const p = radar.find((x) => x.id === Number(b.dataset.id)); if (!p) return;
+    if (act === "fly") {
+      $("#radarmap").scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
+      radarMap?.setView([p.lat, p.lng], 15, { animate: !calm });
+      return;
+    }
     // заводить и переносить точку — с подтверждением вторым нажатием: это меняет карту лиги
     if ((act === "add" || act === "match") && !b.dataset.armed) {
       b.dataset.armed = "1"; b.dataset.label = b.textContent;
