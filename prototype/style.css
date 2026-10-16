@@ -201,10 +201,20 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
   display: grid; place-items: center; box-shadow: 0 2px 6px rgba(20, 30, 20, .35); transition: transform .2s var(--ease);
 }
 .pin svg { width: 64%; height: 64%; fill: currentColor; }
-.pin:hover { transform: scale(1.25); }
+.pin:hover { transform: scale(1.15); }
 .pin.approx { opacity: .6; }
-.pin.hot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ember) 30%, transparent), 0 2px 6px rgba(20, 30, 20, .35); }
-.pin.sel { transform: scale(1.4); box-shadow: 0 0 0 6px color-mix(in srgb, var(--c) 30%, transparent), 0 2px 8px rgba(20, 30, 20, .4); }
+.pin.hot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ember) 35%, transparent), 0 2px 6px rgba(20, 30, 20, .35); }
+/* выбранная баня — капля: кончик в точке бани, силуэт типа в «головке», лёгкая тень на земле */
+.pin-drop { position: relative; width: 40px; height: 52px; filter: drop-shadow(0 3px 3px rgba(20, 30, 20, .3)); cursor: pointer; }
+.pin-drop-bg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.pin-drop-bg path { fill: var(--c); stroke: var(--panel); stroke-width: 2.2; stroke-linejoin: round; }
+.pin-drop > svg:not(.pin-drop-bg) { position: absolute; left: 9.5px; top: 9px; width: 21px; height: 21px; fill: var(--panel); }
+.pin-drop .pin-dot { position: absolute; left: 14px; top: 13.5px; width: 12px; height: 12px; border-radius: 50%; background: var(--panel); }
+.pin-drop::after { content: ""; position: absolute; left: 14px; bottom: 0; width: 12px; height: 5px; border-radius: 50%; background: rgba(20, 30, 20, .28); z-index: -1; }
+@media (prefers-reduced-motion: no-preference) {
+  .pin-drop { animation: pin-drop .3s var(--ease); transform-origin: 50% 100%; }
+  @keyframes pin-drop { from { transform: translateY(-10px) scale(.8); opacity: 0; } }
+}
 .marker-cluster { border-radius: 50%; background: color-mix(in srgb, var(--oak) 22%, transparent); }
 .marker-cluster:hover div { background: var(--oak-deep); }
 .marker-cluster div { width: 32px; height: 32px; margin: 4px; border-radius: 50%; background: var(--oak); color: var(--oak-ink); text-align: center; font: 700 12px/32px var(--display); box-shadow: 0 2px 6px rgba(20, 30, 20, .3); }

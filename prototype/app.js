@@ -183,15 +183,26 @@
   map.addLayer(cluster);
   const markers = new Map();
 
-  function markerFor(b) {
+  // Выбранная баня — капля, как на обычных картах: кончик ровно в точке бани, внутри — силуэт типа (16.10).
+  // Раньше выбранный кружок получал класс «sel» — тот же, что у выпадающих списков: с их отступами он расплющивался в овал
+  // и терял силуэт. Капля — и у точки в форме похода: её ставят кончиком.
+  const glyphOf = (t) => t && t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${t}"/></svg>` : '<i class="pin-dot"></i>';
+  const dropIcon = (color, inner) => L.divIcon({
+    className: "", iconSize: [40, 52], iconAnchor: [20, 50],
+    html: `<div class="pin-drop" style="--c:${color}"><svg class="pin-drop-bg" viewBox="0 0 34 44" aria-hidden="true"><path d="M17 42.5C17 42.5 3 27.6 3 16.5a14 14 0 0 1 28 0C31 27.6 17 42.5 17 42.5Z"/></svg>${inner}</div>`,
+  });
+  function pinIcon(b) {
+    if (b.id === openId) return dropIcon(`var(--t-${b.t})`, glyphOf(b.t));
     // размер — по походам в 2026, силуэт внутри — тип бани
     const size = b.n26 ? Math.round(Math.min(20 + Math.sqrt(b.n26) * 2.2, 32)) : 18;
     const glyph = b.t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${b.t}"/></svg>` : "";
-    const icon = L.divIcon({
+    return L.divIcon({
       className: "", iconSize: [size, size],
-      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""} ${b.id === openId ? "sel" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}${b._pot?.length >= 3 ? `<span class="pot">+${b._pot.length}</span>` : ""}</div>`,
+      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}${b._pot?.length >= 3 ? `<span class="pot">+${b._pot.length}</span>` : ""}</div>`,
     });
-    const m = L.marker(b.ll, { icon, title: b.name, riseOnHover: true }).on("click", () => openBath(b.id));
+  }
+  function markerFor(b) {
+    const m = L.marker(b.ll, { icon: pinIcon(b), title: b.name, riseOnHover: true, zIndexOffset: b.id === openId ? 1000 : 0 }).on("click", () => openBath(b.id));
     markers.set(b.id, m);
     return m;
   }
@@ -345,10 +356,15 @@
   setInterval(() => { if (weekOf(mskNow()) !== curWeek) location.reload(); renderRace(); renderTimer(); }, 60e3);
 
   // ---------- карточка бани ----------
-  let openId = null;
-  function selectPin(id) {
-    $$(".pin.sel").forEach((p) => p.classList.remove("sel"));
-    markers.get(id)?.getElement()?.querySelector(".pin")?.classList.add("sel");
+  let openId = null, dropAt = null;   // dropAt — у какой бани сейчас нарисована капля
+  // капля — у открытой бани (openId), у прежней — снова кружок
+  function selectPin() {
+    const prev = dropAt;
+    dropAt = openId;
+    for (const id of new Set([prev, openId])) {
+      const m = markers.get(id), b = byId.get(id);
+      if (m && b) m.setIcon(pinIcon(b)).setZIndexOffset(id === openId ? 1000 : 0);
+    }
   }
   function openBath(id, fly) {
     const b = byId.get(id); if (!b) return;
@@ -361,10 +377,10 @@
     if (fly && b.ll) {
       const z = Math.max(map.getZoom(), b.prec === "exact" ? 15 : 11);
       map.flyTo(b.ll, z, { duration: calm ? 0 : 0.7 });
-      map.once("moveend", () => selectPin(id));
+      map.once("moveend", selectPin);
     } else {
       if (narrow && b.ll) map.panTo(b.ll, { animate: !calm });
-      selectPin(id);
+      selectPin();
     }
     const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
     const pv = prices[id] || [];   // по возрастанию price_date — последняя цена в конце
@@ -654,7 +670,7 @@
     inp.click();
   }
 
-  function closeBath() { $("#drawer").hidden = true; openId = null; $$(".pin.sel").forEach((p) => p.classList.remove("sel")); $$(".item.active").forEach((x) => x.classList.remove("active")); }
+  function closeBath() { $("#drawer").hidden = true; openId = null; selectPin(); $$(".item.active").forEach((x) => x.classList.remove("active")); }
 
   // ---------- таблица ----------
   let sortKey = "total", sortDir = -1;
@@ -1063,7 +1079,7 @@
   function placePin(p, fly = true) {
     newPin = p;
     if (!pickMarker) {
-      pickMarker = L.marker(p, { draggable: true, icon: L.divIcon({ className: "", iconSize: [22, 22], html: '<div class="pin" style="width:22px;height:22px;--c:var(--ember)"></div>' }) }).addTo(pickMap);
+      pickMarker = L.marker(p, { draggable: true, icon: dropIcon("var(--ember)", glyphOf(null)) }).addTo(pickMap);
       pickMarker.on("dragend", () => { const ll = pickMarker.getLatLng(); placePin([ll.lat, ll.lng], false); });
     } else pickMarker.setLatLng(p);
     if (fly) pickMap.setView(p, 16);

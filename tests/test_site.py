@@ -266,6 +266,16 @@ with sync_playwright() as pw:
         s.page.click("#addVisitBtn")
         check("гость на «Добавить баню» — окно входа", s.js("() => !document.getElementById('loginModal').hidden"))
         check("гостю вкладки «Бани» (справочник Комиссии) нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
+        # выбранная баня — капля (16.10): раньше кружок получал класс «sel» выпадающих списков, расплющивался в овал и терял силуэт
+        s.page.keyboard.press("Escape")
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(1500)
+        check("выбранная баня на карте — одна капля с силуэтом типа, остальные точки — ровные кружки",
+              s.js("""() => document.querySelectorAll('#map .pin-drop').length === 1 && !!document.querySelector('#map .pin-drop svg use')
+                && [...document.querySelectorAll('#map .pin')].every((p) => p.offsetWidth === p.offsetHeight)"""))
+        s.page.click("#drawer .x"); s.page.wait_for_timeout(300)
+        check("закрыл карточку — капля снова кружок", s.js("() => !document.querySelector('#map .pin-drop')"))
+        s.clean("гость: капля выбранной бани")
         s.close()
 
         # вход кодом из бота (16.10): на компьютере — QR для телефона и код; подтвердили в боте — сайт входит сам
