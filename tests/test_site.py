@@ -559,27 +559,41 @@ with sync_playwright() as pw:
               ('test:rest', 'Сауна у Тестового', 'Москва', 'Москва', null, null, null, 'private', 5, 'Почасовая аренда', null, null)""")
         s = Site(browser, url, sess=vitek, name="commission-radar")
         s.view("dir"); s.page.click('#dirMode [data-mode="radar"]')
-        s.page.wait_for_selector("#radarList .radar-row", timeout=8000)
-        check("Радар у Комиссии: новые общественные и «похоже, наши» — сверху, аренда свёрнута",
-              s.js("""() => { const t = [...document.querySelectorAll('#radarList .radar-group h2')].map((h) => h.innerText);
-                return /нет в лиге/.test(t[0]) && /наши/.test(t[1]) && document.querySelectorAll('#radarList .radar-row').length === 2; }"""))
-        check("над списком — карта: точки мест с координатами (аренда без точки — не на карте)",
-              s.js("() => !document.getElementById('radarMapWrap').hidden && document.querySelectorAll('#radarmap path.rd').length === 2"))
-        check("у места — ссылки на сайт, Яндекс Карты и 2ГИС, на нашу — кнопка «Это „Василевские“»",
-              s.js("() => document.querySelectorAll('#radarList .radar-links a').length >= 5 && /Это «Василевские»/.test(document.getElementById('radarList').innerText)"))
+        s.page.wait_for_selector("#radarList .radar-card", timeout=8000)
+        tabs = lambda: s.js("() => Object.fromEntries([...document.querySelectorAll('#radarTabs button')].map((b) => [b.dataset.tab, +b.querySelector('.n').innerText]))")
+        check("Радар у Комиссии: вкладки по решению со счётчиками, открыты «Новые», прогресс разбора",
+              tabs() == {"new": 1, "ours": 1, "review": 0, "search": 0, "rest": 1, "done": 0}
+              and s.js("() => document.querySelector('#radarTabs [aria-pressed=\"true\"]').dataset.tab === 'new' && /Разобрано 0 из 2/.test(document.getElementById('radarProgress').innerText)"), tabs())
+        check("карточка: вердикт словами и факты, ссылки на сайт, Яндекс Карты и 2ГИС, главная кнопка «Завести в лигу»",
+              s.js("""() => { const c = document.querySelector('#radarList .radar-card'); return /точно общественная · 93/.test(c.innerText)
+                && c.querySelectorAll('.radar-links a').length === 3 && !!c.querySelector('[data-radar="add"].solid'); }"""))
+        check("на карте рядом со списком — точки этой вкладки", s.js("() => document.querySelectorAll('#radarmap path.rd').length === 1"))
         rid = sql("select id from radar_places where key = 'test:new'")
-        s.page.click(f'#radarList .radar-row[data-id="{rid}"] [data-radar="hide"]'); s.page.wait_for_timeout(1200)
-        check("«Скрыть» — место уходит в «Решено»", sql(f"select status from radar_places where id = {rid}") == "hidden")
+        s.page.click(f'#radarList .radar-card[data-id="{rid}"] [data-radar="hide"]')
+        s.page.click(f'#radarList .radar-card[data-id="{rid}"] [data-radar="hide-go"][data-reason="rental"]'); s.page.wait_for_timeout(1200)
+        check("«Скрыть» — причина одним нажатием, место в «Решено», внизу «Отменить»",
+              sql(f"select status || ' ' || hide_reason from radar_places where id = {rid}") == "hidden rental"
+              and s.js("() => /Отменить/.test(document.querySelector('.toast')?.innerText || '')") and tabs()["done"] == 1)
+        s.page.click('#radarTabs [data-tab="done"]'); s.page.wait_for_timeout(300)
+        check("«Решено»: у скрытого — причина и «Вернуть»",
+              s.js("() => /Скрыта: аренда, сауна/.test(document.getElementById('radarList').innerText) && document.querySelectorAll('#radarList [data-radar=\"reopen\"]').length === 1"))
+        s.page.click('#radarTabs [data-tab="ours"]'); s.page.wait_for_timeout(300)
+        check("«Наши»: почему похоже на нашу и главная кнопка «Перенести точку „Василевские“ сюда»",
+              s.js("() => /Похоже на нашу «Василевские»/.test(document.getElementById('radarList').innerText) && /Перенести точку «Василевские» сюда/.test(document.getElementById('radarList').innerText)"))
         ours = sql("select id from radar_places where key = 'test:ours'")
-        s.page.click(f'#radarList .radar-row[data-id="{ours}"] [data-radar="add"]')
-        check("«В лигу» — сначала спрашивает «Точно завести?», ничего не заводя", s.js("() => /Точно завести/.test(document.getElementById('radarList').innerText)")
-              and sql("select status from radar_places where key = 'test:ours'") == "new")
+        s.page.click(f'#radarList .radar-card[data-id="{ours}"] [data-radar="fly"]'); s.page.wait_for_timeout(400)
+        check("клик по названию в «Наших» — на карте наша точка сейчас и пунктир до найденного места",
+              s.js("() => document.querySelectorAll('#radarmap path.rd-league').length === 1 && document.querySelectorAll('#radarmap path.rd-link').length === 1"))
+        s.page.click(f'#radarList .radar-card[data-id="{ours}"] [data-radar="add"]')
+        check("«Это другая — завести» — строка подтверждения с выбором типа, без нажатия «Завести» ничего не заводится",
+              s.js("() => document.querySelectorAll('#radarList .radar-ask [data-type]').length === 3") and sql("select status from radar_places where key = 'test:ours'") == "new")
+        s.page.keyboard.press("Escape")
         s.no_clip("Радар у Комиссии")
         s.clean("Радар")
         s.close()
         s = Site(browser, url, sess=vitek, mobile=True, name="commission-radar-phone")
         s.view("dir"); s.page.click('#dirMode [data-mode="radar"]')
-        s.page.wait_for_selector("#radarList .radar-row", timeout=8000)
+        s.page.wait_for_selector("#radarList .radar-card", timeout=8000)
         s.no_clip("Радар на телефоне")
         s.close()
         sql("delete from radar_places where key like 'test:%'")
