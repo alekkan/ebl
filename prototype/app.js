@@ -26,7 +26,13 @@
   // карта и подложка — сразу, пока идут данные: тайлы качаются параллельно, а не после заставки (16.10)
   const dark = () => document.documentElement.dataset.theme === "dark" ||
     (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-  const map = L.map("map", { zoomControl: true, worldCopyJump: true }).setView([55.75, 37.62], 5);
+  // сразу та же рамка, что покажет главная после данных (render «home»): иначе ранние тайлы — другого масштаба, их выбросят
+  // при переходе и стартовые начнут качаться только после данных (16.10)
+  // при старте — Европа и Россия до Урала, где почти все бани; дальние страны видно, если отдалить
+  // рамка подобрана так, чтобы и на телефоне шириной 360 px влезла в зум 3, а не отскочила к целому миру
+  const HOME = [[43, 3], [62, 60]];
+  const homePad = () => ({ paddingTopLeft: innerWidth > 760 ? [380, 0] : [0, 0] });
+  const map = L.map("map", { zoomControl: true, worldCopyJump: true }).fitBounds(HOME, { ...homePad(), animate: false });
   map.attributionControl.setPrefix(false);
   const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
   const tileOpts = { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' };
@@ -309,10 +315,8 @@
       </button>`;
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
       : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
-    const pad = { paddingTopLeft: innerWidth > 760 ? [380, 0] : [0, 0] };
-    // при старте — Европа и Россия до Урала, где почти все бани; дальние страны видно, если отдалить
-    // рамка подобрана так, чтобы и на телефоне шириной 360 px влезла в зум 3, а не отскочила к целому миру
-    if (fit === "home") map.fitBounds([[43, 3], [62, 60]], { ...pad, animate: false });
+    const pad = homePad();
+    if (fit === "home") map.fitBounds(HOME, { ...pad, animate: false });   // рамка HOME — у создания карты
     else if (fit && here) map.fitBounds(L.latLngBounds([here, ...onMap.filter((b) => b._km != null).slice(0, 8).map((b) => b.ll)]).pad(0.2), { maxZoom: 13, ...pad });
     else if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, ...pad });
   }
