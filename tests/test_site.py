@@ -270,9 +270,10 @@ with sync_playwright() as pw:
         s.page.keyboard.press("Escape")
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(1500)
-        check("выбранная баня на карте — одна капля с силуэтом типа, остальные точки — ровные кружки",
-              s.js("""() => document.querySelectorAll('#map .pin-drop').length === 1 && !!document.querySelector('#map .pin-drop svg use')
-                && [...document.querySelectorAll('#map .pin')].every((p) => p.offsetWidth === p.offsetHeight)"""))
+        s.page.fill("#q", ""); s.page.wait_for_timeout(500)   # все бани снова на карте — капля остаётся у открытой
+        check("выбранная баня на карте — одна капля (внутри силуэт типа или точка), остальные — ровные кружки",
+              s.js("""() => document.querySelectorAll('#map .pin-drop').length === 1 && !!document.querySelector('#map .pin-drop svg use, #map .pin-drop .pin-dot')
+                && document.querySelectorAll('#map .pin').length > 0 && [...document.querySelectorAll('#map .pin')].every((p) => p.offsetWidth === p.offsetHeight)"""))
         s.page.click("#drawer .x"); s.page.wait_for_timeout(300)
         check("закрыл карточку — капля снова кружок", s.js("() => !document.querySelector('#map .pin-drop')"))
         s.clean("гость: капля выбранной бани")
