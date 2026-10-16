@@ -14,6 +14,7 @@ create table public.login_codes (
   used_at timestamptz                                -- сайт забрал сессию: второй раз по коду не войти
 );
 alter table public.login_codes enable row level security;
+revoke all on public.login_codes from anon, authenticated;   -- на стенде права раздаются по умолчанию — снимаем явно
 grant all on public.login_codes to service_role;    -- пишут и читают только функции (tg-login, бот)
 
 -- коды живут 10 минут, хранить их незачем: ночью подчищаем
