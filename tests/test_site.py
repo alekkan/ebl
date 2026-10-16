@@ -291,6 +291,10 @@ with sync_playwright() as pw:
         boots = s.js("() => performance.getEntriesByType('resource').filter((e) => e.name.includes('/rpc/boot_public')).map((e) => e.name)")
         check("данные первого экрана — одним ранним запросом из страницы (ключ в адресе), без второго такого же",
               len(boots) == 1 and "apikey=" in boots[0], boots)
+        # карта создаётся до данных сразу в рамке главной: ранние тайлы — те же, что нужны после данных (16.10: стояла на Москве
+        # в зуме 5, после данных уезжала в зум 4 — ранние выбрасывались, и подложка всё равно ждала данных)
+        zooms = s.js("() => [...new Set(performance.getEntriesByType('resource').filter((e) => e.name.includes('tile.openstreetmap.org')).map((e) => e.name.split('/')[3]))]")
+        check("подложка при загрузке — одного масштаба: тайлы, скачанные до данных, не выброшены", len(zooms) == 1, zooms)
         all_views(s, "гость")
         s.page.click("#addVisitBtn")
         check("гость на «Добавить баню» — окно входа", s.js("() => !document.getElementById('loginModal').hidden"))
