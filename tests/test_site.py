@@ -261,7 +261,7 @@ with sync_playwright() as pw:
               s.js("() => document.querySelectorAll('#list .item').length > 0") and busy_once["left"] == 0)
         s.close()
         # 16.10: через шлюз примерно каждый десятый запрос застревает на 1–4 с, а заставка ждёт самый медленный. Всё общее —
-        # одним запросом (boot_public), и чтение, не ответившее за секунду, сайт дублирует и берёт первый ответ.
+        # одним запросом (boot_public), и чтение, не ответившее за 0,8 с, сайт дублирует и берёт первый ответ.
         # Здесь первый запрос общих данных «застревает» на 6 с — заставка его ждать не должна
         stuck = """(() => {
           const real = window.fetch; let first = true; window.__boot = 0;
@@ -278,7 +278,7 @@ with sync_playwright() as pw:
         })()"""
         s = Site(browser, url, name="gateway-stuck", init=stuck)
         took = s.js("() => performance.now()")
-        check("общие данные — одним запросом; застрял — через секунду дубль, заставка не ждёт застрявший",
+        check("общие данные — одним запросом; застрял — через 0,8 с дубль, заставка не ждёт застрявший",
               s.js("() => window.__boot") == 2 and took < 4500 and s.js("() => document.querySelectorAll('#list .item').length > 0"), (s.js("() => window.__boot"), round(took)))
         s.clean("дубль застрявшего запроса")
         s.close()
