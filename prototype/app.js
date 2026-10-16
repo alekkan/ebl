@@ -1873,7 +1873,7 @@
     ["review", "Спорные", "Вход по билету есть, но на грани хуитнеса или данных мало — реши, заводить ли и как."],
     ["search", "Без данных", "Похоже на баню, но подробностей агенты не нашли. Следующий прогон поищет ещё — или проверь сам по ссылкам."],
     ["rest", "Прочее", "Аренда, сауны, спа и закрытые. Обычно делать ничего не нужно."],
-    ["done", "Решено", "Что уже решили. Ошиблись — «Вернуть»."],
+    ["done", "Решено", "Что уже решили. Скрыли зря — «Вернуть»; заведённую баню правят в её карточке на карте."],
   ];
   const RADAR_TYPES = [["public", "Общественная"], ["spa", "Хуитнес"], ["private", "Частная"]];
   const HIDE_REASONS = [["not_bath", "не баня"], ["rental", "аренда, сауна"], ["spa", "хуитнес"], ["closed", "закрыта"], ["duplicate", "дубль"], ["other", "другое"]];
@@ -1915,11 +1915,12 @@
       const what = p.status === "added" ? `Заведена в лигу${b ? ` как «${esc(b.name)}» · ${esc(TYPE_LABEL[b.t] || "")}` : ""}`
         : p.status === "matched" ? `Точка «${esc(b?.name || hint?.name || "")}» перенесена сюда`
         : `Скрыта${p.hide_reason ? ": " + (HIDE_REASONS.find(([k]) => k === p.hide_reason)?.[1] || "") : ""}`;
-      return `<span class="radar-doneline">${what}</span>${b ? `<button type="button" class="linkbtn" data-radar="ourbath" data-id="${p.id}">на карте лиги</button>` : ""}<button type="button" class="linkbtn" data-radar="reopen" data-id="${p.id}">Вернуть</button>`;
+      // «Вернуть» — только скрытым: заведённая баня осталась бы в лиге, и второе «Завести» дало бы дубль; её правят в карточке
+      return `<span class="radar-doneline">${what}</span>${b ? `<button type="button" class="linkbtn" data-radar="ourbath" data-id="${p.id}">на карте лиги</button>` : ""}${p.status === "hidden" ? `<button type="button" class="linkbtn" data-radar="reopen" data-id="${p.id}">Вернуть</button>` : ""}`;
     }
     if (radarAsk?.id === p.id && radarAsk.act === "add") {
       const def = p.kind === "spa" ? "spa" : p.kind === "private" ? "private" : "public";
-      return `<div class="radar-ask"><span>Завести «${esc(p.name)}» как</span>
+      return `<div class="radar-ask"><span>Завести как</span>
         <div class="seg seg-sm" role="group" aria-label="Тип бани">${RADAR_TYPES.map(([t, l]) => `<button type="button" data-type="${t}" aria-pressed="${t === def}">${l}</button>`).join("")}</div>
         <button type="button" class="btn solid sm" data-radar="add-go" data-id="${p.id}">Завести</button><button type="button" class="linkbtn" data-radar="cancel">Отмена</button></div>`;
     }
@@ -1942,9 +1943,9 @@
     const quotes = (p.evidence || []).filter((e) => e.quote).map((e) => `<blockquote>«${esc(e.quote.replace(/^\[пересказ\]\s*/, ""))}» <a href="${esc(e.url)}" target="_blank" rel="noopener">источник</a></blockquote>`).join("");
     const more = open ? `<div class="radar-more">${p.price_example ? `<p><b>Цены:</b> ${esc(p.price_example)}</p>` : ""}${quotes}
       <p class="hint">Нашли ${p.first_seen ? new Date(p.first_seen).toLocaleDateString("ru-RU", { day: "numeric", month: "long" }) : ""} · ${esc(String(p.key || "").startsWith("osm:") ? "OpenStreetMap" : String(p.key || "").startsWith("2gis:") ? "2ГИС" : String(p.key || "").startsWith("yandex:") ? "Яндекс Карты" : "справочник")}${p.confidence ? ` · уверенность: ${{ high: "высокая", medium: "средняя", low: "низкая" }[p.confidence]}` : ""}</p></div>` : "";
-    return `<li class="radar-card${g === "done" ? " is-done" : ""}" data-id="${p.id}">
+    return `<li class="radar-card${g === "done" ? " is-done" : ""}${p.id === radarPin ? " focus" : ""}" data-id="${p.id}">
       <div class="radar-head">${name}<span class="radar-city">${esc(p.city || (p.region === "Москва" ? "Москва" : ""))}</span></div>
-      <div class="radar-verdict"><span class="vd vd-${tone}">${verdict}${p.public_index != null ? ` · ${p.public_index}` : ""}</span>${facts.map((f) => `<span class="fact">${esc(f)}</span>`).join("")}</div>
+      <div class="radar-verdict"><span class="vd vd-${tone}">${verdict}${p.public_index != null ? ` · ${p.public_index}` : ""}</span>${facts.map((f) => `\u00a0· <span class="fact">${esc(f)}</span>`).join("")}</div>
       ${p.note ? `<p class="radar-note">${esc(p.note)}</p>` : ""}
       ${g === "ours" || (g === "done" && p.status === "matched") ? radarOurs(p) : ""}
       <div class="radar-links">${radarLinks(p)}${(p.price_example || quotes) ? `<button type="button" class="linkbtn" data-radar="more" data-id="${p.id}">${open ? "Свернуть" : "Подробнее"}</button>` : ""}</div>
@@ -1963,7 +1964,7 @@
       radarLayer = L.layerGroup().addTo(radarMap);
     }
     setTimeout(() => radarMap.invalidateSize(), 0);
-    radarLayer.clearLayers(); radarMarks.clear();
+    radarLayer.clearLayers(); radarMarks.clear(); radarGhost = null; radarHot = null;
     const pts = [];
     for (const p of rows) {
       if (p.lat == null) continue;
@@ -1977,9 +1978,26 @@
     const key = radarTab + "|" + radarQ + "|" + radarRegion;
     if (key !== radarFitKey && pts.length) { radarMap.fitBounds(pts, { padding: [28, 28], maxZoom: 13, animate: false }); radarFitKey = key; }
   }
+  // «Наши»: наша точка сейчас и пунктир до найденного места — видно, насколько она мимо. При наведении — пока мышь
+  // на карточке; по клику на название — остаётся (radarPin), пока не выберут другое место или вкладку
+  let radarGhost = null, radarHot = null, radarPin = null;
+  function radarPair(p) {
+    if (radarGhost) { radarLayer.removeLayer(radarGhost); radarGhost = null; }
+    const b = p && radarBase(p) === "ours" && byId.get(p.league_hint);
+    if (!b?.ll || p.lat == null || !radarMap) return null;
+    radarGhost = L.layerGroup([
+      L.polyline([[p.lat, p.lng], b.ll], { className: "rd-link", weight: 2, dashArray: "4 6", interactive: false }),
+      L.circleMarker(b.ll, { radius: 6, weight: 2, className: "rd rd-league" }).bindTooltip(`Наша точка «${esc(b.name)}» сейчас`, { direction: "top", offset: [0, -6] }),
+    ]);
+    radarLayer.addLayer(radarGhost);
+    return b.ll;
+  }
   function radarHover(id, on) {
-    const m = radarMarks.get(id); if (!m) return;
-    m.setRadius(on ? 12 : 7); if (on) m.bringToFront();
+    if (on ? radarHot === id : radarHot !== id) return;   // mouseover летит с каждого вложенного элемента
+    radarHot = on ? id : null;
+    const m = radarMarks.get(id);
+    if (m) { m.setRadius(on ? 12 : 7); if (on) m.bringToFront(); }
+    radarPair(radar.find((x) => x.id === (on ? id : radarPin)));
   }
   function radarFocus(id, scroll) {
     $$("#radarList .radar-card.focus").forEach((x) => x.classList.remove("focus"));
@@ -2024,7 +2042,7 @@
   $("#dirMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-mode]"); if (b) setDirMode(b.dataset.mode); });
   $("#radarTabs").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]"); if (!b) return;
-    radarTab = b.dataset.tab; radarAsk = null; store.set("radarTab", radarTab); renderRadar();
+    radarTab = b.dataset.tab; radarAsk = null; radarPin = null; store.set("radarTab", radarTab); renderRadar();
   });
   radarTab = store.get("radarTab", null);
   let radarQT = null;
@@ -2060,7 +2078,14 @@
     const act = b.dataset.radar, p = radar.find((x) => x.id === Number(b.dataset.id));
     if (act === "cancel") { radarAsk = null; return renderRadar(); }
     if (!p) return;
-    if (act === "fly") { radarFocus(p.id); radarMap?.setView([p.lat, p.lng], 15, { animate: !calm }); if (innerWidth <= 1000) $("#radarmap").scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" }); return; }
+    if (act === "fly") {
+      radarFocus(p.id); radarPin = p.id;
+      const ours = radarPair(p);
+      if (ours) radarMap?.fitBounds([[p.lat, p.lng], ours], { padding: [48, 48], maxZoom: 15, animate: !calm });
+      else radarMap?.setView([p.lat, p.lng], 15, { animate: !calm });
+      if (innerWidth <= 1000) $("#radarmap").scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
+      return;
+    }
     if (act === "more") { radarOpen.has(p.id) ? radarOpen.delete(p.id) : radarOpen.add(p.id); return renderRadar(); }
     if (act === "ourbath") { const id = p.bath_id || p.league_hint; if (byId.has(id)) { show("map"); openBath(id, true); } return; }
     if (act === "add" || act === "match" || act === "hide") { radarAsk = { id: p.id, act }; renderRadar(); return; }
@@ -2080,7 +2105,7 @@
       } else if (act === "hide-go") {
         await radarDo(p, "hide", { reason: b.dataset.reason });
         radarAsk = null; renderRadar();
-        radarToast(`Скрыто: ${p.name}`, "Отменить", async () => { await radarDo(p, "reopen"); renderRadar(); });
+        radarToast(`Скрыто: ${p.name}`, "Отменить", () => radarDo(p, "reopen").then(renderRadar).catch((err) => toast("Не получилось: " + err.message)));
       } else if (act === "reopen") {
         await radarDo(p, "reopen"); renderRadar(); toast("Вернули в радар");
       }

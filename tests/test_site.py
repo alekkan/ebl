@@ -574,10 +574,16 @@ with sync_playwright() as pw:
         check("«Скрыть» — причина одним нажатием, место в «Решено», внизу «Отменить»",
               sql(f"select status || ' ' || hide_reason from radar_places where id = {rid}") == "hidden rental"
               and s.js("() => /Отменить/.test(document.querySelector('.toast')?.innerText || '')") and tabs()["done"] == 1)
+        s.page.click('#radarTabs [data-tab="done"]'); s.page.wait_for_timeout(300)
+        check("«Решено»: у скрытого — причина и «Вернуть»",
+              s.js("() => /Скрыта: аренда, сауна/.test(document.getElementById('radarList').innerText) && document.querySelectorAll('#radarList [data-radar=\"reopen\"]').length === 1"))
         s.page.click('#radarTabs [data-tab="ours"]'); s.page.wait_for_timeout(300)
         check("«Наши»: почему похоже на нашу и главная кнопка «Перенести точку „Василевские“ сюда»",
               s.js("() => /Похоже на нашу «Василевские»/.test(document.getElementById('radarList').innerText) && /Перенести точку «Василевские» сюда/.test(document.getElementById('radarList').innerText)"))
         ours = sql("select id from radar_places where key = 'test:ours'")
+        s.page.click(f'#radarList .radar-card[data-id="{ours}"] [data-radar="fly"]'); s.page.wait_for_timeout(400)
+        check("клик по названию в «Наших» — на карте наша точка сейчас и пунктир до найденного места",
+              s.js("() => document.querySelectorAll('#radarmap path.rd-league').length === 1 && document.querySelectorAll('#radarmap path.rd-link').length === 1"))
         s.page.click(f'#radarList .radar-card[data-id="{ours}"] [data-radar="add"]')
         check("«Это другая — завести» — строка подтверждения с выбором типа, без нажатия «Завести» ничего не заводится",
               s.js("() => document.querySelectorAll('#radarList .radar-ask [data-type]').length === 3") and sql("select status from radar_places where key = 'test:ours'") == "new")
