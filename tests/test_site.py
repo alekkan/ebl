@@ -268,6 +268,26 @@ with sync_playwright() as pw:
         check("гостю вкладки «Бани» (справочник Комиссии) нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
         s.close()
 
+        # вход кодом из бота (16.10): на компьютере — QR для телефона и код; подтвердили в боте — сайт входит сам
+        s = Site(browser, url, name="code-login")
+        s.page.click("#meBtn")
+        s.page.wait_for_selector("#loginQr svg", timeout=8000)
+        code = s.js("() => document.querySelector('.login-code').innerText.replace('-', '')")
+        check("окно входа на компьютере: QR-код и код для бота со ссылкой на него",
+              len(code) == 6 and s.js("(c) => document.querySelector('#loginWay a').href === 'https://t.me/eblsu_bot?start=login_' + c", code), code)
+        s.page.click("#loginAlt")
+        check("«Другие способы входа» — прежняя страница Telegram", s.js("() => !!document.getElementById('tgLogin')"))
+        s.page.click("#loginAlt")
+        s.page.wait_for_selector("#loginQr svg", timeout=8000)
+        check("вернулся ко входу через бота — тот же код, не новый", s.js("() => document.querySelector('.login-code').innerText.replace('-', '')") == code)
+        with s.page.expect_navigation(timeout=15000):
+            # как после «✅ Да, это я» в боте (сам бот — в test_bot.py)
+            sql(f"update login_codes set tg_id = 2002, tg_username = 'Shurik_TG', tg_name = 'Тест', confirmed_at = now() where code = '{code}'")
+        s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+        check("подтвердил в боте — сайт вошёл сам", s.js("() => document.getElementById('meBtn').getAttribute('aria-label') === 'Профиль: Шурик'"))
+        s.clean("вход кодом из бота")
+        s.close()
+
         print("Участник")
         s = Site(browser, url, sess=shurik, name="member")
         check("вошёл как Шурик — в шапке аватарка, лента открыта", s.js("() => document.getElementById('meBtn').getAttribute('aria-label') === 'Профиль: Шурик'"))
@@ -555,6 +575,12 @@ with sync_playwright() as pw:
         print("Телефон")
         s = Site(browser, url, mobile=True, name="mobile-guest")
         s.no_clip("гость: шапка на телефоне", ".top")
+        s.page.click("#meBtn")
+        s.page.wait_for_selector("#botLogin", timeout=8000)
+        check("вход на телефоне — кнопка сразу в бота, без QR",
+              s.js("() => document.getElementById('botLogin').href.startsWith('https://t.me/eblsu_bot?start=login_') && !document.getElementById('loginQr')"))
+        s.no_clip("гость: окно входа на телефоне", "#loginModal .sheet")
+        s.page.click("#loginModal [data-close]")
         all_views(s, "гость на телефоне", mobile=True)
         # «Хозяева»: пока карта летит к баням хозяина из списка, меню не перекрыто и нажимается
         s.view("owners")

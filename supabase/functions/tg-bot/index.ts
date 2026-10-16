@@ -1553,6 +1553,53 @@ const HOWTO = `Отмечайте походы прямо здесь — отм�
   + "Не хватит чего-то — переспрошу. Отмечайте сразу, как зашли. Долгая (больше 2,5 ч) — отметьте меня или напишите в личку «долгая», можно сразу, в течение 8 часов. "
   + `Поход уйдёт в Комиссию, после решения на посте появится 👍 или 💩.\nТаблица и карта: ${SITE}`;
 
+// ---------- вход на сайт кодом (16.10) ----------
+// Сайт заводит код (tg-login?code=new) и показывает ссылку t.me/<бот>?start=login_<код> — кнопкой на телефоне, QR-кодом на
+// компьютере — и сам код: его можно прислать в личку. Бот спрашивает «Войти?», «✅ Да, это я» записывает в код, кто это
+// подтвердил, и сайт по своему секрету получает сессию (tg-login?code=poll). Без нажатия в боте по коду не войти.
+const LOGIN_LINK = /^\/start\s+login_([A-Za-z0-9]{6})$/;
+const LOGIN_TYPED = /^([A-Za-z0-9]{3})[\s-]?([A-Za-z0-9]{3})$/;
+const SITE_HOST = (() => { try { return new URL(SITE).host; } catch { return "ebl.su"; } })();
+const LOGIN_STALE = "Код устарел. На сайте нажми «Войти» ещё раз — появится новый.";
+
+// true — сообщение про вход и уже отвечено; присланное слово из шести букв, которое не код, — false (дальше как обычно)
+async function askLogin(chat: number, text: string) {
+  const viaLink = LOGIN_LINK.exec(text), typed = LOGIN_TYPED.exec(text);
+  const code = (viaLink ? viaLink[1] : typed ? typed[1] + typed[2] : "").toUpperCase();
+  if (!code) return false;
+  const { data: row } = await sb.from("login_codes").select("device, expires_at, confirmed_at, denied_at, used_at").eq("code", code).maybeSingle();
+  const live = row && !row.confirmed_at && !row.denied_at && !row.used_at && new Date(row.expires_at) > new Date();
+  if (!live) {
+    if (!viaLink) return false;
+    await send(chat, row?.confirmed_at ? "✅ Этот вход уже подтверждён — вернись на сайт." : LOGIN_STALE);
+    return true;
+  }
+  await send(chat, `🔑 Войти на сайт ${esc(SITE_HOST)}${row.device ? ` — ${esc(row.device)}` : ""}?\n\n`
+    + `Код <b>${code.slice(0, 3)}-${code.slice(3)}</b> — тот же, что на экране. Жми «Да», только если входишь сам и прямо сейчас.`,
+    [[btn("✅ Да, это я", `lg:${code}`), btn("✖️ Нет", `lx:${code}`)]]);
+  return true;
+}
+
+// кнопки под «Войти на сайт?» — они только в личке, нажать их может только тот, с кем бот переписывается
+async function decideLogin(cq: Any, code: string, yes: boolean) {
+  const chat = cq.message?.chat?.id, mid = cq.message?.message_id;
+  if (cq.message?.chat?.type !== "private" || !/^[A-Z0-9]{6}$/.test(code)) return answer(cq.id);
+  const now = new Date().toISOString();
+  const who = cq.from;
+  const patch = yes
+    ? { tg_id: who.id, tg_username: who.username ?? null, tg_name: [who.first_name, who.last_name].filter(Boolean).join(" "), confirmed_at: now }
+    : { denied_at: now };
+  const { data } = await sb.from("login_codes").update(patch).eq("code", code).is("confirmed_at", null).is("denied_at", null).is("used_at", null)
+    .gt("expires_at", now).select("code");
+  if (!data?.length) {
+    await answer(cq.id, "Код устарел", false);
+    return edit(chat, mid, LOGIN_STALE);
+  }
+  await answer(cq.id, yes ? "Готово" : "Ок");
+  return edit(chat, mid, yes ? "✅ Готово — вернись на сайт, вход уже там."
+    : "✖️ Ок, не входим. Без «Да» здесь по этому коду на сайт никто не войдёт.");
+}
+
 async function onMessage(msg: Any) {
   const chat = msg.chat.id, tgId = msg.from?.id, isPrivate = msg.chat.type === "private";
   // бота добавили в группу — здороваемся и показываем, как отмечать походы
@@ -1562,6 +1609,8 @@ async function onMessage(msg: Any) {
   if (msg.new_chat_members || msg.left_chat_member) return trackMembers(msg);
   if (!tgId || msg.from.is_bot) return;
   const text: string = (msg.text ?? msg.caption ?? "").trim();
+  // вход на сайт — и для тех, кого лига ещё не знает: им бот и нужен, чтобы войти и выбрать ник
+  if (isPrivate && msg.text && await askLogin(chat, text)) return;
   // позвать всех — не пост про баню, даже с отметкой бота
   if (EBLANY.test(text)) return isPrivate ? send(chat, "Общий сбор — в чате лиги: напиши там «@eblany» и текст.") : rollCall(msg);
   const replyTo = msg.reply_to_message?.message_id;
@@ -1661,6 +1710,7 @@ async function sendDraft(cq: Any, tgId: number) {
 
 async function onCallback(cq: Any) {
   const data: string = cq.data ?? "", tgId = cq.from.id;
+  if (data.startsWith("lg:") || data.startsWith("lx:")) return decideLogin(cq, data.slice(3), data.startsWith("lg:"));
   const acc = await whoIs(tgId);
   const me = acc?.players as Any;
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));

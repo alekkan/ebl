@@ -4,7 +4,7 @@
 Запуск:          python3 tests/test_backend.py
 Тест пишет в локальную базу; после него удобно сделать `supabase db reset`.
 """
-import json, urllib.request, urllib.error, time
+import json, re, urllib.request, urllib.error, time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from local import check, link, login, now, player_id, req, sql, tg_payload
@@ -32,6 +32,33 @@ r, _ = login(4004, "m_ks1987")
 r2, _ = login(4005, "maks198%")
 check("username сверяется точно: «_» и «%» не шаблоны, чужой аккаунт не захватить",
       r["nick"] is None and r2["nick"] is None and sql("select tg_id is null from player_accounts where tg_username = 'maks1987'") == "t", (r, r2))
+
+print("Вход кодом из бота")
+MAC = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"}
+new_code = lambda: req("POST", "/functions/v1/tg-login?code=new", {}, headers=MAC)[1]
+poll = lambda c, secret=None: req("POST", "/functions/v1/tg-login?code=poll", {"code": c["code"], "secret": secret or c["secret"]})
+confirm = lambda c, tg_id, username: sql(f"update login_codes set tg_id = {tg_id}, tg_username = '{username}', tg_name = 'Тест', confirmed_at = now() where code = '{c['code']}'")
+c = new_code()
+check("сайт заводит код: шесть знаков и секрет опроса",
+      re.fullmatch(r"[A-Z0-9]{6}", c.get("code", "")) and re.fullmatch(r"[0-9a-f]{64}", c.get("secret", "")), c)
+check("в базе — хэш секрета, а не он сам, и откуда входят (бот это покажет)",
+      sql(f"select secret_hash <> '{c['secret']}' and device = 'Chrome, Mac' from login_codes where code = '{c['code']}'") == "t")
+check("пока в боте не подтвердили — сайт ждёт", poll(c) == (200, {"pending": True}), poll(c))
+check("код виден на экране и в QR, но опросить его без секрета нельзя", poll(c, "0" * 64)[0] == 404)
+check("коды снаружи не читаются", req("GET", "/rest/v1/login_codes?select=code")[0] in (401, 403))
+confirm(c, 2002, "Shurik_TG")
+s, r = poll(c)
+check("подтвердили в боте — сайт получает сессию того, кто подтвердил",
+      s == 200 and r.get("nick") == "Шурик" and req("POST", "/auth/v1/verify", {"type": "magiclink", "token_hash": r.get("token_hash")})[0] == 200, (s, r))
+check("второй раз по тому же коду не войти", poll(c)[0] == 410)
+c = new_code(); confirm(c, 2002, "Shurik_TG")
+with ThreadPoolExecutor(2) as ex:
+    both = sorted(ex.map(lambda _: poll(c)[0], range(2)))
+check("два опроса разом (вкладка проснулась) — сессию получает только один", both == [200, 410], both)
+c = new_code(); sql(f"update login_codes set denied_at = now() where code = '{c['code']}'")
+check("«Нет» в боте — сайт перестаёт ждать", poll(c)[0] == 403)
+c = new_code(); sql(f"update login_codes set expires_at = now() - interval '1 second' where code = '{c['code']}'")
+check("код живёт 10 минут", poll(c)[0] == 410)
 
 print("Права")
 req("POST", "/functions/v1/recompute", {})  # после db reset таблица пустая — считаем её из остатка

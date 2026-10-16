@@ -162,17 +162,31 @@ window.EBLData = (() => {
   const sessionUser = () => { try { return JSON.parse(localStorage.getItem(authKey()))?.user?.id || "guest"; } catch { return "guest"; } };
 
   let cache = null;
+  async function tgLogin(query, payload) {
+    const r = await viaBest(cfg.supabaseUrl + "/functions/v1/tg-login" + query, {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey }, body: JSON.stringify(payload),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(body.error || "Не получилось войти"), { status: r.status });
+    return body;
+  }
+
   const api = {
     live, sb, LINE_LABEL,
     async load() { cache = live ? await loadLive() : await loadStatic(); return cache; },
 
     // вход: данные Telegram Login Widget → edge-функция → сессия Supabase
     async login(tgUser) {
-      const r = await viaBest(cfg.supabaseUrl + "/functions/v1/tg-login", {
-        method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey }, body: JSON.stringify(tgUser),
-      });
-      const body = await r.json();
-      if (!r.ok) throw new Error(body.error || "Не получилось войти");
+      const body = await tgLogin("", tgUser);
+      check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
+      return body;
+    },
+    // вход кодом из бота (16.10): код и секрет опроса; сам код человек подтверждает в боте
+    loginCode: () => tgLogin("?code=new", {}),
+    // null — в боте ещё не подтвердили; ошибка со status: 410 — код устарел, 403 — «Нет» в боте
+    async loginPoll(code, secret) {
+      const body = await tgLogin("?code=poll", { code, secret });
+      if (body.pending) return null;
       check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
       return body;
     },
