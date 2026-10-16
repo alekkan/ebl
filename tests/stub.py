@@ -74,7 +74,7 @@ class Telegram:
             # 911 — закрыл личку боту: написать первым бот не может (так тесты проверяют запасной путь в чат)
             if method == "sendMessage" and chat == 911:
                 return 403, {"ok": False, "error_code": 403, "description": "Forbidden: bot can't initiate conversation with a user"}
-            if method in ("sendMessage", "sendPhoto", "sendLocation", "sendDocument", "copyMessage", "forwardMessage"):
+            if method in ("sendMessage", "sendPhoto", "sendLocation", "sendDocument", "sendPoll", "copyMessage", "forwardMessage"):
                 self._next += 1
                 return 200, {"ok": True, "result": {"message_id": self._next, "date": int(time.time()), "chat": {"id": chat},
                                                    "text": params.get("text") or params.get("caption") or ""}}

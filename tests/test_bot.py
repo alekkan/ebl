@@ -904,6 +904,16 @@ aid = sql(f"insert into bot_actions (kind, chat_id, message_id, emoji) values ('
 check("запись в bot_actions — бот ставит реакцию на сообщение (замена 🤔 на 👍)",
       wait(f"select coalesce(result, '') from bot_actions where id = {aid}", "ok")
       and any(m == "setMessageReaction" and int(p.get("message_id") or 0) == 4242 and (p.get("reaction") or [{}])[0].get("emoji") == "👍" for m, p in TELEGRAM.calls[seen:]))
+seen = len(TELEGRAM.calls)
+pid = sql(f"""insert into bot_actions (kind, chat_id, payload) values ('poll', {CHAT},
+  '{{"question": "Как назвать?", "options": ["Раз", "Два", "Три"], "multiple": true}}') returning id""").splitlines()[0]
+polls = lambda: [p for m, p in TELEGRAM.calls[seen:] if m == "sendPoll"]
+check("запись в bot_actions — бот присылает опрос в чат: несколько ответов, номер сообщения записан",
+      wait(f"select coalesce(result, '') from bot_actions where id = {pid}", "ok") and len(polls()) == 1
+      and polls()[0].get("question") == "Как назвать?" and [o.get("text") for o in polls()[0].get("options") or []] == ["Раз", "Два", "Три"]
+      and polls()[0].get("allows_multiple_answers") is True and sql(f"select message_id is not null from bot_actions where id = {pid}") == "t", polls())
+req("POST", "/functions/v1/tg-bot?actions=1", {})
+check("повторный вызов не присылает опрос второй раз", len(polls()) == 1)
 check("гость в bot_actions не пишет", req("POST", "/rest/v1/bot_actions", {"kind": "react", "chat_id": 1, "message_id": 1})[0] in (401, 403))
 sql("delete from bot_actions")
 

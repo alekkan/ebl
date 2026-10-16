@@ -48,6 +48,11 @@ const edit = (chat: number, msg: number, text: string, kb?: Any[][]) => tg("edit
 });
 const react = (chat: number, msg: number, emoji: string) =>
   tg("setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] });
+// опрос по просьбе владельца (bot_actions): {question, options, multiple, anonymous} — по умолчанию анонимный, как в Telegram
+const poll = (chat: number, p: Any) => tg("sendPoll", {
+  chat_id: chat, question: String(p?.question ?? ""), options: (p?.options ?? []).map((t: unknown) => ({ text: String(t) })),
+  allows_multiple_answers: !!p?.multiple, is_anonymous: p?.anonymous !== false,
+});
 const answer = (id: string, text?: string, alert = false) => tg("answerCallbackQuery", { callback_query_id: id, text, show_alert: alert });
 const postLink = (chat: Any, msg: number) =>
   chat.username ? `https://t.me/${chat.username}/${msg}` : String(chat.id).startsWith("-100") ? `https://t.me/c/${String(chat.id).slice(4)}/${msg}` : null;
@@ -1844,13 +1849,19 @@ Deno.serve(async (req) => {
     for (const v of vs ?? []) if (await refreshVisit(v.id)) n++;
     return new Response(JSON.stringify({ refreshed: n }), { headers: { "Content-Type": "application/json" } });
   }
-  // действия по просьбе владельца из bot_actions (пишет только service_role): поменять реакцию на сообщении и т. п.
+  // действия по просьбе владельца из bot_actions (пишет только service_role): поменять реакцию на сообщении, прислать опрос
   if (url.searchParams.get("actions")) {
     const { data: rows } = await sb.from("bot_actions").select("*").is("done_at", null).order("id").limit(20);
     for (const a of rows ?? []) {
+      // сначала забираем строку себе: два вызова разом не пришлют опрос дважды
+      const { data: mine } = await sb.from("bot_actions").update({ done_at: new Date().toISOString() }).eq("id", a.id).is("done_at", null).select("id");
+      if (!mine?.length) continue;
       // replace — реакция бота заменяет его прежнюю (🤔 → 👍)
-      const r = a.kind === "react" ? await react(a.chat_id, a.message_id, a.emoji) : { ok: false, description: "неизвестное действие" };
-      await sb.from("bot_actions").update({ done_at: new Date().toISOString(), result: r.ok ? "ok" : String(r.description ?? "нет ответа").slice(0, 200) }).eq("id", a.id);
+      const r = a.kind === "react" ? await react(a.chat_id, a.message_id, a.emoji)
+        : a.kind === "poll" ? await poll(a.chat_id, a.payload)
+        : { ok: false, description: "неизвестное действие" };
+      await sb.from("bot_actions").update({ result: r.ok ? "ok" : String(r.description ?? "нет ответа").slice(0, 200),
+        ...(a.kind === "poll" && r.ok ? { message_id: r.result?.message_id } : {}) }).eq("id", a.id);
     }
     return new Response(JSON.stringify({ done: (rows ?? []).length }), { headers: { "Content-Type": "application/json" } });
   }

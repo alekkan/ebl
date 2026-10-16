@@ -92,6 +92,9 @@ Telegram Web скриптом `scripts/seed-chat-members.sh <файл> --prod` (
 поэтому пишем действие в `bot_actions`, бот выполняет его сам (триггер → `tg-bot?actions=1`):
 `supabase db query --linked "insert into bot_actions (kind, chat_id, message_id, emoji) values ('react', -1002192445671, <номер>, '👍')"`.
 Номер сообщения — из ссылки «Копировать ссылку» (`t.me/c/2192445671/<номер>`). Итог — в `bot_actions.result` (`ok` или ошибка Telegram).
+**Опрос в чат от бота** — тем же путём (16.10): `kind = 'poll'`, в `payload` — вопрос, варианты (до 12), `multiple` (несколько
+ответов), `anonymous` (по умолчанию да, как в Telegram); номер сообщения с опросом бот запишет в `message_id`:
+`supabase db query --linked "insert into bot_actions (kind, chat_id, payload) values ('poll', -1002192445671, '{\"question\": \"…\", \"options\": [\"…\", \"…\"], \"multiple\": true}')"`.
 
 ## Домен ebl.su
 
