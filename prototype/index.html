@@ -242,12 +242,25 @@
         </div>
       </div>
       <div id="radarBox" hidden>
-        <p class="lead">Бани, которые нашёл еженедельный прогон агентов: OpenStreetMap, 2ГИС, Яндекс и сайты самих бань. Индекс общественности 0–100 — насколько похоже, что там вход по билету в общую парную. Решает Комиссия: без её кнопки на карту лиги ничего не попадает.</p>
-        <div class="radar-mapwrap" id="radarMapWrap" hidden>
-          <div id="radarmap" aria-label="Карта мест радара"></div>
-          <ul class="radar-legend"><li><i class="rd-dot rd-new"></i>общественные — нет в лиге</li><li><i class="rd-dot rd-ours"></i>похоже, наши</li><li><i class="rd-dot rd-review"></i>на решение</li><li><i class="rd-dot rd-search"></i>ждут поиска</li></ul>
+        <p class="lead radar-lead">Бани, которые нашли агенты в OpenStreetMap, 2ГИС, Яндексе и на сайтах самих бань. Проверь по ссылкам и реши — без решения Комиссии на карту лиги ничего не попадает.</p>
+        <div class="radar-progress" id="radarProgress" hidden></div>
+        <div class="radar-tools">
+          <div class="seg radar-tabs" id="radarTabs" role="tablist" aria-label="Что показать"></div>
+          <div class="radar-filters">
+            <input class="inp" id="radarQ" type="search" placeholder="Название или город" aria-label="Поиск в радаре">
+            <select class="sel" id="radarRegion" aria-label="Регион"><option value="">Москва и область</option><option value="Москва">Москва</option><option value="Московская область">Московская область</option></select>
+          </div>
         </div>
-        <div id="radarList"><p class="hint">Загружаю радар…</p></div>
+        <div class="radar-body">
+          <aside class="radar-side" id="radarSide">
+            <div id="radarmap" aria-label="Карта мест радара"></div>
+            <button type="button" class="linkbtn radar-maptoggle" id="radarMapToggle">Свернуть карту</button>
+          </aside>
+          <div class="radar-col">
+            <p class="hint radar-tabnote" id="radarTabNote"></p>
+            <ul class="radar-list" id="radarList"><li class="hint">Загружаю радар…</li></ul>
+          </div>
+        </div>
       </div>
       <div id="dirBox">
       <p class="lead">Все бани лиги: тип, где, сколько походов и кто где был (зелёным — кто был в 2026). Тип меняется прямо в строке — таблица пересчитается, а бот поправит свои сообщения в чате.</p>

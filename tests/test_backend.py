@@ -357,8 +357,15 @@ check("второе нажатие «В лигу» — та же баня, бе�
 places[0]["public_index"] = 95; push(places)
 check("повторная заливка обновляет место, но решение Комиссии не трогает",
       sql(f"select public_index || ' ' || status || ' ' || bath_id from radar_places where id = {rid}") == f"95 added {bid}")
-req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "hide"}, token=vitek)
-check("«Скрыть» и «вернуть»", sql(f"select status from radar_places where id = {rid}") == "hidden"
+req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "hide", "p_reason": "rental"}, token=vitek)
+check("«Скрыть» с причиной и «вернуть»", sql(f"select status || ' ' || hide_reason from radar_places where id = {rid}") == "hidden rental"
       and req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "reopen"}, token=vitek)[0] == 200 and sql(f"select status from radar_places where id = {rid}") == "new")
-sql("delete from radar_places where key like 'test:%'"); sql(f"delete from baths where id = {bid}")
+places2 = [{"key": "test:2", "name": "Тестовые термы", "region": "Москва", "lat": 55.7, "lng": 37.5, "kind": "spa", "public_index": 20}]
+push(places2)
+rid2 = int(sql("select id from radar_places where key = 'test:2'"))
+s, bid3 = req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid2, "p_action": "add", "p_type": "spa"}, token=vitek)
+check("«Завести» с выбранным типом — хуитнес", s == 200 and sql(f"select type from baths where id = {bid3}") == "spa", (s, bid3))
+check("неизвестный тип не проходит", req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid2, "p_action": "add", "p_type": "дача"}, token=vitek)[0] >= 400
+      or sql(f"select bath_id from radar_places where id = {rid2}") == str(bid3))
+sql("delete from radar_places where key like 'test:%'"); sql(f"delete from baths where id in ({bid}, {bid3})")
 print("Готово.")

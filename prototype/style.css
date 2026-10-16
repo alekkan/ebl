@@ -911,41 +911,85 @@ tr.below { color: var(--ink-2); }
   #feedFilter { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }   /* четыре фильтра в одну строку не влезают */
 }
 
-/* ---------- радар (Комиссия): места из еженедельного прогона, группы по решению ---------- */
+/* ---------- радар (Комиссия) ---------- */
+/* как карта с выдачей: вкладки по смыслу решения, список слева, карта справа и не уезжает; на телефоне карта сверху */
 #dirMode { min-width: 240px; }
 .radar-n { font-variant-numeric: tabular-nums; }
-#radarList { display: grid; gap: 28px; margin-top: 8px; }
-.radar-group h2 { font: 600 18px/1.25 var(--display); margin: 0 0 2px; }
-.radar-group > .hint { margin: 0 0 10px; }
-.radar-count { color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.radar-list { list-style: none; margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
-.radar-row { padding: 13px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 3px; min-width: 0; }
-.radar-row:last-child { border-bottom: 0; }
+.radar-lead { margin-bottom: 4px; }
+.radar-progress { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--ink-2); margin: 10px 0 2px; }
+.radar-progress .bar { flex: 0 1 220px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.radar-progress .bar i { display: block; height: 100%; background: var(--oak); border-radius: inherit; transition: width .4s var(--ease); }
+.radar-progress b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.radar-tools { display: grid; gap: 10px; margin: 14px 0 10px; }
+.radar-tabs { grid-auto-columns: auto; justify-content: start; overflow-x: auto; scrollbar-width: none; }
+.radar-tabs button { display: inline-flex; gap: 6px; align-items: baseline; padding-inline: 12px; }
+.radar-tabs .n { font-variant-numeric: tabular-nums; color: var(--ink-3); font-weight: 600; }
+.radar-tabs button[aria-pressed="true"] .n { color: var(--oak); }
+.radar-filters { display: flex; flex-wrap: wrap; gap: 8px 10px; }
+.radar-filters .inp { flex: 1 1 240px; height: 40px; }
+.radar-filters .sel { flex: 0 1 240px; width: auto; height: 40px; }
+.radar-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42%); gap: 18px; align-items: start; }
+.radar-col { min-width: 0; grid-column: 1; grid-row: 1; }
+.radar-side { grid-column: 2; grid-row: 1; position: sticky; top: 12px; display: grid; gap: 6px; }
+#radarmap { height: min(72vh, 640px); border-radius: var(--r); border: 1px solid var(--line); background: var(--panel-2); z-index: 0; }
+.radar-maptoggle { display: none; justify-self: start; }
+.radar-tabnote { margin: 0 0 10px; }
+.radar-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.radar-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 6px; min-width: 0;
+  transition: border-color .15s, box-shadow .15s; }
+.radar-card:hover { border-color: var(--ink-3); }
+.radar-card.focus { border-color: var(--oak); box-shadow: 0 0 0 3px var(--oak-soft); }
+.radar-card.is-done { background: var(--panel-2); }
 .radar-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
-.radar-head b { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
-.radar-ix { flex: none; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; color: var(--oak); background: var(--oak-soft); border-radius: 999px; padding: 1px 9px; }
-.radar-meta { color: var(--ink-2); font-size: 14px; overflow-wrap: anywhere; }
-.radar-note { font-size: 14px; }
-.radar-links { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; }
-.radar-links a { color: var(--oak); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
-.radar-links a:hover { text-decoration: underline; }
-.radar-acts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 6px; }
-.radar-acts .btn[data-armed] { border-color: var(--oak); color: var(--oak); }
-.radar-mapwrap { display: grid; gap: 8px; margin: 14px 0 6px; }
-#radarmap { height: 440px; border-radius: var(--r); border: 1px solid var(--line); background: var(--panel-2); z-index: 0; }
-@media (max-width: 760px) { #radarmap { height: 320px; } }
-.radar-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--ink-2); }
-.radar-legend li { display: flex; align-items: center; gap: 6px; }
-.rd-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line); }
-/* цвет — состояние места; SVG-кружки Leaflet красим через CSS (перебивает атрибуты fill/stroke) */
-path.rd { stroke: var(--panel); fill-opacity: 1; }
-.rd-new { fill: var(--oak); background: var(--oak); }
-.rd-ours { fill: var(--t-spa); background: var(--t-spa); }
-.rd-review { fill: var(--honey); background: var(--honey); }
-.rd-search { fill: var(--ink-3); background: var(--ink-3); }
-.radar-name { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
-.radar-name:hover { color: var(--oak); text-decoration: underline; }
-.radar-row.flash { background: var(--oak-soft); transition: background .3s; }
+.radar-name { border: 0; background: none; padding: 0; font: 600 16px/1.3 var(--body); color: var(--ink); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+button.radar-name:hover { color: var(--oak); text-decoration: underline; }
+.radar-city { flex: none; color: var(--ink-3); font-size: 13px; text-align: right; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.radar-verdict { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
+.vd { font-weight: 700; font-variant-numeric: tabular-nums; }
+.vd-ok { color: var(--oak); }
+.vd-warn { color: var(--honey); }
+.vd-muted { color: var(--ink-3); }
+.fact { color: var(--ink-2); }
+.fact::before { content: "·"; margin-right: 6px; color: var(--ink-3); }
+.radar-note { margin: 0; font-size: 14px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.radar-card .radar-more ~ .radar-acts, .radar-more { font-size: 14px; }
+.radar-more { display: grid; gap: 6px; padding: 8px 0 2px; border-top: 1px dashed var(--line); }
+.radar-more p { margin: 0; }
+.radar-more blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--line); color: var(--ink-2); }
+.radar-more a, .radar-links a { color: var(--oak); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.radar-more a:hover, .radar-links a:hover { text-decoration: underline; }
+.radar-ours { font-size: 14px; background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
+.radar-ours .linkbtn { font-size: inherit; color: var(--ink); font-weight: 600; }
+.radar-links { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; align-items: baseline; }
+.radar-links .linkbtn { font-size: 14px; }
+.radar-acts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 4px; }
+.radar-ask { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; width: 100%; padding: 8px 10px; border-radius: 10px; background: var(--oak-soft); font-size: 14px; }
+.radar-ask .seg { grid-auto-columns: auto; }
+.radar-ask .seg button { padding: 5px 10px; font-size: 13px; }
+.radar-ask .chip { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 4px 11px; font-size: 13px; font-weight: 600; }
+.radar-ask .chip:hover { border-color: var(--ink-3); }
+.radar-doneline { color: var(--ink-2); font-size: 14px; }
+.radar-empty { padding: 28px 16px; text-align: center; color: var(--ink-2); background: var(--panel); border: 1px dashed var(--line); border-radius: var(--r); }
+.toast .toast-act { border: 0; background: none; color: var(--honey); font: inherit; font-weight: 700; padding: 0 0 0 6px; cursor: pointer; }
+/* точки на карте: цвет — смысл решения; SVG-кружки Leaflet красим через CSS (перебивает атрибуты fill/stroke) */
+path.rd { stroke: var(--panel); fill-opacity: 1; transition: r .15s; }
+path.rd-new { fill: var(--oak); }
+path.rd-ours { fill: var(--t-spa); }
+path.rd-review { fill: var(--honey); }
+path.rd-search, path.rd-rest { fill: var(--ink-3); }
+path.rd-done { fill-opacity: .45; }
+@media (max-width: 1000px) {
+  .radar-body { grid-template-columns: minmax(0, 1fr); }
+  .radar-side { grid-column: 1; grid-row: 1; position: static; }
+  .radar-col { grid-row: 2; }
+  #radarmap { height: 300px; }
+  .radar-side.folded #radarmap { display: none; }
+  .radar-maptoggle { display: inline-block; }
+}
+@media (max-width: 560px) {
+  .radar-acts .btn { flex: 1 1 auto; justify-content: center; }
+  .radar-city { max-width: 40%; }
+}
 
 /* ---------- справочник бань (Комиссия) ---------- */
 /* одна строка на баню, чтобы на экран влезало больше: длинное — троеточием, полностью — в подсказке (title) */

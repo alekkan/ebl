@@ -364,7 +364,10 @@ window.EBLData = (() => {
       if (!live) return [];
       return check(await sb.from("radar_places").select("*").order("public_index", { ascending: false, nullsFirst: false }).limit(3000));
     },
-    async radarDecide(id, action, bathId = null) { return check(await sb.rpc("radar_decide", { p_id: id, p_action: action, p_bath: bathId })); },
+    // action: add (type — public / spa / private), match (bath — баня лиги), hide (reason), reopen
+    async radarDecide(id, action, { bath = null, type = "public", reason = null } = {}) {
+      return check(await sb.rpc("radar_decide", { p_id: id, p_action: action, p_bath: bath, p_type: type, p_reason: reason }));
+    },
     // Комиссия: баня оказалась дублем — походы переезжают в оригинал, дубль отклоняется
     async mergeBath(dupId, origId) {
       check(await sb.from("visits").update({ bath_id: origId }).eq("bath_id", dupId));
