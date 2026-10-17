@@ -437,3 +437,6 @@ verify_jwt = false
 
 [functions.photos]
 verify_jwt = false
+
+[functions.parsovet-bot]
+verify_jwt = false
