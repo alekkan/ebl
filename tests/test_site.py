@@ -190,6 +190,17 @@ class Site:
         self.ctx.close()
 
 
+def swipe(s, x, y0, y1, steps=8, ms=120):
+    """Провести пальцем по экрану телефона (настоящие касания через CDP): быстро — взмах, медленно (больше шагов и мс) — протянуть."""
+    cdp = s.ctx.new_cdp_session(s.page)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y0}]})
+    for i in range(1, steps + 1):
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y0 + (y1 - y0) * i / steps}]})
+        s.page.wait_for_timeout(ms // steps)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    s.page.wait_for_timeout(500)
+
+
 def all_views(s, label, mobile=False):
     for v in VIEWS:
         s.view(v)
@@ -673,6 +684,34 @@ with sync_playwright() as pw:
         s.no_clip("гость: окно входа на телефоне", "#loginModal .sheet")
         s.page.click("#loginModal [data-close]")
         all_views(s, "гость на телефоне", mobile=True)
+        # 18.10, отзыв из чата: на телефоне карте мало места — панель со списком стала шторкой снизу, как в Яндекс Картах
+        s.view("map"); s.page.wait_for_timeout(300)
+        state = lambda: s.js("() => document.querySelector('#view-map .panel').dataset.state")
+        top = lambda: s.js("() => document.querySelector('#view-map .panel').getBoundingClientRect().top")
+        check("телефон: карта на весь экран, шторка при входе — на половине, гонки недели на карте нет",
+              state() == "half" and s.js("""() => { const m = document.getElementById('map').getBoundingClientRect(), v = document.getElementById('view-map').getBoundingClientRect();
+                return m.height >= v.height - 1 && getComputedStyle(document.getElementById('race')).display === 'none'; }"""))
+        swipe(s, 180, top() + 40, top() + 300)
+        check("взмах вниз — от шторки остаётся только поиск, карта почти целиком",
+              state() == "peek" and s.js("""() => { const p = document.querySelector('#view-map .panel').getBoundingClientRect(), q = document.getElementById('q').getBoundingClientRect(),
+                v = document.getElementById('view-map').getBoundingClientRect(); return q.bottom <= v.bottom && p.top > v.top + v.height * 0.75; }"""))
+        swipe(s, 180, top() + 30, top() - 300)
+        swipe(s, 180, top() + 40, 60)
+        check("взмахи вверх — половина, потом весь список; он листается внутри шторки",
+              state() == "full" and s.js("() => { const p = document.querySelector('#view-map .panel'); p.scrollTop = 200; const ok = p.scrollTop > 0; p.scrollTop = 0; return ok; }"))
+        swipe(s, 180, top() + 40, top() + 330, steps=24, ms=1200)
+        check("медленно вниз от верха списка — шторка встаёт на ближайшую остановку (половина)", state() == "half")
+        s.page.click("#sheetGrab"); s.page.wait_for_timeout(450)
+        check("полоска шторки: из половины — свернуть", state() == "peek")
+        s.page.click("#sheetGrab"); s.page.wait_for_timeout(450)
+        s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        check("поиск разворачивает шторку во весь список", state() == "full")
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(1500)
+        check("открытая баня на телефоне — точка видна над карточкой, а не под ней",
+              s.js("""() => { const p = document.querySelector('#map .pin-drop')?.getBoundingClientRect(), d = document.getElementById('drawer').getBoundingClientRect();
+                return !!p && p.bottom <= d.top && p.top >= document.getElementById('map').getBoundingClientRect().top; }"""))
+        s.page.click("#drawer .x"); s.page.fill("#q", "")
+        s.no_clip("телефон: шторка со списком", "#view-map")
         # «Хозяева»: пока карта летит к баням хозяина из списка, меню не перекрыто и нажимается
         s.view("owners")
         s.page.click("#oList li[data-owner]")
@@ -697,12 +736,6 @@ with sync_playwright() as pw:
         s.page.click("#fMe"); s.page.click('#fSeason [data-v="never"]'); s.page.wait_for_timeout(500)
         s.no_clip("телефон: «Я» + «Не были в 2026» с очками", "#view-map")
         s.page.click("#fMe"); s.page.click('#fSeason [data-v="2026"]'); s.page.wait_for_timeout(300)
-        if s.js("() => !!document.querySelector('#race .race-toggle')"):
-            s.page.click("#race .race-toggle"); s.page.wait_for_timeout(300)
-            check("телефон: развёрнутая гонка недели не уходит под шторку (листается внутри)",
-                  s.js("() => document.getElementById('race').getBoundingClientRect().bottom <= document.getElementById('map').getBoundingClientRect().bottom - 10"),
-                  s.js("() => [document.getElementById('race').getBoundingClientRect().bottom, document.getElementById('map').getBoundingClientRect().bottom]"))
-            s.page.click("#race .race-toggle")
         s.view("table"); s.js(open_shurik)
         s.no_clip("карточка участника с датами на телефоне", "#playerModal")
         s.js("() => (document.getElementById('playerModal').hidden = true)")

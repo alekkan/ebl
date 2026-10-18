@@ -297,6 +297,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .race-more { display: block; width: 100%; margin-top: 8px; padding: 8px; border: 0; border-radius: 10px; background: var(--oak-soft); color: var(--oak); font-weight: 700; font-size: 13px; }
 .race-more:hover { background: color-mix(in srgb, var(--oak) 18%, var(--panel)); }
 .race-toggle { display: none; }
+.grab { display: none; }   /* полоска шторки — только на телефоне */
 
 /* карточка бани */
 .drawer {
@@ -800,24 +801,33 @@ tr.below { color: var(--ink-2); }
   .nav .badge { position: absolute; top: 2px; right: 4px; }
   main { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
 
-  /* карта сверху, панель со списком под ней — листается одним экраном, без прокрутки внутри прокрутки */
-  .view-map { display: block; overflow-y: auto; overscroll-behavior: contain; }
-  #map { position: relative; inset: auto; height: 46vh; height: 44svh; min-height: 250px; }
+  /* шторка (18.10): карта на весь экран, панель с поиском и списком — снизу, как в Яндекс Картах. Положение — --sheet-y
+     из app.js (три остановки: только поиск, половина, весь список); список листается внутри только во «весь список» */
+  .view-map { display: block; overflow: hidden; }
+  #map { position: absolute; inset: 0; }
+  #map .leaflet-bottom.leaflet-right { top: 0; bottom: auto; }   /* подпись OpenStreetMap — сверху: снизу её закрывает шторка */
+  #map .leaflet-control-attribution { border-radius: 0 0 0 8px; }
   .leaflet-control-zoom { display: none; }
-  .panel { position: relative; inset: auto; width: auto; margin-top: -18px; border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px -12px rgba(0, 0, 0, .2); }
-  .list { flex: none; overflow: visible; padding-bottom: 16px; }
-  .panel-head { padding: 16px 16px 10px; }
+  .panel { top: 8px; left: 0; right: 0; bottom: 0; width: auto; border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px -12px rgba(0, 0, 0, .25);
+    transform: translateY(var(--sheet-y, 50%)); transition: transform .32s var(--ease); overscroll-behavior: contain; }
+  .panel[data-state="full"] { overflow-y: auto; }
+  .panel.dragging { transition: none; }
+  .grab { display: grid; place-items: center; flex: none; height: 22px; padding: 0; border: 0; background: none; cursor: grab; }
+  .grab i { width: 40px; height: 5px; border-radius: 3px; background: var(--line); }
+  /* порядок на телефоне: поиск, фильтры, список; цифры сезона — в конце шторки, чтобы список был виден уже в половине */
+  .filters { display: contents; }
+  .filters > * { margin: 0 16px 10px; }
+  .panel > *, .filters > * { flex-shrink: 0; }   /* шторка ниже содержимого: иначе строка типов (прокрутка вбок) сжималась в ноль */
+  .searchbox { order: 1; } #fSeason { order: 2; } .chips.types { order: 3; } .selrow { order: 4; }
+  .countrow { order: 5; } .pot-note { order: 6; }
+  .list { order: 7; flex: none; overflow: visible; padding-bottom: 16px; }
+  .panel-head { order: 8; padding: 14px 16px 20px; border-top: 1px solid var(--line); background: none; }
   .kpis b { font-size: 20px; }
-  .filters { padding: 4px 16px 10px; }
-  .race { top: 10px; left: 12px; right: 12px; bottom: auto; width: auto; padding: 8px 8px 8px 14px; border-radius: 16px; }
-  .race .race-title { font-size: 14px; }
-  .race:not(.open) .race-list, .race:not(.open) .race-foot, .race:not(.open) .race-more { display: none; }
-  /* развёрнутая гонка — не ниже карты: иначе уходит под шторку со списком бань; длинный список листается внутри карточки */
-  .race.open { max-height: max(214px, calc(44svh - 36px)); overflow-y: auto; overscroll-behavior: contain; }
-  .race-head { align-items: center; }
-  .race-toggle { display: grid; place-items: center; border: 0; background: var(--panel-2); width: 30px; height: 30px; border-radius: 50%; flex: none; }
-  .race.open .race-toggle .ic { transform: rotate(180deg); }
-  .view-map:has(#drawer:not([hidden])) .race { display: none; }   /* открыта баня — карта нужнее гонки */
+  /* типы — одной строкой с прокруткой вбок, во всю ширину шторки */
+  .chips.types { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: 0; padding-inline: 16px; }
+  .chips.types::-webkit-scrollbar { display: none; }
+  .chips.types button { flex: none; }
+  .race { display: none; }   /* «кто впереди» на карте телефона не нужен (отзыв 18.10) — гонка недели есть в «Таблице» */
   .own-card { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 48%; border-radius: 22px 22px 0 0; padding: 16px; }
   .own-card h2 { font-size: 20px; }
   .drawer { position: fixed; z-index: 1600; top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 62%; border-radius: 24px 24px 0 0; box-shadow: 0 -12px 32px -12px rgba(0, 0, 0, .35); }
@@ -842,6 +852,7 @@ tr.below { color: var(--ink-2); }
   .blist { max-height: none; overflow: visible; padding-right: 0; }   /* на телефоне листается вся карточка, без вложенной прокрутки */
   .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); white-space: normal; }   /* над нижней навигацией, а не поверх */
 }
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) { .panel { transition: none; } }
 /* между телефоном и широким экраном шапка не влезала (кнопка уезжала за край) — ужимаем по шагам */
 @media (max-width: 1060px) {
   .me-btn:not(.guest) .me-name { display: none; } .me-btn:not(.guest) { padding: 4px; }   /* только подпись: аватарка — тоже span */
