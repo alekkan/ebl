@@ -309,11 +309,12 @@
   $("#fCountry").addEventListener("change", () => render(true));
   $("#fPlayer").addEventListener("change", () => render(true));
   // Комиссии (18.10): бани без точки и с примерной — пройтись и поправить. Сразу «Все бани»: проверяем бани всех лет,
-  // а не только те, где были в 2026; поправил точку в карточке — баня уходит из списка
+  // а не только те, где были в 2026; поправил точку в карточке — баня уходит из списка. Карту не отдаляем: таких бань сотни
+  // по всему миру — удобнее остаться в своём городе и идти по списку
   $("#fPrec").hidden = !(canModerate && D.live);
   $("#fPrec").addEventListener("change", () => {
     if ($("#fPrec").value) $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "all")));
-    render(true);
+    render();
   });
   // «Я» — выбрать себя одним нажатием (повторное — снова вся лига)
   const myNick = D.live ? me?.nick : null;
