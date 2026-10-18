@@ -320,6 +320,16 @@ with sync_playwright() as pw:
                 && document.querySelectorAll('#map .pin').length > 0 && [...document.querySelectorAll('#map .pin')].every((p) => p.offsetWidth === p.offsetHeight)"""))
         s.page.click("#drawer .x"); s.page.wait_for_timeout(300)
         check("закрыл карточку — капля снова кружок", s.js("() => !document.querySelector('#map .pin-drop')"))
+        # 18.10: тап по пустому месту карты закрывает карточку бани
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(1200)
+        empty = s.js("""() => { const m = document.getElementById('map').getBoundingClientRect();
+          for (let y = m.bottom - 40; y > m.top + 40; y -= 37) for (let x = m.right - 40; x > m.left + 40; x -= 41) {
+            const el = document.elementFromPoint(x, y);
+            if (el && el.closest('#map') && !el.closest('.leaflet-marker-icon, .leaflet-control, .marker-cluster, .panel, .drawer, .race')) return [x, y]; }
+          return null; }""")
+        if empty:
+            s.page.mouse.click(*empty); s.page.wait_for_timeout(400)
+        check("тап по пустому месту карты закрывает карточку бани", bool(empty) and s.js("() => document.getElementById('drawer').hidden"), empty)
         s.clean("гость: капля выбранной бани")
         s.close()
 
@@ -684,6 +694,8 @@ with sync_playwright() as pw:
         except Exception: pass
         check("Комиссия видит пометку «похоже на повтор бани в те же сутки — проверь дату»",
               s.js(f"() => (document.querySelector('[data-ok=\"{dup}\"]')?.closest('.post')?.innerText || '').includes('повтор бани')"))
+        check("…а у уже решённых походов пометки о повторе нет — Комиссия решила",
+              s.js("() => ![...document.querySelectorAll('#feedList .post, .feed .post')].some((p) => !p.querySelector('[data-ok]') && /повтор бани/.test(p.innerText))"))
         s.clean("Комиссия: повтор")
         s.close()
 
@@ -768,7 +780,15 @@ with sync_playwright() as pw:
         check("открытая баня на телефоне — точка видна над карточкой, а не под ней",
               s.js("""() => { const p = document.querySelector('#map .pin-drop')?.getBoundingClientRect(), d = document.getElementById('drawer').getBoundingClientRect();
                 return !!p && p.bottom <= d.top && p.top >= document.getElementById('map').getBoundingClientRect().top; }"""))
-        s.page.click("#drawer .x"); s.page.fill("#q", "")
+        # 18.10: карточка бани на телефоне — как шторка: потянул вверх — на весь экран, смахнул вниз — назад и закрыть
+        dtop = lambda: s.js("() => document.getElementById('drawer').getBoundingClientRect().top")
+        swipe(s, 180, dtop() + 10, dtop() - 200)
+        check("карточка бани: потянул за верх вверх — на весь экран", s.js("() => document.getElementById('drawer').classList.contains('full')"))
+        swipe(s, 180, dtop() + 10, dtop() + 150)
+        check("…смахнул вниз — обратно на привычную высоту, не закрылась", s.js("() => !document.getElementById('drawer').hidden && !document.getElementById('drawer').classList.contains('full')"))
+        swipe(s, 180, dtop() + 10, dtop() + 300)
+        check("…ещё вниз — закрылась", s.js("() => document.getElementById('drawer').hidden"))
+        s.page.fill("#q", "")
         s.no_clip("телефон: шторка со списком", "#view-map")
         # «Хозяева»: пока карта летит к баням хозяина из списка, меню не перекрыто и нажимается
         s.view("owners")
@@ -790,6 +810,19 @@ with sync_playwright() as pw:
         check("участник на телефоне: аватарка видна (не белая точка)",
               s.js("() => { const a = document.querySelector('#meBtn .ava'); return !!a && a.getBoundingClientRect().width >= 24; }"))
         all_views(s, "участник на телефоне", mobile=True)
+        # 18.10: профиль — быстрые действия вместо пустого окна
+        s.page.click("#meBtn"); s.page.wait_for_timeout(300)
+        check("профиль: мой сезон, мои бани на карте, мои походы в ленте", s.js("() => ['myProfile', 'myMap', 'myFeed', 'logoutBtn'].every((id) => !!document.getElementById(id))"))
+        s.no_clip("профиль на телефоне", "#loginModal .sheet")
+        s.page.click("#myMap"); s.page.wait_for_timeout(500)
+        check("…«Мои бани на карте» — карта с моими банями", s.js("() => !document.getElementById('view-map').hidden && document.getElementById('fPlayer').value === 'Шурик' && document.getElementById('loginModal').hidden"))
+        s.page.select_option("#fPlayer", ""); s.page.wait_for_timeout(300)
+        # таблица шире экрана — тень у правого края, пока можно листать вбок
+        s.view("table"); s.page.wait_for_timeout(500)
+        hint = lambda: s.js("() => document.getElementById('standings').closest('.tablecard').classList.contains('more-right')")
+        had = hint()
+        s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'); w.scrollLeft = w.scrollWidth; }"); s.page.wait_for_timeout(300)
+        check("таблица на телефоне: тень у правого края, пока можно листать вбок, и пропадает в конце", had and not hint())
         s.view("map"); s.page.wait_for_timeout(300)
         s.page.click("#fMe"); s.page.click('#fSeason [data-v="never"]'); s.page.wait_for_timeout(500)
         s.no_clip("телефон: «Я» + «Не были в 2026» с очками", "#view-map")

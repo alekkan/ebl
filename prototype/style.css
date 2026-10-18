@@ -427,7 +427,14 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .me-btn .ava { --s: 30px; box-shadow: none; }
 .me-btn .ic { width: 18px; height: 18px; margin-left: 8px; }
 .me-btn:hover { border-color: var(--ink-3); }
-.sheet.sheet-narrow { width: min(500px, 100%); }   /* .sheet ниже по файлу задаёт 720px — без .sheet здесь окно входа было широким */
+.sheet.sheet-narrow { width: min(500px, 100%); }
+/* профиль (18.10): быстрые действия строками — мой сезон, мои бани на карте, мои походы в ленте */
+.me-acts { display: grid; gap: 6px; margin: 2px 0 14px; }
+.me-act { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 600; text-align: left; }
+.me-act:hover { border-color: var(--ink-3); }
+.me-act small { color: var(--ink-3); font-weight: 500; font-size: 12px; }
+#loginBody > .btn.danger { justify-self: start; }   /* .sheet ниже по файлу задаёт 720px — без .sheet здесь окно входа было широким */
 .login { padding: 30px 28px 28px; display: grid; gap: 12px; }
 .login h2 { font: 800 28px/1.05 var(--display); margin: 0; letter-spacing: -.02em; }
 .login .lead { margin: 0; font-size: 15px; }
@@ -555,7 +562,10 @@ td.crowns b { font: 700 13px var(--display); margin-left: 3px; color: color-mix(
 th.crown-col { text-align: left; }
 .week-podium { margin: 6px auto 22px; }
 
-.tablecard { background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-s); overflow: hidden; }
+.tablecard { position: relative; background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-s); overflow: hidden; }
+/* таблица шире экрана — тень у правого края, пока её можно листать вбок (18.10) */
+.tablecard.more-right::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 32px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 9%, transparent)); }
 .tablewrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
 th, td { padding: 10px 12px; text-align: right; white-space: nowrap; }
@@ -853,7 +863,11 @@ tr.below { color: var(--ink-2); }
   .race { display: none; }   /* «кто впереди» на карте телефона не нужен (отзыв 18.10) — гонка недели есть в «Таблице» */
   .own-card { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 48%; border-radius: 22px 22px 0 0; padding: 16px; }
   .own-card h2 { font-size: 20px; }
-  .drawer { position: fixed; z-index: 1600; top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 62%; border-radius: 24px 24px 0 0; box-shadow: 0 -12px 32px -12px rgba(0, 0, 0, .35); }
+  .drawer { position: fixed; z-index: 1600; top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 62%; border-radius: 24px 24px 0 0; box-shadow: 0 -12px 32px -12px rgba(0, 0, 0, .35);
+    transition: height .28s var(--ease), transform .28s var(--ease); }
+  .drawer.full { height: calc(100% - 12px); }   /* потянул вверх — карточка на весь экран (18.10) */
+  .drawer.dragging { transition: none; }
+  .drawer .d-grab { position: absolute; top: 0; left: 0; right: 0; height: 22px; z-index: 2; }
 
   .page { padding-inline: 16px; }
   .podium { gap: 8px; }

@@ -495,6 +495,7 @@
     const long = b.name.length > 18;   // длинное название — обычным жирным: широкий шрифт его рвёт на три строки
     if (cardFor !== id) { cardFor = id; cardOpen.clear(); }
     d.innerHTML = `
+      <button type="button" class="grab d-grab" aria-label="Развернуть карточку на весь экран"><i></i></button>
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
       <div class="d-body">
         <div class="d-hero t-${b.t}">
@@ -626,6 +627,7 @@
       };
     }
     $("#dVisit", d).onclick = () => openVisit({ bathId: id });
+    $(".d-grab", d).onclick = () => d.classList.toggle("full");
     $("#prMore", d)?.addEventListener("click", () => { $("#prMore", d).hidden = true; $("#prExtra", d).hidden = false; });
     $$("#prWeekend button", d).forEach((b) => b.addEventListener("click", () => $$("#prWeekend button", d).forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
     $("#prForm", d)?.addEventListener("submit", async (e) => {
@@ -779,7 +781,49 @@
     inp.click();
   }
 
-  function closeBath() { $("#drawer").hidden = true; openId = null; selectPin(); $$(".item.active").forEach((x) => x.classList.remove("active")); }
+  function closeBath() {
+    const d = $("#drawer");
+    d.hidden = true; d.classList.remove("full", "dragging"); d.style.removeProperty("transform");
+    openId = null; selectPin(); $$(".item.active").forEach((x) => x.classList.remove("active"));
+  }
+  map.on("click", () => { if (!$("#drawer").hidden) closeBath(); });   // тап по пустому месту карты закрывает карточку (18.10)
+  // карточка бани на телефоне (18.10) — как шторка на карте: смахнул вниз — закрыл (из «на весь экран» — сначала обратно),
+  // потянул вверх — на весь экран. Вниз тянется, только когда карточка пролистана к началу, иначе листается сама
+  (() => {
+    const d = $("#drawer");
+    let t = null;
+    d.addEventListener("touchstart", (e) => {
+      if (!phone.matches || e.touches.length !== 1) return;
+      const body = $(".d-body", d);
+      if (body && body.scrollTop > 0 && !e.target.closest(".d-grab")) return;
+      t = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, mode: null, t0: e.timeStamp };
+    }, { passive: true });
+    d.addEventListener("touchmove", (e) => {
+      if (!t) return;
+      const dx = e.touches[0].clientX - t.x, dy = e.touches[0].clientY - t.y;
+      if (!t.mode) {
+        if (Math.abs(dx) > Math.abs(dy)) { t = null; return; }
+        if (dy > 0) t.mode = "down";
+        else if (!d.classList.contains("full")) t.mode = "up";
+        else { t = null; return; }   // на весь экран и вверх — листаем содержимое
+        d.classList.add("dragging");
+      }
+      e.preventDefault();
+      t.dy = dy;
+      d.style.transform = `translateY(${t.mode === "down" ? dy : Math.max(dy, -40) / 3}px)`;
+    }, { passive: false });
+    const end = (e) => {
+      const g = t; t = null;
+      if (!g?.mode) return;
+      d.classList.remove("dragging"); d.style.removeProperty("transform");
+      const fast = g.dy / Math.max(1, e.timeStamp - g.t0) > 0.6;
+      if (g.mode === "up") { if (g.dy < -30) d.classList.add("full"); return; }
+      if (d.classList.contains("full") && g.dy < 260) { if (g.dy > 60 || fast) d.classList.remove("full"); return; }
+      if (g.dy > 110 || fast) closeBath();
+    };
+    d.addEventListener("touchend", end);
+    d.addEventListener("touchcancel", end);
+  })();
 
   // ---------- таблица ----------
   let sortKey = "total", sortDir = -1;
@@ -1061,14 +1105,15 @@
       </div>`}`;
     $("#playerModal").hidden = false;
     $$("#playerBody [data-bath]").forEach((x) => (x.onclick = () => { $("#playerModal").hidden = true; show("map"); openBath(+x.dataset.bath, true); }));
-    if ($("#pOnMap")) $("#pOnMap").onclick = () => {
-      $("#playerModal").hidden = true; show("map"); closeBath();
-      // остальные фильтры сбрасываем, иначе можно увидеть «Ничего не нашлось»
-      $("#q").value = ""; $("#fCountry").value = ""; $("#fPrec").value = "";
-      $$("#fType button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.t === "")));
-      $("#fPlayer").value = name; $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "2026")));
-      render(true);
-    };
+    if ($("#pOnMap")) $("#pOnMap").onclick = () => { $("#playerModal").hidden = true; playerOnMap(name); };
+  }
+  // бани участника на карте (карточка участника, профиль): остальные фильтры сбрасываем, иначе можно увидеть «Ничего не нашлось»
+  function playerOnMap(name) {
+    show("map"); closeBath();
+    $("#q").value = ""; $("#fCountry").value = ""; $("#fPrec").value = "";
+    $$("#fType button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.t === "")));
+    $("#fPlayer").value = name; $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "2026")));
+    render(true);
   }
 
   // ---------- форма похода ----------
@@ -1503,7 +1548,7 @@
           <span>${v.dur > 150 ? "🔥 долгая" : "⚡ экспресс"}${(() => { const diff = Object.entries(v.durs || {}).filter(([, m]) => (m > 150) !== (v.dur > 150)).map(([n]) => n);
             return diff.length ? ` · ${diff.map(esc).join(", ")} — ${v.dur > 150 ? "⚡ экспресс" : "🔥 долгая"}` : ""; })()}</span>
           ${(() => { const rep = repeatOf(v), who = [v.player, ...v.companions];
-            return rep.length ? `<span class="warn" title="Движок очки не срезает: баню могли кинуть за прошлый день. Решает Комиссия">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</span>` : ""; })()}
+            return rep.length && v.status === "pending" ? `<span class="warn" title="Движок очки не срезает: баню могли кинуть за прошлый день. Решает Комиссия">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</span>` : ""; })()}
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
         </div>
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<div class="post-links"><a href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a></div>` : ""}
@@ -1895,13 +1940,31 @@
     btn.onclick = () => {
       if (!me) return openLogin();
       if (!me.nick) return openClaim();
+      // быстрые действия (18.10): окно было почти пустым — «Мой сезон» и «Выйти»
+      const mine = visits.filter((v) => v.player === me.nick || v.companions.includes(me.nick));
+      const pend = mine.filter((v) => v.status === "pending").length;
+      const place = ranked.find((r) => r.name === me.nick)?.place;
       $("#loginBody").innerHTML = `<div class="p-mini">${ava(me.nick, "lg")}<div><div class="eyebrow">${me.isCommission ? "Комиссия ЕБЛ" : "Участник лиги"}</div><h2>${esc(me.nick)}</h2></div></div>
-        <div class="grid2"><button class="btn" id="myProfile">${icon("trophy")}Мой сезон</button><button class="btn danger" id="logoutBtn">Выйти</button></div>`;
+        <div class="me-acts">
+          <button type="button" class="me-act" id="myProfile">${icon("trophy")}<span>Мой сезон</span><small>${place ? `${place} место` : ""}</small></button>
+          <button type="button" class="me-act" id="myMap">${icon("map")}<span>Мои бани на карте</span><small></small></button>
+          <button type="button" class="me-act" id="myFeed">${icon("feed")}<span>Мои походы в ленте</span><small>${pend ? `на модерации: ${pend}` : ""}</small></button>
+        </div>
+        <button type="button" class="btn danger" id="logoutBtn">Выйти</button>`;
       $("#myProfile").onclick = () => { $("#loginModal").hidden = true; openPlayer(me.nick); };
+      $("#myMap").onclick = () => { $("#loginModal").hidden = true; playerOnMap(me.nick); };
+      $("#myFeed").onclick = () => { $("#loginModal").hidden = true; show("feed"); $(`#feedFilter button[data-f="${pend ? "pending" : "all"}"]`)?.click(); };
       $("#logoutBtn").onclick = async () => { await D.logout(); location.reload(); };
       $("#loginModal").hidden = false;
     };
   }
+  // таблица шире экрана (телефон): мягкая тень у правого края, пока её можно листать вбок — колонки «Бань», «У»… не прячутся молча
+  $$(".tablewrap").forEach((w) => {
+    const card = w.closest(".tablecard"); if (!card) return;
+    const upd = () => card.classList.toggle("more-right", w.scrollWidth - w.clientWidth - w.scrollLeft > 4);
+    w.addEventListener("scroll", upd, { passive: true });
+    const ro = new ResizeObserver(upd); ro.observe(w); if (w.firstElementChild) ro.observe(w.firstElementChild);
+  });
   renderMe();
   if (D.live) finishTelegramLogin().then((back) => {
     // вошёл, но ник не выбрал — без этого шага Комиссии нечего подтверждать; раньше его пропускали, не заметив кнопку в углу
