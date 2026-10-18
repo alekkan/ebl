@@ -14,7 +14,7 @@
 | Схему базы, edge-функции | `scripts/deploy-backend.sh [функция …]` — проверки, `supabase db push`, функции (без аргументов — все), пересчёт |
 | Движок очков (`_shared/scoring.js`) | `scripts/deploy-backend.sh recompute` |
 | `_shared/*` (geo, place, avatar, greetings) | `scripts/deploy-backend.sh` без аргументов — функции, которые их используют, выложатся все |
-| И сайт, и бэкенд | сначала `scripts/deploy-backend.sh`, потом `scripts/deploy.sh` |
+| И сайт, и бэкенд | `scripts/deploy-all.sh [функция …]` — проверки один раз, потом бэкенд, потом сайт |
 
 Все функции деплоятся с `--no-verify-jwt`: Telegram и pg_cron не присылают ключ Supabase, проверка — внутри функций.
 
