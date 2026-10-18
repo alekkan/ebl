@@ -416,7 +416,8 @@ with sync_playwright() as pw:
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
-        check("участнику переименовать баню нельзя — карандаша нет", s.js("() => !document.getElementById('dRename')"))
+        check("участнику переименовать баню и сменить её тип нельзя, фильтра по точкам нет — это Комиссии",
+              s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && document.getElementById('fPrec').hidden"))
         s.page.click("#geoFixBtn"); s.page.fill("#geoFixInput", "55.783951, 37.354822"); s.page.click('#geoFixForm button[type="submit"]')
         s.page.wait_for_function("() => /Передал Комиссии|Не нашёл|Войди/.test(document.querySelector('#drawer .geo-move')?.innerText || '')", timeout=15000)
         req_row = sql(f"select status || ' ' || source || ' ' || round(lat::numeric, 4) from bath_point_requests where bath_id = {bath}")
@@ -555,6 +556,20 @@ with sync_playwright() as pw:
         s.page.click("#dRename"); s.page.wait_for_timeout(900)
         check("Комиссия переименовывает баню в карточке", sql(f"select name from baths where id = {bath}") == "проверка сайта")
         sql(f"update baths set name = '{bath_name}' where id = {bath}")
+        # тип бани — и из карточки (18.10), но только Комиссии и только после подтверждения
+        btype = lambda: sql(f"select coalesce(type, '') from baths where id = {bath}")
+        s.page.click("#dTypeBtn")
+        # страница помнит тип из справочника выше (в базе его уже откатили) — берём тип, отличный от показанного в карточке
+        shown = s.js("() => document.querySelector('#dTypeAsk [aria-pressed=\"true\"]')?.dataset.newtype || ''")
+        card_type = next(t for t in ("public", "spa", "private") if t != shown)
+        s.page.click(f'#dTypeAsk [data-newtype="{card_type}"]')
+        check("смена типа в карточке: видно «было → станет» и что очки пересчитаются; без «Сменить» тип прежний",
+              s.js("() => /→/.test(document.getElementById('dTypeNote').innerText) && /пересчита/.test(document.getElementById('dTypeNote').innerText)") and btype() == old_type)
+        s.page.click("#dTypeCancel")
+        check("«Отмена» — строка закрылась, тип прежний", s.js("() => document.getElementById('dTypeAsk').hidden") and btype() == old_type)
+        s.page.click("#dTypeBtn"); s.page.click(f'#dTypeAsk [data-newtype="{card_type}"]'); s.page.click("#dTypeGo"); s.page.wait_for_timeout(1500)
+        check("«Сменить» — тип бани поменялся", btype() == card_type)
+        sql(f"update baths set type = {repr(old_type) if old_type else 'null'} where id = {bath}")
         # поход за другого (только на сайте): Комиссия сама выбирает «Кто» и в бане могла не быть
         s.page.click("#dVisit")   # из карточки этой бани: на странице она ещё под временным названием
         check("Комиссии «Кто» можно выбрать", s.js("() => !document.getElementById('vPlayer').disabled && !document.getElementById('vPlayerHint').hidden"))
@@ -568,6 +583,17 @@ with sync_playwright() as pw:
         s.view("feed"); s.page.click('#feedFilter button[data-f="pending"]'); s.page.wait_for_timeout(500)
         check("в ленте у такого похода — «внёс Витёк»", s.js(f"() => (document.querySelector('[data-ok=\"{fv}\"]')?.closest('.post')?.innerText || '').includes('внёс Витёк')"))
         sql(f"delete from visits where id = {fv}")
+        # 18.10: фильтр Комиссии — бани с примерной точкой и без точки, чтобы пройтись и поправить
+        s.view("map"); s.page.fill("#q", ""); s.page.select_option("#fPrec", "rough"); s.page.wait_for_timeout(600)
+        rough = s.js("""() => ({ season: document.querySelector('#fSeason [aria-pressed=true]').dataset.v, count: document.getElementById('count').innerText,
+          items: document.querySelectorAll('#list .item').length,
+          bad: [...document.querySelectorAll('#list .item .it-meta')].slice(0, 30).map((m) => m.innerText).filter((t) => !/точка по (городу|региону|стране)/.test(t)).slice(0, 3) })""")
+        check("Комиссии: «Точка примерная» — бани всех лет, у каждой видно, насколько точка примерная",
+              rough["season"] == "all" and "точка примерная" in rough["count"] and rough["items"] > 0 and not rough["bad"], rough)
+        s.page.select_option("#fPrec", "none"); s.page.wait_for_timeout(600)
+        check("…«Без точки» — на карте ни одной метки, в счётчике так и сказано",
+              s.js("() => /без точки/.test(document.getElementById('count').innerText) && !document.querySelector('#map .pin')"))
+        s.page.select_option("#fPrec", ""); s.page.click('#fSeason [data-v="2026"]'); s.page.wait_for_timeout(300)
         s.clean("Комиссия")
         s.close()
         # Радар (16.10): места из прогона агентов, решает Комиссия; участнику и гостю его нет

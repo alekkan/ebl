@@ -314,9 +314,13 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .d-hero { margin: 0 -22px; padding: 20px 22px 2px; background: linear-gradient(180deg, var(--tint), transparent 92%); }
 .d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 36px; padding-right: 48px; font-size: 13px; color: var(--ink-2); }
 .d-meta .t { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink); }
-.d-meta .t-sel { position: relative; cursor: pointer; }
-.d-meta .t-sel select { appearance: none; -webkit-appearance: none; field-sizing: content; border: 0; background: none; font: inherit; color: inherit; padding: 0; cursor: pointer; }   /* ширина — по выбранному, а не по самому длинному варианту */
-.d-meta .t-sel span { font-size: 10px; color: var(--ink-3); pointer-events: none; }
+/* у Комиссии тип — кнопка в рамке: видно, что его можно сменить (18.10 — неприметный список не находили) */
+.d-meta .t-pick { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 10px 3px 5px; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
+.d-meta .t-pick:hover { border-color: var(--ink-3); }
+.d-meta .t-pick span { font-size: 10px; color: var(--ink-3); }
+.type-ask { display: grid; gap: 8px; margin: 2px 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; }
+.type-note { margin: 0; color: var(--ink-2); }
+.type-acts { display: flex; align-items: center; gap: 12px; }
 .d-meta .plus { color: var(--oak); font-weight: 700; }
 .d-meta .flag { color: var(--ember); font-weight: 600; }
 .d-hero.t-public { --tint: var(--oak-soft); } .d-hero.t-spa { --tint: color-mix(in srgb, var(--t-spa) 14%, var(--panel)); }
@@ -818,7 +822,7 @@ tr.below { color: var(--ink-2); }
   .filters { display: contents; }
   .filters > * { margin: 0 16px 10px; }
   .panel > *, .filters > * { flex-shrink: 0; }   /* шторка ниже содержимого: иначе строка типов (прокрутка вбок) сжималась в ноль */
-  .searchbox { order: 1; } #fSeason { order: 2; } .chips.types { order: 3; } .selrow { order: 4; }
+  .searchbox { order: 1; } #fSeason { order: 2; } .chips.types { order: 3; } .selrow, #fPrec { order: 4; }
   .countrow { order: 5; } .pot-note { order: 6; }
   .list { order: 7; flex: none; overflow: visible; padding-bottom: 16px; }
   .panel-head { order: 8; padding: 14px 16px 20px; border-top: 1px solid var(--line); background: none; }
