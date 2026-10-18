@@ -23,6 +23,68 @@
   if (D.broken) { boot("Не загрузилась связь с базой. Проверь интернет и обнови страницу."); return; }
   let data;
   const loading = D.load();
+  // ---------- шторка на телефоне (18.10, отзыв из чата: «карте мало места, сделайте как в Яндекс Картах») ----------
+  // Карта — на весь экран, панель с поиском и списком — шторка снизу. Три остановки: «поиск» (peek — видно только поле
+  // поиска), «половина» (half — при входе) и «весь список» (full — только в ней список листается внутри шторки).
+  // Тянуть можно за всю шторку: быстрый взмах — на следующую остановку в его сторону, медленный — к ближайшей.
+  // Полоска сверху: из половины — свернуть, из остальных — в половину.
+  const phone = matchMedia("(max-width: 760px)");
+  const sheet = $("#view-map .panel");
+  let sheetState = "half";
+  const viewH = () => $("#view-map").clientHeight || innerHeight;
+  const peekH = () => { const q = $(".searchbox", sheet); return q && q.offsetHeight ? q.offsetTop + q.offsetHeight + 12 : 80; };
+  function sheetY(state) {   // насколько шторка опущена от верхнего положения (оно — в 8 px от верха вкладки)
+    const h = viewH() - 8;
+    return state === "full" ? 0 : state === "half" ? Math.round(h * 0.5) : Math.max(0, h - peekH());
+  }
+  // сколько карты снизу закрывает шторка — столько отступа, когда карта подбирает рамку
+  const sheetCover = () => (phone.matches ? viewH() - 8 - sheetY(sheetState) : 0);
+  function setSheet(state) {
+    sheetState = state;
+    sheet.dataset.state = state;
+    if (!phone.matches) return sheet.style.removeProperty("--sheet-y");
+    if (state !== "full") sheet.scrollTop = 0;
+    sheet.style.setProperty("--sheet-y", `${sheetY(state)}px`);
+  }
+  setSheet("half");
+  phone.addEventListener("change", () => setSheet(sheetState));
+  addEventListener("resize", () => phone.matches && setSheet(sheetState));   // повернули телефон, спряталась строка адреса
+  $("#sheetGrab").addEventListener("click", () => setSheet(sheetState === "half" ? "peek" : "half"));
+  $("#q").addEventListener("focus", () => phone.matches && setSheet("full"));   // ищут — нужен весь список над клавиатурой
+  let drag = null;
+  sheet.addEventListener("touchstart", (e) => {
+    if (!phone.matches || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    drag = { x: t.clientX, y: t.clientY, base: sheetY(sheetState), dy: 0, on: false, track: [[e.timeStamp, 0]] };
+  }, { passive: true });
+  sheet.addEventListener("touchmove", (e) => {
+    if (!drag) return;
+    const t = e.touches[0], dx = t.clientX - drag.x, dy = t.clientY - drag.y;
+    if (!drag.on) {
+      if (Math.abs(dx) > Math.abs(dy)) { drag = null; return; }   // вбок — листаются чипы, шторку не трогаем
+      // во «весь список» список листается сам; шторку тянем только вниз и только от самого верха списка
+      if (sheetState === "full" && (dy <= 0 || sheet.scrollTop > 0)) { drag = null; return; }
+      drag.on = true;
+      sheet.classList.add("dragging");
+    }
+    e.preventDefault();
+    drag.dy = dy;
+    drag.track.push([e.timeStamp, dy]); if (drag.track.length > 6) drag.track.shift();
+    sheet.style.setProperty("--sheet-y", `${Math.min(sheetY("peek"), Math.max(0, drag.base + dy))}px`);
+  }, { passive: false });
+  function endDrag() {
+    const d = drag; drag = null;
+    if (!d?.on) return;
+    sheet.classList.remove("dragging");
+    const [t0, y0] = d.track[0], [t1, y1] = d.track[d.track.length - 1];
+    const v = (y1 - y0) / Math.max(1, t1 - t0);   // px/мс за последние движения пальца
+    const order = ["full", "half", "peek"], y = d.base + d.dy;
+    let next = order.reduce((a, s) => (Math.abs(sheetY(s) - y) < Math.abs(sheetY(a) - y) ? s : a));
+    if (Math.abs(v) > 0.4) next = order[Math.min(2, Math.max(0, order.indexOf(sheetState) + (v > 0 ? 1 : -1)))];
+    setSheet(next);
+  }
+  sheet.addEventListener("touchend", endDrag);
+  sheet.addEventListener("touchcancel", endDrag);
   // карта и подложка — сразу, пока идут данные: тайлы качаются параллельно, а не после заставки (16.10)
   const dark = () => document.documentElement.dataset.theme === "dark" ||
     (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
@@ -31,7 +93,8 @@
   // при старте — Европа и Россия до Урала, где почти все бани; дальние страны видно, если отдалить
   // рамка подобрана так, чтобы и на телефоне шириной 360 px влезла в зум 3, а не отскочила к целому миру
   const HOME = [[43, 3], [62, 60]];
-  const homePad = () => ({ paddingTopLeft: innerWidth > 760 ? [380, 0] : [0, 0] });
+  // на компьютере слева панель, на телефоне снизу шторка — рамку карты подбираем в видимой части
+  const homePad = () => (phone.matches ? { paddingBottomRight: [0, sheetCover()] } : { paddingTopLeft: [380, 0] });
   const map = L.map("map", { zoomControl: true, worldCopyJump: true }).fitBounds(HOME, { ...homePad(), animate: false });
   map.attributionControl.setPrefix(false);
   const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -373,20 +436,24 @@
       if (m && b) m.setIcon(pinIcon(b)).setZIndexOffset(id === openId ? 1000 : 0);
     }
   }
+  // центр карты, при котором точка видна над карточкой бани (на телефоне карта под ней, на компьютере — как есть)
+  function aboveCard(ll, z) {
+    if (!phone.matches) return ll;
+    const r = $("#map").getBoundingClientRect(), visible = innerHeight * 0.38 - r.top;
+    return map.unproject(map.project(ll, z).add([0, r.height / 2 - Math.max(40, visible / 2)]), z);
+  }
   function openBath(id, fly) {
     const b = byId.get(id); if (!b) return;
     openId = id;
     $$(".item.active").forEach((x) => x.classList.remove("active"));
     $(`.item[data-id="${id}"]`)?.classList.add("active");
-    // на телефоне карточка — шторка снизу: поднимаем карту наверх, чтобы точка бани была видна над шторкой
-    const narrow = innerWidth <= 760;
-    if (narrow) $("#view-map").scrollTo({ top: 0, behavior: calm ? "auto" : "smooth" });
+    // на телефоне карточка бани — шторка на нижние 62% экрана: точку ставим в видимую полосу карты над ней
     if (fly && b.ll) {
       const z = Math.max(map.getZoom(), b.prec === "exact" ? 15 : 11);
-      map.flyTo(b.ll, z, { duration: calm ? 0 : 0.7 });
+      map.flyTo(aboveCard(b.ll, z), z, { duration: calm ? 0 : 0.7 });
       map.once("moveend", selectPin);
     } else {
-      if (narrow && b.ll) map.panTo(b.ll, { animate: !calm });
+      if (phone.matches && b.ll) map.panTo(aboveCard(b.ll, map.getZoom()), { animate: !calm });
       selectPin();
     }
     const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
