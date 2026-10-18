@@ -1570,7 +1570,7 @@
           <span class="hint">У автора и по умолчанию у всей компании. +1 за долгий — каждому, кто был дольше 2,5 часа.</span></div>
         <div class="field"><span class="lab">Компания</span>
           <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}${split && n !== v.player ? durSeg(n, durs[n] ?? (long ? 180 : 120), "ed") : ""}</div>`).join("")}</div>
-          ${people.length > 1 ? (split ? `<p class="hint">${DURS_NOTE}</p><button type="button" class="linkbtn" id="eDursSame">Всем одинаково</button>`
+          ${people.length > 1 ? (split ? `<p class="hint">${DURS_NOTE}</p><button type="button" class="linkbtn durs-toggle" id="eDursSame">Всем одинаково</button>`
             : '<button type="button" class="linkbtn durs-toggle" id="eDursToggle">У кого-то было по-другому?</button>') : ""}
           <select class="sel" id="eAdd"><option value="">+ добавить участника</option>${players.filter((p) => !people.includes(p)).sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("")}</select>
         </div>
