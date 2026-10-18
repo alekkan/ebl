@@ -648,6 +648,17 @@ tr.below { color: var(--ink-2); }
 .edit { padding: 28px; display: grid; gap: 18px; }
 .edit h2 { font: 800 26px/1.05 var(--display); margin: -8px 0 0; letter-spacing: -.02em; }
 .erow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+/* своя длительность у кого-то из компании (18.10): имя слева, «⚡ Экспресс / 🔥 Долгая» справа; на узком экране — под именем */
+.durs-toggle { justify-self: start; margin-top: 8px; font-size: 13px; }
+.durs { display: grid; gap: 2px; margin-top: 8px; }
+.durs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.durs-row .ava { box-shadow: none; }
+.durs-row b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.durs-seg { flex: 0 0 auto; margin-left: auto; }
+.durs-seg button { min-height: 36px; padding: 6px 12px; }
+.durs .hint { margin: 6px 0 0; }
+.durs .linkbtn { justify-self: start; font-size: 13px; }
+@media (max-width: 420px) { .durs-seg { flex: 1 1 100%; } }
 .erow .ava { box-shadow: none; }
 .erow b { min-width: 90px; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 8px; }

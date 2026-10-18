@@ -53,7 +53,8 @@ export function regionKey(s) {
  * @param {Map<number,{type,country,region}>} p.baths
  * @param {{bath_id,year,nick,n}[]} p.legacyVisits
  * @param {{nick,total,baths,u,uu,long,k,pub,reg,week_pts,week_baths}[]} p.legacyStandings
- * @param {{id,bath_id,entered_at,posted_at,duration_min,players:{nick}[]}[]} p.visits  только status = ok
+ * @param {{id,bath_id,entered_at,posted_at,duration_min,players:{nick,duration_min?}[]}[]} p.visits  только status = ok;
+ *   у участника может быть своя длительность (18.10: «я и Фил — долгую, Диман — экспресс»), пусто — как у похода
  */
 export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits, legacyStandings, visits }) {
   const S = new Map();
@@ -91,7 +92,7 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     .filter((v) => v.week >= cutoverWeek && msk(v.entered_at).getUTCFullYear() === season && v.duration_min >= 60)
     .sort((a, b) => new Date(a.entered_at) - new Date(b.entered_at) || a.id - b.id);
   for (const v of sorted) {
-    for (const p of v.players) entries.push({ v, nick: p.nick });
+    for (const p of v.players) entries.push({ v, nick: p.nick, dur: p.duration_min ?? v.duration_min });
   }
   // компания — все участники в этой бане в эти сутки (п. 11)
   const company = new Map();
@@ -116,7 +117,7 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     if (ultraDay.get(e.v.bath_id) === e.v.day) { lines.push(["ultra", 1]); r.uu += 1; }
     if (b.region && b.country && !setOf(regions, e.nick).has(regionKey(b.country) + "/" + regionKey(b.region))) { lines.push(["region", 1]); r.reg += 1; }
     if (b.country && !setOf(countries, e.nick).has(regionKey(b.country))) { lines.push(["country", 1]); r.reg += 1; }
-    if (e.v.duration_min > 150) { lines.push(["long", 1]); r.long += 1; }
+    if (e.dur > 150) { lines.push(["long", 1]); r.long += 1; }   // долгий — по своей длительности каждого (п. 15)
     remember(e.nick, e.v.bath_id);
     const pts = lines.reduce((a, l) => a + l[1], 0);
     r.total += pts;

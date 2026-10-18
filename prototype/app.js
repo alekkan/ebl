@@ -1091,7 +1091,7 @@
     setDur(120);
     $("#vPrMore").hidden = false; $("#vPrExtra").hidden = true;
     $$("#vPrWeekend button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.w === "")));
-    picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0; pickedType = null;
+    picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0; pickedType = null; durOver = null;
     if (pickMarker) { pickMarker.remove(); pickMarker = null; }
     $("#nbGeoState").textContent = "Или кликни на карте. Точку можно перетащить.";
     $("#vPhotosField").hidden = !D.live; $("#vPhotosState").textContent = PHOTOS_HINT;
@@ -1120,7 +1120,30 @@
   function setDur(m) {
     $("#vDur").value = m;
     $$("#vDurChips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === m)));
+    renderDurs();
   }
+  // своя длительность у кого-то из компании (18.10: «я и Фил — долгую, Диман — экспресс, компания у всех») — редкость,
+  // поэтому спрятана за ссылкой: по умолчанию у всех как у автора. Минуты не спрашиваем — важно одно: дольше 2,5 часа или нет
+  let durOver = null;   // null — всем одинаково; { ник: минуты } — открыты строки «у кого-то было по-другому»
+  const durSeg = (p, m, key) => `<div class="seg durs-seg" role="group" aria-label="Сколько парился ${esc(p)}">
+    <button type="button" data-${key}="${esc(p)}" data-m="120" aria-pressed="${m <= 150}">⚡ Экспресс</button>
+    <button type="button" data-${key}="${esc(p)}" data-m="180" aria-pressed="${m > 150}">🔥 Долгая</button></div>`;
+  const DURS_NOTE = "+1 за долгий — только тем, кто был дольше 2,5 часа. Компания — всем.";
+  // только те, у кого не как у автора (похода): их и сохраняем
+  const durDiff = (people, over, base) => Object.fromEntries(people.filter((p) => over?.[p] != null && (over[p] > 150) !== (base > 150)).map((p) => [p, over[p]]));
+  function renderDurs() {
+    const comp = $$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p), base = +$("#vDur").value;
+    $("#vDursToggle").hidden = !comp.length || !!durOver;
+    $("#vDurs").hidden = !comp.length || !durOver;
+    if (!comp.length || !durOver) return;
+    $("#vDurs").innerHTML = comp.map((p) => `<div class="durs-row">${ava(p, "sm")}<b>${esc(p)}</b>${durSeg(p, durOver[p] ?? base, "dp")}</div>`).join("")
+      + `<p class="hint">${DURS_NOTE}</p><button type="button" class="linkbtn" id="vDursSame">Всем одинаково</button>`;
+  }
+  $("#vDursToggle").addEventListener("click", () => { durOver = {}; renderDurs(); });
+  $("#vDurs").addEventListener("click", (e) => {
+    if (e.target.closest("#vDursSame")) { durOver = null; return renderDurs(); }
+    const b = e.target.closest("[data-dp]"); if (b) { durOver[b.dataset.dp] = +b.dataset.m; renderDurs(); }
+  });
   $("#vDurChips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { setDur(+b.dataset.m); calc(); } });
   $("#vPrMore").addEventListener("click", () => { $("#vPrMore").hidden = true; $("#vPrExtra").hidden = false; });
   $$("#vPrWeekend button").forEach((b) => b.addEventListener("click", () => $$("#vPrWeekend button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
@@ -1135,7 +1158,7 @@
     $("#vComp").innerHTML = everyone.filter((p) => p !== me).map((p) => `<button type="button" data-p="${esc(p)}" aria-pressed="${was.has(p)}">${ava(p)}${esc(p)}</button>`).join("");
     compCount();
   }
-  function compCount() { const n = $$("#vComp button[aria-pressed=true]").length; $("#vCompCount").textContent = n ? `· ${n + 1} в компании` : ""; }
+  function compCount() { const n = $$("#vComp button[aria-pressed=true]").length; $("#vCompCount").textContent = n ? `· ${n + 1} в компании` : ""; renderDurs(); }
   $("#vComp").addEventListener("click", (e) => { const c = e.target.closest("button"); if (!c) return; c.setAttribute("aria-pressed", String(c.getAttribute("aria-pressed") !== "true")); compCount(); calc(); });
   $("#vPlayer").addEventListener("change", () => { store.set("me", $("#vPlayer").value); renderComp(); calc(); });
   ["#vDate", "#nbType", "#nbCountry", "#nbRegion", "#nbName"].forEach((s) => $(s).addEventListener("input", calc));
@@ -1338,7 +1361,7 @@
       newBath = { name, country: $("#nbCountry").value.trim() || null, region: $("#nbRegion").value.trim() || null, type: $("#nbType").value,
         ...(newPin ? { lat: newPin[0], lng: newPin[1], precision: "exact" } : {}) };
     }
-    const payload = { bathId: picked.id, newBath, date: r.date, week: r.week, dur: r.dur,
+    const payload = { bathId: picked.id, newBath, date: r.date, week: r.week, dur: r.dur, durs: durDiff(r.comp, durOver, r.dur),
       bathType: picked !== "new" && picked.t === "unknown" ? pickedType : null,
       companions: r.comp, player: r.player, lines: r.lines.filter((l) => l[1]), total: r.total };
     const files = [...($("#vPhotos")?.files || [])];   // форму сбросит следующее открытие — забираем сейчас
@@ -1366,7 +1389,7 @@
       }
       if (payload.createdBath) { const nb = payload.createdBath; hydrate(nb); baths.push(nb); byId.set(nb.id, nb); }
       if (payload.bathType && D.live) { const pb = byId.get(payload.bathId); if (pb && !pb.type) { pb.type = payload.bathType; pb.t = payload.bathType; } }
-      if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur,
+      if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur, durs: payload.durs,
         lines: [], total: null, preview: r.total, status: "pending", enteredBy: r.player !== myNick ? myNick : null });
       leafBurst($("#vSubmit"));
       setTimeout(() => { $("#visitModal").hidden = true; }, calm ? 0 : 450);
@@ -1449,7 +1472,8 @@
         </div>
         <div><a class="post-bath" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a><div class="hint">${esc(b ? where(b) : "")}</div></div>
         <div class="post-meta">
-          <span>${v.dur > 150 ? "🔥 долгая" : "⚡ экспресс"}</span>
+          <span>${v.dur > 150 ? "🔥 долгая" : "⚡ экспресс"}${(() => { const diff = Object.entries(v.durs || {}).filter(([, m]) => (m > 150) !== (v.dur > 150)).map(([n]) => n);
+            return diff.length ? ` · ${diff.map(esc).join(", ")} — ${v.dur > 150 ? "⚡ экспресс" : "🔥 долгая"}` : ""; })()}</span>
           ${(() => { const rep = repeatOf(v), who = [v.player, ...v.companions];
             return rep.length ? `<span class="warn" title="Движок очки не срезает: баню могли кинуть за прошлый день. Решает Комиссия">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</span>` : ""; })()}
           ${v.lines.map((l) => `<span>${esc(l[0].split(" · ")[0])} +${l[1]}</span>`).join("")}
@@ -1522,6 +1546,7 @@
   function openEdit(v) {
     const f = $("#editForm");
     let bath = byId.get(v.bathId), people = [v.player, ...v.companions], status = v.status, long = v.dur > 150;
+    let durs = { ...(v.durs || {}) }, split = Object.keys(durs).length > 0;   // своя длительность у кого-то из компании
     let typed = {};   // введённое в поля — чтобы не терялось при перерисовке
     const keep = () => {
       typed = { entered: $("#eEntered")?.value, posted: $("#ePosted")?.value, reason: $("#eReason")?.value };
@@ -1542,9 +1567,11 @@
         </div>
         <div class="field"><span class="lab">Долгая или экспресс</span>
           <div class="seg" id="eDur">${[[false, "⚡ Экспресс — до 2,5 ч"], [true, "🔥 Долгая — больше 2,5 ч"]].map(([l, t]) => `<button type="button" data-long="${l ? 1 : 0}" aria-pressed="${l === long}">${t}</button>`).join("")}</div>
-          <span class="hint">Долгая — +1 всей компании.</span></div>
+          <span class="hint">У автора и по умолчанию у всей компании. +1 за долгий — каждому, кто был дольше 2,5 часа.</span></div>
         <div class="field"><span class="lab">Компания</span>
-          <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}</div>`).join("")}</div>
+          <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}${split && n !== v.player ? durSeg(n, durs[n] ?? (long ? 180 : 120), "ed") : ""}</div>`).join("")}</div>
+          ${people.length > 1 ? (split ? `<p class="hint">${DURS_NOTE}</p><button type="button" class="linkbtn durs-toggle" id="eDursSame">Всем одинаково</button>`
+            : '<button type="button" class="linkbtn durs-toggle" id="eDursToggle">У кого-то было по-другому?</button>') : ""}
           <select class="sel" id="eAdd"><option value="">+ добавить участника</option>${players.filter((p) => !people.includes(p)).sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("")}</select>
         </div>
         <div class="field"><span class="lab">Статус</span>
@@ -1566,7 +1593,10 @@
         sg.hidden = false;
       };
       $("#eSuggest").onclick = (e) => { const b = e.target.closest("button[data-id]"); if (b) { keep(); bath = byId.get(+b.dataset.id); draw(); } };
-      $$("[data-rm]", f).forEach((b) => (b.onclick = () => { keep(); people = people.filter((n) => n !== b.dataset.rm); draw(); }));
+      $$("[data-rm]", f).forEach((b) => (b.onclick = () => { keep(); people = people.filter((n) => n !== b.dataset.rm); delete durs[b.dataset.rm]; draw(); }));
+      $$("[data-ed]", f).forEach((b) => (b.onclick = () => { keep(); durs[b.dataset.ed] = +b.dataset.m; draw(); }));
+      $("#eDursToggle", f)?.addEventListener("click", () => { keep(); split = true; draw(); });
+      $("#eDursSame", f)?.addEventListener("click", () => { keep(); split = false; durs = {}; draw(); });
       $("#eAdd").onchange = () => { const n = $("#eAdd").value; keep(); if (n) people.push(n); draw(); };
       $$("#eStatus button").forEach((b) => (b.onclick = () => { keep(); status = b.dataset.st; draw(); }));
       $$("#eDur button").forEach((b) => (b.onclick = () => { keep(); long = b.dataset.long === "1"; draw(); }));
@@ -1580,8 +1610,9 @@
         reject_reason: status === "rejected" ? ($("#eReason").value.trim() || null) : null,
         ...(status !== v.status ? { moderated_by: data.playerIds?.[me?.nick], moderated_at: new Date().toISOString() } : {}) };
       try {
-        await D.updateVisit(v.id, patch, people);
-        Object.assign(v, { bathId: bath.id, date: $("#eEntered").value, posted: $("#ePosted").value, dur, status, reason: patch.reject_reason,
+        const own = split ? durDiff(people.filter((n) => n !== v.player), durs, dur) : {};
+        await D.updateVisit(v.id, patch, people, own);
+        Object.assign(v, { bathId: bath.id, date: $("#eEntered").value, posted: $("#ePosted").value, dur, durs: own, status, reason: patch.reject_reason,
           companions: people.filter((n) => n !== v.player), week: undefined, total: status === "ok" ? v.total : null });
         $("#editModal").hidden = true; updateBadge(); renderFeed();
         toast("Сохранено — таблица пересчитывается");

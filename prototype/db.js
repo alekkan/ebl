@@ -108,7 +108,7 @@ window.EBLData = (() => {
   async function journal() {
     if (sessionUser() === "guest") return [];
     return check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, visit_players(player_id), visit_points(nick, total, lines)")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, visit_players(player_id, duration_min), visit_points(nick, total, lines)")
       .order("posted_at", { ascending: false }).limit(300));
   }
   function loadVisits(rows, playersById) {
@@ -123,6 +123,8 @@ window.EBLData = (() => {
         date: mskLocal(v.entered_at), posted: mskLocal(v.posted_at), dur: v.duration_min, status: v.status, reason: v.reject_reason,
         total: p ? +p.total : null, lines: p ? p.lines.map(([k, n]) => [LINE_LABEL[k] || k, n]) : [], tgLink: v.tg_link,
         enteredBy: v.entered_by ? playersById[v.entered_by] : null,   // Комиссия внесла поход за участника
+        // своя длительность участника, если не как у похода (18.10): { ник: минуты }
+        durs: Object.fromEntries(vp.filter((x) => x.duration_min != null && x.nick).map((x) => [x.nick, x.duration_min])),
       };
     });
   }
@@ -261,7 +263,7 @@ window.EBLData = (() => {
           const nb = { id: 100000 + store.get("newBaths", []).length + 1, ...v.newBath, v26: {}, hist: {}, isNew: true };
           store.set("newBaths", [...store.get("newBaths", []), nb]); v.bathId = nb.id; v.createdBath = nb;
         }
-        const rec = { id: Date.now(), player: v.player, companions: v.companions, bathId: v.bathId, date: v.date, week: v.week, dur: v.dur,
+        const rec = { id: Date.now(), player: v.player, companions: v.companions, bathId: v.bathId, date: v.date, week: v.week, dur: v.dur, durs: v.durs || {},
           lines: v.lines, total: v.total, status: "pending", at: Date.now() };
         cache.visits.unshift(rec); store.set("visits", cache.visits);
         return rec;
@@ -273,6 +275,8 @@ window.EBLData = (() => {
         p_companions: v.companions.map((nick) => cache.playerIds[nick]).filter(Boolean),
         // за другого участника — только Комиссия (проверяет база); за себя — не передаём
         p_player: v.player && v.player !== cache.me.nick ? cache.playerIds[v.player] : null,
+        // своя длительность попутчиков — только у тех, у кого не как у похода
+        p_durations: v.durs && Object.keys(v.durs).length ? Object.fromEntries(Object.entries(v.durs).map(([nick, m]) => [cache.playerIds[nick], m])) : null,
       }));
       if (v.newBath) v.createdBath = { ...v.newBath, id: res.bath_id, status: "pending", created_by: cache.me.playerId, v26: {}, hist: {}, histBy: {}, isNew: true };
       v.bathId = res.bath_id;
@@ -288,21 +292,26 @@ window.EBLData = (() => {
         .eq("id", visitId).eq("status", "pending").select("id"));
       if (!rows.length) throw new Error("эту заявку уже решили — обнови страницу");
     },
-    // Комиссия правит заявку: поля похода и состав компании people = [ник, …] (вместе с автором)
-    async updateVisit(visitId, patch, people) {
+    // Комиссия правит заявку: поля похода, состав компании people = [ник, …] (вместе с автором) и своя длительность
+    // участников durs = { ник: минуты } — только у тех, у кого не как у похода (остальным — пусто)
+    async updateVisit(visitId, patch, people, durs = {}) {
       if (!live) {
         const v = cache.visits.find((x) => x.id === visitId);
         Object.assign(v, { bathId: patch.bath_id, date: patch.entered_at.slice(0, 16), dur: patch.duration_min, status: patch.status,
-          companions: people.filter((n) => n !== v.player) });
+          companions: people.filter((n) => n !== v.player), durs });
         store.set("visits", cache.visits); return;
       }
       check(await sb.from("visits").update(patch).eq("id", visitId));
-      const have = new Set(check(await sb.from("visit_players").select("player_id").eq("visit_id", visitId)).map((c) => c.player_id));
-      const want = new Set(people.map((n) => cache.playerIds[n]));
-      const gone = [...have].filter((id) => !want.has(id));
+      const rows = check(await sb.from("visit_players").select("player_id, duration_min").eq("visit_id", visitId));
+      const have = new Map(rows.map((c) => [c.player_id, c.duration_min]));
+      const want = new Map(people.map((n) => [cache.playerIds[n], durs[n] ?? null]));
+      const gone = [...have.keys()].filter((id) => !want.has(id));
       if (gone.length) check(await sb.from("visit_players").delete().eq("visit_id", visitId).in("player_id", gone));
-      const fresh = [...want].filter((id) => !have.has(id)).map((id) => ({ visit_id: visitId, player_id: id }));
+      const fresh = [...want].filter(([id]) => !have.has(id)).map(([id, m]) => ({ visit_id: visitId, player_id: id, duration_min: m }));
       if (fresh.length) check(await sb.from("visit_players").insert(fresh));
+      for (const [id, m] of want) {
+        if (have.has(id) && have.get(id) !== m) check(await sb.from("visit_players").update({ duration_min: m }).eq("visit_id", visitId).eq("player_id", id));
+      }
     },
     async recompute() {
       if (!live) return;
