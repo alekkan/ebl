@@ -95,7 +95,9 @@
   // рамка подобрана так, чтобы и на телефоне шириной 360 px влезла в зум 3, а не отскочила к целому миру
   const HOME = [[43, 3], [62, 60]];
   // на компьютере слева панель, на телефоне снизу шторка — рамку карты подбираем в видимой части
-  const homePad = () => (phone.matches ? { paddingBottomRight: [0, sheetCover()] } : { paddingTopLeft: [380, 0] });
+  // сверху справа на компьютере — гонка недели: рамку опускаем под неё (по ширине не ужимаем — иначе зум на шаг меньше)
+  const raceH = () => { const r = $("#race"); return innerWidth > 980 && r && r.offsetHeight > 40 ? r.offsetTop + r.offsetHeight + 8 : 0; };
+  const homePad = () => (phone.matches ? { paddingBottomRight: [0, sheetCover()] } : { paddingTopLeft: [380, raceH()] });
   const map = L.map("map", { zoomControl: true, worldCopyJump: true }).fitBounds(HOME, { ...homePad(), animate: false });
   map.attributionControl.setPrefix(false);
   const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -971,13 +973,23 @@
     const who = e.filter(([, k]) => k === n).map(([p]) => p).sort((x, y) => x.localeCompare(y, "ru"));
     return { n, who, kind: n < 2 ? "free" : who.length > 1 ? "shared" : "owner" };
   }
-  let ownMap = null, ownLayer = null, ownFocus = "";
+  let ownMap = null, ownLayer = null, ownFree = null, ownFocus = "";
   function initOwners() {
     if (!ownMap) {
       ownMap = L.map("ownmap", { worldCopyJump: true, zoomSnap: 0.5 }).setView([55.75, 37.6], innerWidth > 760 ? 10 : 9);
       ownMap.attributionControl.setPrefix(false);
       L.tileLayer(TILE_URL, tileOpts).addTo(ownMap);
-      ownLayer = L.layerGroup().addTo(ownMap);
+      // 18.10: в Москве аватарки налезали друг на друга — при отдалении собираем в группы: до трёх самых частых хозяев
+      // и число бань (нажал — приблизились); свободные бани (белые точки) — отдельно и без групп
+      ownLayer = L.markerClusterGroup({ maxClusterRadius: 46, disableClusteringAtZoom: 13, showCoverageOnHover: false, spiderfyOnMaxZoom: true,
+        iconCreateFunction: (c) => {
+          const kids = c.getAllChildMarkers(), tally = new Map();
+          for (const m of kids) for (const p of m.options.owners || []) tally.set(p, (tally.get(p) || 0) + 1);
+          const top = [...tally].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p]) => p), sz = 34;
+          return L.divIcon({ className: "", iconSize: [Math.round(sz + (top.length - 1) * sz * 0.6), sz],
+            html: `<div class="own-pin own-cluster" style="--s:${sz}px">${top.map((p) => ava(p)).join("")}<b>${kids.length}</b></div>` });
+        } }).addTo(ownMap);
+      ownFree = L.layerGroup().addTo(ownMap);
     }
     setTimeout(() => ownMap.invalidateSize(), 0);
     renderOwners();
@@ -995,13 +1007,13 @@
     const hidden = baths.filter((b) => (!b.ll || b.prec !== "exact") && ownerOf(b)?.kind === "owner").length;
     const kingdoms = new Map();
     for (const [b, o] of rows) if (o.kind === "owner") kingdoms.set(o.who[0], [...(kingdoms.get(o.who[0]) || []), [b, o.n]]);
-    ownLayer.clearLayers();
+    ownLayer.clearLayers(); ownFree.clearLayers();
     const shown = rows.filter(([, o]) => !ownFocus || o.who.includes(ownFocus));
     for (const [b, o] of shown) {
-      L.marker(b.ll, { icon: ownerIcon(o), zIndexOffset: o.kind === "free" ? -1000 : o.n * 10, title: b.name })
+      L.marker(b.ll, { icon: ownerIcon(o), zIndexOffset: o.kind === "free" ? -1000 : o.n * 10, title: b.name, owners: o.kind === "free" ? [] : o.who })
         .bindTooltip(`<b>${esc(b.name)}</b><br>${o.kind === "free" ? "свободна — все по разу" : `${esc(o.who.join(", "))}${o.kind === "shared" ? " делят" : ""} · ${o.n} ${plural(o.n, "поход", "похода", "походов")}`}`, { direction: "top", offset: [0, -14] })
         .on("click", () => { show("map"); openBath(b.id, true); })
-        .addTo(ownLayer);
+        .addTo(o.kind === "free" ? ownFree : ownLayer);
     }
     if (ownFocus && shown.length) ownMap.fitBounds(L.latLngBounds(shown.map(([b]) => b.ll)).pad(0.2), { maxZoom: 12, paddingTopLeft: innerWidth > 760 ? [360, 0] : [0, 0] });
     const count = (k) => rows.filter(([, o]) => o.kind === k).length;
@@ -1765,11 +1777,11 @@
     if (open.length) open.forEach((m) => (m.hidden = true)); else if (!$("#drawer").hidden && $$(".modal").every((m) => m.hidden)) closeBath();
   });
   let tt;
-  function toast(msg, html) {
+  function toast(msg, html, ms = 3000) {
     $(".toast")?.remove(); clearTimeout(tt);
     const t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status");
     t[html ? "innerHTML" : "textContent"] = msg; document.body.append(t);
-    tt = setTimeout(() => t.remove(), 3000);
+    tt = setTimeout(() => t.remove(), ms);
   }
 
   // ---------- вход через Telegram ----------
@@ -2345,8 +2357,34 @@
     }
   });
 
+  // решения Комиссии с прошлого захода (18.10): «✅ Комиссия засчитала „Василевские“ · +4» — один раз. Отметку, что видел,
+  // браузер помнит у себя (это не данные, а «уже показал»); первый заход — старые решения не вываливаем; свои решения
+  // Комиссии на свои походы не показываем
+  function announceDecisions() {
+    if (!D.live || !me?.nick) return;
+    const key = `ebl.seenDecisions.${me.nick}`, nowMs = Date.now();
+    let seen = null;
+    try { seen = Number(localStorage.getItem(key)) || null; localStorage.setItem(key, String(nowMs)); } catch { return; }
+    if (!seen) return;
+    const fresh = visits.filter((v) => (v.player === me.nick || v.companions.includes(me.nick)) && v.status !== "pending"
+      && v.decidedAt && v.decidedAt > seen && v.decidedBy !== me.playerId).sort((a, b) => a.decidedAt - b.decidedAt);
+    if (!fresh.length) return;
+    const name = (v) => esc(byId.get(v.bathId)?.name || "баня");
+    const ok = fresh.filter((v) => v.status === "ok"), no = fresh.filter((v) => v.status === "rejected");
+    const pts = ok.reduce((a, v) => a + (v.pts?.[me.nick] || 0), 0);
+    const one = fresh.length === 1 ? fresh[0] : null;
+    const msg = one ? (one.status === "ok"
+        ? `✅ Комиссия засчитала «${name(one)}»${one.pts?.[me.nick] ? ` · <b>+${fmt(one.pts[me.nick])}</b>` : ""}`
+        : `❌ Комиссия отклонила поход в «${name(one)}»${one.reason ? `: ${esc(one.reason)}` : ""}`)
+      : `Комиссия решила ${fresh.length} ${plural(fresh.length, "твой поход", "твоих похода", "твоих походов")}: `
+        + [ok.length && `✅ ${ok.length}${pts ? ` · <b>+${fmt(pts)}</b>` : ""}`, no.length && `❌ ${no.length}`].filter(Boolean).join(", ");
+    toast(`<span class="toast-msg">${msg}</span><button type="button" class="toast-act">В ленту</button>`, true, 9000);
+    const b = $(".toast .toast-act");
+    if (b) b.onclick = () => { $(".toast")?.remove(); show("feed"); $('#feedFilter button[data-f="all"]')?.click(); };
+  }
   updateBadge();
   render("home");
+  setTimeout(announceDecisions, 600);   // после первой отрисовки — не поверх заставки
   const h = location.hash.slice(1);
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
   if (h === "radar" && canModerate && D.live) { show("dir"); setDirMode("radar"); }

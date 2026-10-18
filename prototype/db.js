@@ -108,7 +108,7 @@ window.EBLData = (() => {
   async function journal() {
     if (sessionUser() === "guest") return [];
     return check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, visit_players(player_id, duration_min), visit_points(nick, total, lines)")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, visit_players(player_id, duration_min), visit_points(nick, total, lines)")
       .order("posted_at", { ascending: false }).limit(300));
   }
   function loadVisits(rows, playersById) {
@@ -123,6 +123,9 @@ window.EBLData = (() => {
         date: mskLocal(v.entered_at), posted: mskLocal(v.posted_at), dur: v.duration_min, status: v.status, reason: v.reject_reason,
         total: p ? +p.total : null, lines: p ? p.lines.map(([k, n]) => [LINE_LABEL[k] || k, n]) : [], tgLink: v.tg_link,
         enteredBy: v.entered_by ? playersById[v.entered_by] : null,   // Комиссия внесла поход за участника
+        // когда и кто решил (18.10: «Комиссия засчитала…» при заходе) и очки каждого из компании
+        decidedAt: v.moderated_at ? Date.parse(v.moderated_at) : null, decidedBy: v.moderated_by || null,
+        pts: Object.fromEntries(Object.entries(ptsBy[v.id] || {}).map(([nick, x]) => [nick, +x.total])),
         // своя длительность участника, если не как у похода (18.10): { ник: минуты }
         durs: Object.fromEntries(vp.filter((x) => x.duration_min != null && x.nick).map((x) => [x.nick, x.duration_min])),
       };

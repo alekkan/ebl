@@ -361,10 +361,13 @@ with sync_playwright() as pw:
         check("участнику видна лента походов", s.js("() => !!document.querySelector('#feedFilter button')"))
         # «Хозяева бань» (15.10, вместо «Жара»): хозяин — больше всех походов в бане за сезон, от двух
         s.view("owners"); s.page.wait_for_timeout(500)
-        pins = lambda: s.js("() => document.querySelectorAll('#ownmap .own-pin').length")
+        # бань с хозяином на карте: отдельные аватарки и числа на группах (18.10: при отдалении — группами)
+        pins = lambda: s.js("() => [...document.querySelectorAll('#ownmap .own-pin')].reduce((a, p) => a + (p.classList.contains('own-cluster') ? +p.querySelector('b').innerText : 1), 0)")
         before_pins = pins()
         check("«Хозяева»: на карте аватарки хозяев, сбоку — кто сколькими владеет",
               before_pins > 0 and s.js("() => document.querySelectorAll('#oList li[data-owner]').length > 0"))
+        check("«Хозяева»: в Москве аватарки не налезают — при отдалении собраны в группы с аватарками хозяев и числом бань",
+              s.js("() => { const c = document.querySelector('#ownmap .own-cluster'); return !!c && c.querySelectorAll('.ava').length >= 1 && +c.querySelector('b').innerText >= 2; }"))
         check("«Хозяева»: участнику — где он хозяин и какую шапку ближе всего отжать", s.js("() => /хозяин/.test(document.getElementById('oMe').innerText)"))
         owned = int(s.js("() => document.querySelector('#oList li[data-owner] .hv').innerText"))
         s.page.click("#oList li[data-owner]"); s.page.wait_for_timeout(500)
@@ -845,6 +848,21 @@ with sync_playwright() as pw:
                 return b.length === 4 && b.every((x) => x.getBoundingClientRect().height >= 36) && r.getBoundingClientRect().height < 60; }"""))
         s.no_clip("телефон: своя длительность у попутчика", "#visitModal")
         s.close()
+
+        # 18.10: решения Комиссии с прошлого захода — один раз при входе на сайт
+        dv = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, status, source, moderated_by, moderated_at) values ({bath}, now() - interval '5 hours', 120, '{player_id('Шурик')}', 'ok', 'site', '{player_id('Витёк')}', now()) returning id").splitlines()[0]
+        s = Site(browser, url, sess=shurik, name="decisions",
+                 init="if (!localStorage.getItem('ebl.seenDecisions.Шурик')) localStorage.setItem('ebl.seenDecisions.Шурик', String(Date.now() - 86400000))")
+        s.page.wait_for_timeout(1500)
+        # одно решение — «Комиссия засчитала „…“», несколько (на стенде остаются засчитанные выше) — «Комиссия решила N твоих походов»
+        check("при заходе — о решениях Комиссии с прошлого раза, с кнопкой «В ленту»",
+              s.js("() => /Комиссия (засчитала|решила)/.test(document.querySelector('.toast')?.innerText || '') && !!document.querySelector('.toast .toast-act')"),
+              s.js("() => document.querySelector('.toast')?.innerText"))
+        s.page.click(".toast .toast-act"); s.page.wait_for_timeout(400)
+        check("…«В ленту» — открыта лента", s.js("() => !document.getElementById('view-feed').hidden"))
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000); s.page.wait_for_timeout(1500)
+        check("…и только один раз: после перезагрузки уже не показывается", s.js("() => !/Комиссия (засчитала|решила)/.test(document.querySelector('.toast')?.innerText || '')"))
+        s.close(); sql(f"delete from visits where id = {dv}")
 
         print("Режим витрины (пустой config.js)")
         s = Site(browser, url, config=SHOWCASE_CONFIG, name="showcase")
