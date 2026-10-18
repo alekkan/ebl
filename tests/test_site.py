@@ -368,7 +368,16 @@ with sync_playwright() as pw:
         s.page.press("#vDate", "Enter")
         check("Enter в поле не отправляет форму", s.js("() => !document.getElementById('visitModal').hidden"))
         s.page.click('#vDurChips button[data-m="180"]')
+        check("пока никого не выбрал — ссылки про разную длительность нет", s.js("() => document.getElementById('vDursToggle').hidden"))
         s.page.click("#vComp button")
+        # 18.10: своя длительность у попутчика — за ссылкой, по умолчанию у всех как у автора
+        mate = s.js("() => document.querySelector('#vComp button[aria-pressed=true]').dataset.p")
+        check("попутчик выбран — тихая ссылка «У кого-то было по-другому?», строки спрятаны",
+              s.js("() => !document.getElementById('vDursToggle').hidden && document.getElementById('vDurs').hidden"))
+        s.page.click("#vDursToggle")
+        check("…строки открылись: у попутчика по умолчанию как у автора (🔥 долгая)",
+              s.js("() => document.querySelectorAll('#vDurs .durs-row').length === 1 && document.querySelector('#vDurs [data-m=\"180\"]').getAttribute('aria-pressed') === 'true'"))
+        s.page.click('#vDurs [data-m="120"]')
         s.page.fill("#vPrice", "700"); s.page.fill("#vPrBeer", "280")
         s.page.set_input_files("#vPhotos", files=[{"name": "par.png", "mimeType": "image/png", "buffer": TILE}])
         s.page.wait_for_timeout(500)
@@ -380,6 +389,8 @@ with sync_playwright() as pw:
         vid = max(map(int, new)) if new else None
         row = sql(f"select source || ' ' || status || ' ' || (select count(*) from visit_players where visit_id = {vid}) from visits where id = {vid}") if vid else ""
         check("поход сохранился: с сайта, на модерации, с попутчиком", row == "site pending 2", row)
+        durs_row = lambda: sql(f"select string_agg(case when vp.player_id = v.created_by then 'автор' else 'попутчик' end || '=' || coalesce(vp.duration_min::text, '—'), ',' order by vp.player_id = v.created_by) from visit_players vp join visits v on v.id = vp.visit_id where vp.visit_id = {vid}") if vid else ""
+        check("у попутчика своя длительность — экспресс, у автора — как у похода", durs_row() == "попутчик=120,автор=—", durs_row())
         # фото из формы: браузер уменьшил, положил в бакет по одноразовой ссылке, функция проверила оба файла и показала
         ph = lambda: sql(f"select coalesce(string_agg(key || ' ' || ready || ' ' || source || ' ' || w || 'x' || h, ','), '') from visit_photos where visit_id = {vid}") if vid else ""
         for _ in range(40):   # не time.sleep: он стопорит Playwright, и запись в бакет (через _offline) не идёт
@@ -514,10 +525,17 @@ with sync_playwright() as pw:
               s.js(f"async () => {{ try {{ await window.EBLData.moderate({vid}, 'rejected'); return false; }} catch (e) {{ return /уже решили/.test(e.message); }} }}"))
         # правка засчитанного похода: «🔥 Долгая» вместо минут
         s.page.click('#feedFilter button[data-f="all"]'); s.page.wait_for_timeout(300)
+        check("в ленте видно, у кого была другая длительность", s.js(f"() => (document.querySelector('[data-edit=\"{vid}\"]')?.closest('.post')?.innerText || '').includes('— ⚡ экспресс')"))
         s.page.click(f'[data-edit="{vid}"]'); s.page.wait_for_timeout(300)
+        check("в правке у Комиссии строки длительности открыты сразу: у попутчика — экспресс",
+              s.js("() => document.querySelector('#ePeople [data-ed][data-m=\"120\"]')?.getAttribute('aria-pressed') === 'true'"))
         s.page.click('#eDur button[data-long="1"]')
         s.page.click('#editForm button[type="submit"]'); s.page.wait_for_timeout(1500)
         check("Комиссия правит засчитанный поход: «🔥 Долгая» — в базе больше 150 минут", int(sql(f"select duration_min from visits where id = {vid}")) > 150)
+        check("…а у попутчика остался экспресс", durs_row() == "попутчик=120,автор=—", durs_row())
+        s.page.click(f'[data-edit="{vid}"]'); s.page.wait_for_timeout(300)
+        s.page.click("#eDursSame"); s.page.click('#editForm button[type="submit"]'); s.page.wait_for_timeout(1500)
+        check("«Всем одинаково» в правке — своя длительность снята", durs_row() == "попутчик=—,автор=—", durs_row())
         # справочник бань — вкладка только у Комиссии (просьба Витька 02.10): тип, где, сколько походов, кто где был
         s.view("dir")
         s.page.wait_for_selector("#dirTable tbody tr", timeout=8000)
@@ -772,6 +790,10 @@ with sync_playwright() as pw:
         s.page.wait_for_selector("#visitModal:not([hidden])", timeout=3000)
         check("телефон: после анимации открылась форма", True)
         s.no_clip("форма «Добавить баню» на телефоне", "#visitModal")
+        s.page.click("#vComp button"); s.page.click("#vDursToggle"); s.page.wait_for_timeout(200)
+        check("телефон: строки «у кого-то было по-другому» — кнопки под палец (не ниже 36 px)",
+              s.js("() => { const b = [...document.querySelectorAll('#vDurs .durs-seg button')]; return b.length === 2 && b.every((x) => x.getBoundingClientRect().height >= 36); }"))
+        s.no_clip("телефон: своя длительность у попутчика", "#visitModal")
         s.close()
 
         print("Режим витрины (пустой config.js)")

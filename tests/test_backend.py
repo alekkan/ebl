@@ -105,6 +105,20 @@ check("компания из трёх — К у всех", all(any(l[0] == "comp
 check("долгий у всей компании, без фото", all(any(l[0] == "long" for l in p["lines"]) for p in pts.values()))
 after = {n: float(sql(f"select total from standings where nick='{n}'")) for n in before}
 check("таблица выросла ровно на очки похода", all(abs(after[n] - before[n] - float(pts[n]["total"])) < 0.01 for n in before), (before, after))
+# 18.10: своя длительность участника — Леха ушёл раньше (экспресс), Шурик и Витёк — долгую; компания у всех троих
+sql(f"update visit_players set duration_min = 120 where visit_id = {vid} and player_id = '{leha}'")
+req("POST", "/functions/v1/recompute", {})
+pts2 = {p["nick"]: p for p in req("GET", f"/rest/v1/visit_points?visit_id=eq.{vid}&select=nick,total,lines", token=shurik)[1]}
+check("своя длительность: у Лехи экспресс — без +1 за долгий, у Шурика и Витька долгий, компания К у всех",
+      not any(l[0] == "long" for l in pts2["Леха"]["lines"]) and all(any(l[0] == "long" for l in pts2[n]["lines"]) for n in ("Шурик", "Витёк"))
+      and all(any(l[0] == "company" for l in p["lines"]) for p in pts2.values()), pts2)
+row = f"/rest/v1/visit_players?visit_id=eq.{vid}&player_id=eq.{leha}"
+s1, r1 = req("PATCH", row, {"duration_min": 180}, token=shurik, headers={"Prefer": "return=representation"})
+s2, r2 = req("PATCH", row, {"duration_min": 180}, token=vitek, headers={"Prefer": "return=representation"})
+check("длительность участника правит Комиссия, сам участник — нет", (s1 >= 400 or r1 == []) and s2 == 200 and r2 and r2[0]["duration_min"] == 180, (s1, r1, s2, r2))
+check("…и только её: перенести участника в другой поход нельзя даже Комиссии",
+      req("PATCH", row, {"visit_id": vid + 100000}, token=vitek)[0] >= 400 and req("PATCH", row, {"duration_min": 30}, token=vitek)[0] >= 400)
+sql(f"update visit_players set duration_min = null where visit_id = {vid}"); req("POST", "/functions/v1/recompute", {})
 
 print("Журнал: служебные поля и компания")
 other = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, status) values (6, '2026-09-26T09:00:00+03', 120, '{leha}', 'ok') returning id").splitlines()[0]
@@ -142,6 +156,11 @@ check("компания: автор и Витёк — без повторов и
       sql(f"select string_agg(p.nick, ',' order by p.nick) from visit_players vp join players p on p.id = vp.player_id where visit_id = {v2}") == "Витёк,Шурик")
 check("поход от автора, с сайта, ждёт Комиссию", sql(f"select source || '/' || status || '/' || (created_by = '{me}') from visits where id = {v2}") == "site/pending/true")
 check("пустой тип бани заполнен со слов автора", sql("select type from baths where id = 22") == "spa")
+s, r3 = submit(shurik, p_bath_id=22, p_duration_min=180, p_companions=[vit, leha], p_durations={vit: 120, leha: 180})
+check("своя длительность попутчиков с сайта: у Витька экспресс записан, у Лехи — как у похода (пусто)", s == 200 and sql(
+    f"select string_agg(p.nick || '=' || coalesce(vp.duration_min::text, '—'), ',' order by p.nick) from visit_players vp join players p on p.id = vp.player_id where visit_id = {r3['visit_id']}")
+    == "Витёк=120,Леха=—,Шурик=—", (s, r3))
+sql(f"delete from visits where id = {r3['visit_id']}")
 s, r = submit(shurik, p_new_bath={"name": "  Тестовая баня на Валдае ", "country": "Россия", "region": "Новгородская обл", "type": "public",
                                   "lat": 57.98, "lng": 33.25, "precision": "exact"})
 check("новая баня — на модерации, от автора, с точкой", s == 200 and sql(
