@@ -9,6 +9,7 @@
   // склоняем то, что видно на экране: 20,97 показывается как «21» — значит «21 очко»
   const plural = (n, a, b, c) => { n = Math.round(Math.abs(+n) * 10) / 10; if (!Number.isInteger(n)) return b; const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
   const TYPE_LABEL = { public: "Общественная", spa: "Хуитнес", private: "Частная", unknown: "Тип не указан" };
+  const PREC_SHORT = { city: "точка по городу", region: "точка по региону", country: "точка по стране" };   // фильтр Комиссии «Точка примерная»
   const PREC_LABEL = { city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
   const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€", JPY: "¥", AED: "د.إ" };
   const curSign = (c) => CUR_SIGN[c] || c;
@@ -307,6 +308,13 @@
   $("#q").addEventListener("input", () => render());
   $("#fCountry").addEventListener("change", () => render(true));
   $("#fPlayer").addEventListener("change", () => render(true));
+  // Комиссии (18.10): бани без точки и с примерной — пройтись и поправить. Сразу «Все бани»: проверяем бани всех лет,
+  // а не только те, где были в 2026; поправил точку в карточке — баня уходит из списка
+  $("#fPrec").hidden = !(canModerate && D.live);
+  $("#fPrec").addEventListener("change", () => {
+    if ($("#fPrec").value) $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "all")));
+    render(true);
+  });
   // «Я» — выбрать себя одним нажатием (повторное — снова вся лига)
   const myNick = D.live ? me?.nick : null;
   $("#fMe").hidden = !myNick;
@@ -329,7 +337,7 @@
   function render(fit) {
     const q = $("#q").value.trim().toLowerCase();
     const type = $("#fType [aria-pressed=true]").dataset.t, season = $("#fSeason [aria-pressed=true]").dataset.v;
-    const country = $("#fCountry").value, player = $("#fPlayer").value;
+    const country = $("#fCountry").value, player = $("#fPlayer").value, prec = $("#fPrec").value;
     const metric = season === "2026" ? (b) => (player ? b.v26?.[player] || 0 : b.n26) : (b) => (player ? countFor(b, "all", player) : b.nAll);
     // выбран участник — «были / не были в 2026» считаются про него, а не про всю лигу:
     // «Не были в 2026» — все бани, где он в этом сезоне ещё не был, со счётом, сколько очков даст первый поход
@@ -337,7 +345,8 @@
       : season === "2026" ? (player ? metric(b) > 0 : b.n26 > 0 || b.isNew)
       : player ? !(b.v26?.[player] > 0) : b.n26 === 0;
     const pot = player && season === "never" ? potentialFor(player) : null;
-    const current = baths.filter((b) => (!type || b.t === type) && (!country || b.country === country) && (!q || b.search.includes(q)) && inSeason(b));
+    const precOk = (b) => !prec || (prec === "none" ? !b.ll : !!b.ll && b.prec !== "exact");
+    const current = baths.filter((b) => (!type || b.t === type) && (!country || b.country === country) && (!q || b.search.includes(q)) && inSeason(b) && precOk(b));
     current.forEach((b) => {
       b._m = metric(b); b._pot = pot ? pot(b) : null;
       b._km = here && b.lat != null && b.prec !== "country" ? distKm(here, [b.lat, b.lng]) : null;   // точка «по центру страны» — не расстояние
@@ -355,7 +364,8 @@
     const rich = pot ? current.filter((b) => b._pot.length >= 3).length : 0;
     $("#count").textContent = pot
       ? `${player}: новых в 2026 — ${current.length} ${plural(current.length, "баня", "бани", "бань")}${rich ? ` · +3 и больше — ${rich}` : ""}`
-      : `${current.length} ${plural(current.length, "баня", "бани", "бань")} · ${season === "2026" ? "походы в 2026" : "походы за 2023–2026"}` + (noPin ? ` · ${noPin} без точки` : "");
+      : `${current.length} ${plural(current.length, "баня", "бани", "бань")} · ${season === "2026" ? "походы в 2026" : "походы за 2023–2026"}`
+        + (prec === "rough" ? " · точка примерная" : prec === "none" ? " · без точки" : noPin ? ` · ${noPin} без точки` : "");
     // подсказка, что значат цифры, — только там, где без неё непонятно
     const note = $("#potNote");
     let seen = false; try { seen = localStorage.getItem("ebl.potNote") === "1"; } catch { /* приватный режим — просто покажем */ }
@@ -369,7 +379,8 @@
     const jrP = player && !(D.live && !member) ? journalOf(player) : null;
     $("#list").innerHTML = current.length ? current.slice(0, LIMIT).map((b) => {
       const n = b._m, last = jrP?.get(b.id)?.last, known = pot ? knownSince(b, player) : null;
-      const meta = [where(b), last && dayLabel(last), b._km != null && `${b.prec !== "exact" ? "~" : ""}${fmtKm(b._km)}`, known && `знакомая · ${known}`].filter(Boolean).join(" · ");
+      const meta = [where(b), last && dayLabel(last), b._km != null && `${b.prec !== "exact" ? "~" : ""}${fmtKm(b._km)}`, known && `знакомая · ${known}`,
+        prec === "rough" && PREC_SHORT[b.prec]].filter(Boolean).join(" · ");
       return `<button class="item ${b.id === openId ? "active" : ""}" data-id="${b.id}">
         ${tdot(b.t)}
         <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(meta)}</span></span>
@@ -488,11 +499,16 @@
         <div class="d-hero t-${b.t}">
           <div class="d-meta">
             ${canModerate && D.live
-              ? `<label class="t t-sel">${tdot(b.t)}<select id="dType" aria-label="Тип бани — меняет Комиссия">${b.t === "unknown" ? '<option value="" selected>Тип не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([t, l]) => `<option value="${t}" ${b.t === t ? "selected" : ""}>${l}</option>`).join("")}</select><span aria-hidden="true">▾</span></label>`
+              ? `<button type="button" class="t t-pick" id="dTypeBtn" aria-expanded="false" aria-controls="dTypeAsk" title="Сменить тип — Комиссия">${tdot(b.t)}${TYPE_LABEL[b.t]}<span aria-hidden="true">▾</span></button>`
               : `<span class="t">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
             ${b.t === "public" ? '<span class="plus">+1 очко</span>' : ""}
             ${flags.map((f) => `<span class="flag">${f}</span>`).join("")}
           </div>
+          ${canModerate && D.live ? `<div class="type-ask" id="dTypeAsk" hidden>
+            <div class="chips" role="group" aria-label="Новый тип бани">${Object.entries(TYPE_CHOICE).map(([t, l]) => `<button type="button" data-newtype="${t}" aria-pressed="${b.t === t}">${tdot(t)}${l}</button>`).join("")}</div>
+            <p class="type-note" id="dTypeNote">Выбери новый тип.</p>
+            <div class="type-acts"><button type="button" class="btn sm solid" id="dTypeGo" disabled>Сменить</button><button type="button" class="linkbtn" id="dTypeCancel">Отмена</button></div>
+          </div>` : ""}
           <h2 class="${long ? "long" : ""}">${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="rename" id="dRename" title="Поправить название — Комиссия" aria-label="Поправить название">✏️</button>` : ""}</h2>
           <div class="geo-move">
             <p class="where">${icon("pin")}<span>${esc(where(b))}${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${geoAct ? ` · <button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>` : ""}</span></p>
@@ -583,13 +599,31 @@
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
     }
     $(".x", d).onclick = closeBath;
-    $("#dType", d)?.addEventListener("change", async (e) => {
-      try {
-        await D.moderateBath(b.id, { type: e.target.value || null });
-        b.type = e.target.value || null; b.t = b.type || "unknown"; render(); openBath(b.id);
-        toast(`Тип: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); recomputeSoon();
-      } catch (err) { toast("Не получилось: " + err.message); }
-    });
+    // тип бани — Комиссия меняет прямо в карточке, но только после подтверждения: от типа зависят очки за все походы сюда (18.10)
+    const typeAsk = $("#dTypeAsk", d);
+    if (typeAsk) {
+      let pick = null;
+      const btn = $("#dTypeBtn", d), go = $("#dTypeGo", d), note = $("#dTypeNote", d);
+      const close = () => { typeAsk.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+      btn.onclick = () => { typeAsk.hidden = !typeAsk.hidden; btn.setAttribute("aria-expanded", String(!typeAsk.hidden)); };
+      $$("[data-newtype]", typeAsk).forEach((x) => (x.onclick = () => {
+        pick = x.dataset.newtype;
+        $$("[data-newtype]", typeAsk).forEach((y) => y.setAttribute("aria-pressed", String(y === x)));
+        go.disabled = pick === b.t;
+        const n = b.n26 || 0;
+        note.textContent = pick === b.t ? "Это и есть текущий тип."
+          : `«${b.name}»: ${TYPE_LABEL[b.t]} → ${TYPE_LABEL[pick]}. ${n ? `Очки за ${n} ${plural(n, "поход", "похода", "походов")} сюда в 2026 пересчитаются.` : "Очки за походы сюда пересчитаются."}`;
+      }));
+      $("#dTypeCancel", d).onclick = close;
+      go.onclick = async () => {
+        go.disabled = true;
+        try {
+          await D.moderateBath(b.id, { type: pick });
+          b.type = pick; b.t = pick; render(); openBath(b.id);
+          toast(`«${b.name}»: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); recomputeSoon();
+        } catch (err) { go.disabled = false; toast("Не получилось: " + err.message); }
+      };
+    }
     $("#dVisit", d).onclick = () => openVisit({ bathId: id });
     $("#prMore", d)?.addEventListener("click", () => { $("#prMore", d).hidden = true; $("#prExtra", d).hidden = false; });
     $$("#prWeekend button", d).forEach((b) => b.addEventListener("click", () => $$("#prWeekend button", d).forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
@@ -1029,7 +1063,7 @@
     if ($("#pOnMap")) $("#pOnMap").onclick = () => {
       $("#playerModal").hidden = true; show("map"); closeBath();
       // остальные фильтры сбрасываем, иначе можно увидеть «Ничего не нашлось»
-      $("#q").value = ""; $("#fCountry").value = "";
+      $("#q").value = ""; $("#fCountry").value = ""; $("#fPrec").value = "";
       $$("#fType button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.t === "")));
       $("#fPlayer").value = name; $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "2026")));
       render(true);
