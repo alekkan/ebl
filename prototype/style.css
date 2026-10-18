@@ -651,14 +651,22 @@ tr.below { color: var(--ink-2); }
 /* своя длительность у кого-то из компании (18.10): имя слева, «⚡ Экспресс / 🔥 Долгая» справа; на узком экране — под именем */
 .durs-toggle { justify-self: start; margin-top: 8px; font-size: 13px; }
 .durs { display: grid; gap: 2px; margin-top: 8px; }
-.durs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.durs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .durs-row .ava { box-shadow: none; }
 .durs-row b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.durs-row b small { font-weight: 500; color: var(--ink-3); }
 .durs-seg { flex: 0 0 auto; margin-left: auto; }
 .durs-seg button { min-height: 36px; padding: 6px 12px; }
-.durs .hint { margin: 6px 0 0; }
-.durs .linkbtn { justify-self: start; font-size: 13px; }
-@media (max-width: 420px) { .durs-seg { flex: 1 1 100%; } }
+.durs-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; margin-top: 8px; }
+.durs .linkbtn { font-size: 13px; }
+@media (max-width: 400px) { .durs-seg button { padding: 6px 9px; } }
+/* форма похода (18.10): «Кто» — только у Комиссии; без него «Когда» на всю ширину */
+.v-when #vPlayerField[hidden] + .field { grid-column: 1 / -1; }
+.comp-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 8px; }
+.comp-more .linkbtn { font-size: 13px; }
+#vCompQ { flex: 1 1 200px; height: 38px; }
+.v-optional { display: grid; gap: 18px; padding-top: 18px; border-top: 1px dashed var(--line); }
+.v-optional #vPrMore { justify-self: start; }
 .erow .ava { box-shadow: none; }
 .erow b { min-width: 90px; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -860,8 +868,14 @@ tr.below { color: var(--ink-2); }
   .sheet, .sheet-wide { width: 100%; max-height: 94%; border-radius: 24px 24px 0 0; }
   .visit { grid-template-columns: 1fr; }
   .visit-main { padding: 22px 18px 8px; }
-  .visit-side { border-left: 0; border-top: 1px solid var(--line); padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  /* «Отправить · +3» прилипает к низу формы (18.10): видно итог и не надо листать до конца; талон — ниже, как был */
+  .visit-side { display: contents; }
+  .visit-side .ticket { margin: 6px 18px 0; }
+  .visit-side > .hint { margin: 8px 18px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  #vSubmit { position: sticky; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 5; width: auto; margin: 12px 18px 0;
+    box-shadow: 0 10px 24px -6px rgba(20, 40, 25, .45); }
   .grid2, .cols2 { grid-template-columns: 1fr; }
+  .grid2.price2 { grid-template-columns: 1fr 1fr; }   /* «Вход» и «Пиво» — короткие, на телефоне тоже в строку */
   .stats.four { grid-template-columns: repeat(2, 1fr); }
   .p-head { padding: 24px 18px 16px; } .p-body { padding: 8px 18px 24px; }
   .blist { max-height: none; overflow: visible; padding-right: 0; }   /* на телефоне листается вся карточка, без вложенной прокрутки */
