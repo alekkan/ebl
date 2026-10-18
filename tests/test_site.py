@@ -362,25 +362,39 @@ with sync_playwright() as pw:
         check("участнику (не Комиссии) вкладки «Бани» нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
         # поход через форму: баня из справочника + попутчик
         s.page.click("#addVisitBtn")
-        check("участнику «Кто» не выбрать — поход только за себя", s.js("() => document.getElementById('vPlayer').disabled && document.getElementById('vPlayerHint').hidden"))
+        check("участнику «Кто» не выбрать — поход только за себя, и поля «Кто» у него нет",
+              s.js("() => document.getElementById('vPlayer').disabled && document.getElementById('vPlayerHint').hidden && document.getElementById('vPlayerField').hidden"))
         s.page.fill("#vBathQ", "Василевские")
         s.page.click(f'#vSuggest button[data-id="{bath}"]')
         s.page.press("#vDate", "Enter")
         check("Enter в поле не отправляет форму", s.js("() => !document.getElementById('visitModal').hidden"))
         s.page.click('#vDurChips button[data-m="180"]')
         check("пока никого не выбрал — ссылки про разную длительность нет", s.js("() => document.getElementById('vDursToggle').hidden"))
+        # 18.10: «С кем был» — не стена из всей лиги: сначала до 8 частых попутчиков, остальные — по «Все участники», с поиском
+        total_players = s.js("() => document.getElementById('vPlayer').options.length") - 1
+        check("«С кем был»: сначала до 8 частых попутчиков, остальные — по «Все участники»",
+              s.js("() => document.querySelectorAll('#vComp button').length") <= 8 and s.js("() => !document.getElementById('vCompAll').hidden"))
+        s.page.click("#vCompAll"); s.page.wait_for_timeout(200)
+        check("…«Все участники» — вся лига и поиск по нику", s.js("() => document.querySelectorAll('#vComp button').length") == total_players
+              and s.js("() => !document.getElementById('vCompQ').hidden"), (s.js("() => document.querySelectorAll('#vComp button').length"), total_players))
+        s.page.fill("#vCompQ", "вит"); s.page.wait_for_timeout(200)
+        check("…поиск по нику сужает список", s.js("() => [...document.querySelectorAll('#vComp button')].every((b) => /вит/i.test(b.dataset.p))"))
+        s.page.fill("#vCompQ", ""); s.page.click("#vCompAll"); s.page.wait_for_timeout(200)
         s.page.click("#vComp button")
-        # 18.10: своя длительность у попутчика — за ссылкой, по умолчанию у всех как у автора
+        # 18.10: своя длительность у попутчика — за ссылкой прямо под выбором длительности, по умолчанию у всех как у автора
         mate = s.js("() => document.querySelector('#vComp button[aria-pressed=true]').dataset.p")
-        check("попутчик выбран — тихая ссылка «У кого-то было по-другому?», строки спрятаны",
-              s.js("() => !document.getElementById('vDursToggle').hidden && document.getElementById('vDurs').hidden"))
+        check("попутчик выбран — под длительностью ссылка «Кто-то ушёл раньше или остался дольше?», строки спрятаны",
+              s.js("() => !document.getElementById('vDursToggle').hidden && document.getElementById('vDurs').hidden && /ушёл раньше/.test(document.getElementById('vDursToggle').innerText)"))
         s.page.click("#vDursToggle")
-        check("…строки открылись: у попутчика по умолчанию как у автора (🔥 долгая)",
-              s.js("() => document.querySelectorAll('#vDurs .durs-row').length === 1 && document.querySelector('#vDurs [data-m=\"180\"]').getAttribute('aria-pressed') === 'true'"))
-        s.page.click('#vDurs [data-m="120"]')
+        check("…вместо больших кнопок — у каждого своё: ты первым, у попутчика как у тебя (🔥 долгая)",
+              s.js(f"""() => document.getElementById('vDurChips').hidden && document.querySelectorAll('#vDurs .durs-row').length === 2
+                && /ты/.test(document.querySelector('#vDurs .durs-row').innerText)
+                && document.querySelector('#vDurs [data-dp="{mate}"][data-m="180"]').getAttribute('aria-pressed') === 'true'"""))
+        s.page.click(f'#vDurs [data-dp="{mate}"][data-m="120"]')
         s.page.fill("#vPrice", "700"); s.page.fill("#vPrBeer", "280")
         s.page.set_input_files("#vPhotos", files=[{"name": "par.png", "mimeType": "image/png", "buffer": TILE}])
         s.page.wait_for_timeout(500)
+        check("итог — и в кнопке: «Отправить · +N»", s.js("() => /Отправить · \\+[1-9]/.test(document.getElementById('vSubmit').innerText)"))
         check("в талоне есть очки", s.js("() => /Итого\\s*\\+[1-9]/.test(document.getElementById('calc').innerText)"),
               s.js("() => document.getElementById('calc').innerText"))
         s.page.click("#vSubmit")
@@ -790,9 +804,12 @@ with sync_playwright() as pw:
         s.page.wait_for_selector("#visitModal:not([hidden])", timeout=3000)
         check("телефон: после анимации открылась форма", True)
         s.no_clip("форма «Добавить баню» на телефоне", "#visitModal")
+        check("телефон: «Отправить» видна сразу, без прокрутки формы (прилипает к низу)",
+              s.js("() => { const r = document.getElementById('vSubmit').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }"))
         s.page.click("#vComp button"); s.page.click("#vDursToggle"); s.page.wait_for_timeout(200)
-        check("телефон: строки «у кого-то было по-другому» — кнопки под палец (не ниже 36 px)",
-              s.js("() => { const b = [...document.querySelectorAll('#vDurs .durs-seg button')]; return b.length === 2 && b.every((x) => x.getBoundingClientRect().height >= 36); }"))
+        check("телефон: строки «у каждого своё» — кнопки под палец (не ниже 36 px), строка — в одну линию",
+              s.js("""() => { const b = [...document.querySelectorAll('#vDurs .durs-seg button')], r = document.querySelector('#vDurs .durs-row');
+                return b.length === 4 && b.every((x) => x.getBoundingClientRect().height >= 36) && r.getBoundingClientRect().height < 60; }"""))
         s.no_clip("телефон: своя длительность у попутчика", "#visitModal")
         s.close()
 

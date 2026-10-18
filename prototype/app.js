@@ -1087,11 +1087,12 @@
     // Комиссия может завести поход за другого участника (сама в бане могла не быть); остальные — только за себя
     $("#vPlayer").disabled = D.live && !canModerate;
     $("#vPlayerHint").hidden = !(D.live && canModerate);
+    $("#vPlayerField").hidden = D.live && !canModerate;
     $("#vDate").value = mskNow();
     setDur(120);
     $("#vPrMore").hidden = false; $("#vPrExtra").hidden = true;
     $$("#vPrWeekend button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.w === "")));
-    picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0; pickedType = null; durOver = null;
+    picked = bathId ? byId.get(bathId) : null; newPin = null; lastTotal = 0; pickedType = null; durOver = null; compAll = false;
     if (pickMarker) { pickMarker.remove(); pickMarker = null; }
     $("#nbGeoState").textContent = "Или кликни на карте. Точку можно перетащить.";
     $("#vPhotosField").hidden = !D.live; $("#vPhotosState").textContent = PHOTOS_HINT;
@@ -1123,41 +1124,67 @@
     renderDurs();
   }
   // своя длительность у кого-то из компании (18.10: «я и Фил — долгую, Диман — экспресс, компания у всех») — редкость,
-  // поэтому спрятана за ссылкой: по умолчанию у всех как у автора. Минуты не спрашиваем — важно одно: дольше 2,5 часа или нет
-  let durOver = null;   // null — всем одинаково; { ник: минуты } — открыты строки «у кого-то было по-другому»
+  // поэтому спрятана за ссылкой «Кто-то ушёл раньше или остался дольше?» прямо под выбором длительности: по ней большие
+  // кнопки сменяются строками «у каждого своё», ты первым. Минуты не спрашиваем — важно одно: дольше 2,5 часа или нет
+  let durOver = null;   // null — всем одинаково; { ник: минуты } — у каждого своё (у автора — #vDur, длительность похода)
   const durSeg = (p, m, key) => `<div class="seg durs-seg" role="group" aria-label="Сколько парился ${esc(p)}">
     <button type="button" data-${key}="${esc(p)}" data-m="120" aria-pressed="${m <= 150}">⚡ Экспресс</button>
     <button type="button" data-${key}="${esc(p)}" data-m="180" aria-pressed="${m > 150}">🔥 Долгая</button></div>`;
-  const DURS_NOTE = "+1 за долгий — только тем, кто был дольше 2,5 часа. Компания — всем.";
+  const DURS_NOTE = "+1 за долгий — каждому, кто был дольше 2,5 часа. Компания — всем.";
   // только те, у кого не как у автора (похода): их и сохраняем
   const durDiff = (people, over, base) => Object.fromEntries(people.filter((p) => over?.[p] != null && (over[p] > 150) !== (base > 150)).map((p) => [p, over[p]]));
   function renderDurs() {
-    const comp = $$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p), base = +$("#vDur").value;
-    $("#vDursToggle").hidden = !comp.length || !!durOver;
-    $("#vDurs").hidden = !comp.length || !durOver;
-    if (!comp.length || !durOver) return;
-    $("#vDurs").innerHTML = comp.map((p) => `<div class="durs-row">${ava(p, "sm")}<b>${esc(p)}</b>${durSeg(p, durOver[p] ?? base, "dp")}</div>`).join("")
-      + `<p class="hint">${DURS_NOTE}</p><button type="button" class="linkbtn" id="vDursSame">Всем одинаково</button>`;
+    const comp = $$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p), base = +$("#vDur").value, me = $("#vPlayer").value;
+    if (!comp.length) durOver = null;   // компании нет — и делить нечего
+    const split = !!durOver;
+    $("#vDurChips").hidden = split;
+    $("#vDursToggle").hidden = !comp.length || split;
+    $("#vDurs").hidden = !split;
+    if (!split) return;
+    // у каждого своё — и не меняется вслед за чужой строкой: попутчику, которого ещё не трогали, ставим как у автора сейчас
+    comp.forEach((p) => { if (durOver[p] == null) durOver[p] = base; });
+    const row = (p, m, key, mine) => `<div class="durs-row">${ava(p, "sm")}<b>${esc(p)}${mine ? " <small>· ты</small>" : ""}</b>${durSeg(p, m, key)}</div>`;
+    $("#vDurs").innerHTML = row(me, base, "dme", true) + comp.map((p) => row(p, durOver[p], "dp")).join("")
+      + `<div class="durs-foot"><span class="hint">${DURS_NOTE}</span><button type="button" class="linkbtn" id="vDursSame">Всем одинаково</button></div>`;
   }
-  $("#vDursToggle").addEventListener("click", () => { durOver = {}; renderDurs(); });
+  $("#vDursToggle").addEventListener("click", () => { durOver = {}; renderDurs(); calc(); });
   $("#vDurs").addEventListener("click", (e) => {
-    if (e.target.closest("#vDursSame")) { durOver = null; return renderDurs(); }
+    if (e.target.closest("#vDursSame")) { durOver = null; renderDurs(); return calc(); }
+    const mine = e.target.closest("[data-dme]");
+    if (mine) { setDur(+mine.dataset.m); return calc(); }   // своя строка автора — это и есть длительность похода
     const b = e.target.closest("[data-dp]"); if (b) { durOver[b.dataset.dp] = +b.dataset.m; renderDurs(); }
   });
   $("#vDurChips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { setDur(+b.dataset.m); calc(); } });
   $("#vPrMore").addEventListener("click", () => { $("#vPrMore").hidden = true; $("#vPrExtra").hidden = false; });
   $$("#vPrWeekend button").forEach((b) => b.addEventListener("click", () => $$("#vPrWeekend button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
 
+  // «С кем был» (18.10): стена из всех участников лиги мешала — показываем выбранных и тех, с кем этот участник чаще
+  // ходил (журнал сайта; дальше — по месту в зачёте), остальные — по «Все участники», с поиском по нику
+  const COMP_TOP = 8;
+  let compAll = false;
   function renderComp() {
     const me = $("#vPlayer").value;
     const was = new Set($$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p));
-    // сначала те, с кем чаще ходят в бани из таблицы — просто по месту в зачёте
-    // все участники лиги — и новички, которых ещё нет в таблице; частые попутчики (по месту в зачёте) — первыми
+    const co = new Map();
+    for (const v of visits) {
+      const who = [v.player, ...v.companions];
+      if (v.status === "rejected" || !who.includes(me)) continue;
+      for (const p of who) if (p !== me) co.set(p, (co.get(p) || 0) + 1);
+    }
     const order = new Map(ranked.map((s, i) => [s.name, i]));
-    const everyone = [...players].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9) || a.localeCompare(b, "ru"));
-    $("#vComp").innerHTML = everyone.filter((p) => p !== me).map((p) => `<button type="button" data-p="${esc(p)}" aria-pressed="${was.has(p)}">${ava(p)}${esc(p)}</button>`).join("");
+    const everyone = [...players].filter((p) => p !== me)
+      .sort((a, b) => (co.get(b) || 0) - (co.get(a) || 0) || (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9) || a.localeCompare(b, "ru"));
+    const q = lowerE($("#vCompQ").value.trim());
+    const shown = compAll ? everyone.filter((p) => !q || was.has(p) || lowerE(p).includes(q)) : everyone.filter((p, i) => i < COMP_TOP || was.has(p));
+    $("#vComp").innerHTML = shown.map((p) => `<button type="button" data-p="${esc(p)}" aria-pressed="${was.has(p)}">${ava(p)}${esc(p)}</button>`).join("")
+      || '<span class="hint">Никого с таким ником</span>';
+    $("#vCompAll").hidden = everyone.length <= COMP_TOP;
+    $("#vCompAll").textContent = compAll ? "Свернуть" : `Все участники · ${everyone.length}`;
+    $("#vCompQ").hidden = !compAll;
     compCount();
   }
+  $("#vCompAll").addEventListener("click", () => { compAll = !compAll; if (!compAll) $("#vCompQ").value = ""; renderComp(); });
+  $("#vCompQ").addEventListener("input", () => renderComp());
   function compCount() { const n = $$("#vComp button[aria-pressed=true]").length; $("#vCompCount").textContent = n ? `· ${n + 1} в компании` : ""; renderDurs(); }
   $("#vComp").addEventListener("click", (e) => { const c = e.target.closest("button"); if (!c) return; c.setAttribute("aria-pressed", String(c.getAttribute("aria-pressed") !== "true")); compCount(); calc(); });
   $("#vPlayer").addEventListener("change", () => { store.set("me", $("#vPlayer").value); renderComp(); calc(); });
@@ -1337,6 +1364,7 @@
     lastTotal = r.total;
     $("#vSubmit").disabled = !r.total;
     $("#vSubmit").style.opacity = r.total ? 1 : .5;
+    if (!vf.dataset.busy) $("#vSubmit span").textContent = r.total ? `Отправить · +${r.total}` : "Отправить";
   }
   function countUp(el, from, to) {
     if (calm || from === to) { el.textContent = "+" + to; return; }
@@ -1571,7 +1599,7 @@
         <div class="field"><span class="lab">Компания</span>
           <div id="ePeople">${people.map((n) => `<div class="erow">${ava(n, "sm")}<b>${esc(n)}</b>${n === v.player ? '<span class="hint">автор</span>' : `<button type="button" class="linkbtn" data-rm="${esc(n)}">убрать</button>`}${split && n !== v.player ? durSeg(n, durs[n] ?? (long ? 180 : 120), "ed") : ""}</div>`).join("")}</div>
           ${people.length > 1 ? (split ? `<p class="hint">${DURS_NOTE}</p><button type="button" class="linkbtn durs-toggle" id="eDursSame">Всем одинаково</button>`
-            : '<button type="button" class="linkbtn durs-toggle" id="eDursToggle">У кого-то было по-другому?</button>') : ""}
+            : '<button type="button" class="linkbtn durs-toggle" id="eDursToggle">Кто-то ушёл раньше или остался дольше?</button>') : ""}
           <select class="sel" id="eAdd"><option value="">+ добавить участника</option>${players.filter((p) => !people.includes(p)).sort((a, b) => a.localeCompare(b, "ru")).map((p) => `<option>${esc(p)}</option>`).join("")}</select>
         </div>
         <div class="field"><span class="lab">Статус</span>
