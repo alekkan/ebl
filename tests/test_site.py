@@ -785,7 +785,7 @@ with sync_playwright() as pw:
         s.close()
         s = Site(browser, url, sess=vitek, mobile=True, name="commission-catalog-phone")
         s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]')
-        s.page.wait_for_selector("#catList .radar-card", timeout=8000)
+        s.page.click('#catTabs [data-tab="done"]'); s.page.wait_for_selector("#catList .radar-card", timeout=8000)   # тестовые уже решены
         s.no_clip("Сверка на телефоне")
         s.close()
         sql("delete from catalog_proposals where run = 'test'")
