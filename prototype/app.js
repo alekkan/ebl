@@ -541,6 +541,7 @@
           const parts = potentialFor(who)(b); if (!parts) return "";
           return `<div class="pot"><b>+${parts.length}</b><div><span>${who === myNick ? "тебе" : esc(who)} за первый поход в 2026</span><small>${parts.join(" · ")}</small></div></div>`;
         })()}
+        <section class="d-about" id="dAbout" hidden></section>
         <section>
           <h3>Цена</h3>
           <div class="price-now">
@@ -611,6 +612,10 @@
     if (D.live && member) {
       if (!photoCache.has(id)) photoCache.set(id, D.bathPhotos(id).catch(() => { photoCache.delete(id); return []; }));
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
+    }
+    if (D.live) {
+      if (!factCache.has(id)) factCache.set(id, D.bathFacts(id).catch(() => { factCache.delete(id); return null; }));
+      factCache.get(id).then((f) => renderFacts(id, f));
     }
     $(".x", d).onclick = closeBath;
     // тип бани — Комиссия меняет прямо в карточке, но только после подтверждения: от типа зависят очки за все походы сюда (18.10)
@@ -734,6 +739,23 @@
   // фото походов в карточке бани (docs/photos.md): лента, свежие походы первыми; дата — на первом фото похода, между походами
   // промежуток шире; имён нет. Грузим, когда карточку открыли, и держим до перезагрузки — карточка перерисовывается часто
   const photoCache = new Map();
+  // «О бане» (19.10): что агенты собрали в сверке и приняла Комиссия — простым списком, со ссылками и откуда это.
+  // Держим только до перезагрузки страницы (как фото): решения Комиссии подтянутся при следующем заходе
+  const factCache = new Map();
+  function renderFacts(id, f) {
+    const box = $("#dAbout"); if (!box || openId !== id || !f) return;
+    const row = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
+    const price = f.price ? esc(f.price) + (f.price_date ? ` <small>· ${esc(f.price_date)}</small>` : "") + (f.price_src ? ` <a href="${esc(f.price_src)}" target="_blank" rel="noopener">откуда</a>` : "") : "";
+    const q = encodeURIComponent([byId.get(id)?.name, f.address].filter(Boolean).join(", "));
+    const a = (u, t) => (u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>` : "");
+    const links = [a(f.website, "Сайт бани"), a(f.yandex_url || `https://yandex.ru/maps/?text=${q}`, "Яндекс Карты"), a(f.twogis_url || `https://2gis.ru/search/${q}`, "2ГИС")].filter(Boolean).join("");
+    box.innerHTML = `<h3>О бане</h3>
+      <dl class="about">${row("Адрес", esc(f.address || ""))}${row("Часы", esc(f.hours || ""))}${row("Мужские и женские дни", esc(f.gender_days || ""))}
+        ${row("Цена по сайту", price)}${row("Отделения", esc((f.sections || []).join(", ")))}${row("Что есть", esc((f.amenities || []).join(", ")))}${row("Телефон", esc(f.phone || ""))}</dl>
+      <div class="about-links">${links}</div>
+      <p class="hint about-src">Собрали по картам и сайту бани, проверила Комиссия${f.run ? ` · ${new Date(f.run + "T12:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(" г.", "")}` : ""}</p>`;
+    box.hidden = false;
+  }
   let cardFor = null;
   const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv») — до перехода к другой бане
   function renderPhotos(id, ps) {
@@ -2607,7 +2629,7 @@
   async function catDo(list, act, reason = null) {
     await D.catalogDecide(list.map((p) => p.id), act, reason);
     const fresh = await D.catalog();
-    cat = fresh; catAsk = null; renderCat();
+    cat = fresh; catAsk = null; renderCat(); factCache.clear();   // «О бане» в карточках — по новым решениям
     if (act !== "reject" && act !== "keep") refreshData().then(renderCat).catch(() => {});
   }
   function catUndo(list, msg) {

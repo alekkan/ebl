@@ -432,6 +432,9 @@ check("«Отклонить» с причиной и «Оставить нашу
       sql(f"select status || ' ' || reject_reason from catalog_proposals where id = {p1}") == "rejected closed"
       and sql(f"select status from catalog_proposals where id = {p2}") == "kept" and sql(f"select lat || ' ' || precision from baths where id = {b1}") == "55 city")
 check("неизвестное действие не проходит", req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1], "p_action": "delete"}, token=vitek)[0] >= 400)
+check("«О бане» всем: гостю — принятое (данные и ссылки), без заметок агентов и цитат",
+      (lambda f: f and f.get("address") is None and f.get("run") == "test-run" and "note" not in f and "evidence" not in f)(req("POST", "/rest/v1/rpc/bath_facts", {"p_bath": b2})[1]))
+check("непринятое и отклонённое гостю не видно", req("POST", "/rest/v1/rpc/bath_facts", {"p_bath": b1})[1] is None)
 sql(f"delete from baths where id in ({b1}, {b2})")
 check("баню удалили — её предложения уходят вместе с ней", sql("select count(*) from catalog_proposals where run = 'test-run'") == "0")
 

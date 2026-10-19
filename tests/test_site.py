@@ -769,6 +769,16 @@ with sync_playwright() as pw:
         s.page.click(f'{card} [data-cat="reject-go"][data-reason="closed"]'); s.page.wait_for_timeout(1200)
         check("«Не нашли»: «Отклонить» — причина одним нажатием, предложение уходит в «Решено»",
               sql(f"select status || ' ' || reject_reason from catalog_proposals where id = {c_doubt}") == "rejected closed")
+        # принятое из сверки видно в карточке бани всем — «О бане»: часы, дни, цена, ссылки и откуда это (19.10)
+        sql(f"update catalog_proposals set status = 'accepted' where id = {c_sure}")
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{cb_id}"]'); s.page.wait_for_selector("#dAbout:not([hidden])", timeout=8000)
+        check("карточка бани: «О бане» — принятое в сверке: адрес, часы, мужские дни, цена, ссылки на сайт и карты",
+              s.js("""() => { const t = document.getElementById('dAbout').innerText; return /ул. Пара, 2/.test(t) && /ежедневно 8–22/.test(t) && /мужские пн, ср/.test(t)
+                && /1500 ₽/.test(t) && /проверила Комиссия/.test(t) && document.querySelectorAll('#dAbout .about-links a').length === 3; }"""))
+        s.page.click("#drawer .x")
+        s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]'); s.page.wait_for_selector("#catList .radar-card", timeout=8000)
         s.page.fill("#catQ", "")
         s.no_clip("Сверка у Комиссии")
         s.clean("Сверка")
