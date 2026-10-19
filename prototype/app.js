@@ -2494,12 +2494,26 @@
     catLayer.addLayer(catGhost);
     return ours;
   }
+  // показать баню на карте: найденная точка, а если наша в другом месте — обе в кадре, с пунктиром
+  function catShow(p, zoom) {
+    const ours = catPair(p), here = p.lat != null ? [p.lat, p.lng] : ours;
+    if (!catMap || !here) return;
+    if (ours && here !== ours) catMap.fitBounds([here, ours], { padding: [48, 48], maxZoom: zoom, animate: !calm });
+    else catMap.setView(here, zoom, { animate: !calm });
+  }
+  // навёл на карточку и задержался — карта едет к бане (20.10); мышь просто проходит по списку — карта стоит.
+  // Только с мышью и при открытой карте: на телефоне — нажатием на название
+  const HOVER = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  let catFlyT = null;
   function catHover(id, on) {
     if (on ? catHot === id : catHot !== id) return;
     catHot = on ? id : null;
     const m = catMarks.get(id);
     if (m) { m.setRadius(on ? 12 : 7); if (on) m.bringToFront(); }
-    catPair(cat.find((x) => x.id === (on ? id : catPin)));
+    const p = cat.find((x) => x.id === (on ? id : catPin));
+    catPair(p);
+    clearTimeout(catFlyT);
+    if (on && p && HOVER && !$("#catSide").classList.contains("folded")) catFlyT = setTimeout(() => { if (catHot === id) catShow(p, 15); }, 250);
   }
   function catFocus(id, scroll) {
     $$("#catList .radar-card.focus").forEach((x) => x.classList.remove("focus"));
@@ -2587,10 +2601,8 @@
     }
     if (!p) return;
     if (act === "fly") {
-      catFocus(p.id); catPin = p.id;
-      const ours = catPair(p), here = p.lat != null ? [p.lat, p.lng] : ours;
-      if (ours && here !== ours) catMap?.fitBounds([here, ours], { padding: [48, 48], maxZoom: 16, animate: !calm });
-      else if (here) catMap?.setView(here, 16, { animate: !calm });
+      catFocus(p.id); catPin = p.id; clearTimeout(catFlyT);
+      catShow(p, 16);
       if (innerWidth <= 1000) $("#catmap").scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
       return;
     }
