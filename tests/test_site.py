@@ -777,7 +777,8 @@ with sync_playwright() as pw:
         check("карточка: принятое в сверке — на своих местах: адрес вместо региона, «Сегодня 8–22», дни без пояснений агента, плашки, ссылки",
               s.js("""() => { const i = document.getElementById('dInfo').innerText; return /ул. Пара, 2/.test(document.querySelector('#drawer .where').innerText)
                 && /Сегодня 8–22/.test(i) && /мужские пн, ср/.test(i) && !/по 2ГИС/.test(i) && document.querySelectorAll('#dInfo .d-tags span').length === 2
-                && document.querySelectorAll('#dInfo .d-links a').length === 3 && document.getElementById('dHours').hidden; }"""))
+                && document.querySelectorAll('#dInfo .d-links a').length === 3 && document.querySelectorAll('#dInfo .d-links .l-grp').length === 2
+                && document.getElementById('dHours').hidden && getComputedStyle(document.querySelector('#drawer .w-acts')).display === 'block'; }"""))
         s.page.click("#dHoursBtn")
         check("…«все часы» — расписание по дням", s.js("() => !document.getElementById('dHours').hidden && /пн–вс 8–22/.test(document.getElementById('dHours').innerText)"))
         check("цена с сайта — в «Цене»: только вход (кабины и аренду не показываем), первая крупно, остальное под «ещё»",
