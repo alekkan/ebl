@@ -811,8 +811,11 @@
     // цена с сайта: первая — крупно, остальные варианты — под «ещё», откуда — подписью
     const ps = $("#dPriceSite");
     if (f.price && ps) {
-      const [main, ...rest] = tidy(f.price).split(/\s*;\s*/).filter(Boolean);
+      // в портал — только вход: кабины, аренду, номера, VIP, срубы «на 6 мест» агенты тоже записывали (22400 ₽ за кабину, 19.10)
+      const notEntry = /кабин|аренд|номер|\bvip\b|\bвип\b|на \d+(?:\s*[–—-]\s*\d+)?\s*(?:мест|чел|гост|персон)|до \d+\s*(?:чел|гост)|за компани|сруб|беседк/i;
+      const [main, ...rest] = tidy(f.price).split(/\s*;\s*/).filter((x) => x && !notEntry.test(x));
       const bold = (t) => esc(t).replace(/^([\d\s]+(?:[.,]\d+)?\s*(?:₽|руб\.?|€|\$|¥|BYN|₸))/, "<b>$1</b>");
+      if (!main) return;   // осталась только аренда — цены входа с сайта нет, блок не показываем
       ps.innerHTML = `<p class="ps-main">${bold(main)}</p>
         ${rest.length ? `<details class="ps-more"><summary>ещё ${rest.length} ${plural(rest.length, "вариант", "варианта", "вариантов")}</summary>${rest.map((r) => `<p>${bold(r)}</p>`).join("")}</details>` : ""}
         <small>по сайту бани${when ? `, ${when}` : ""}${src ? ` · <a href="${esc(src)}" target="_blank" rel="noopener">откуда</a>` : ""}</small>`;
