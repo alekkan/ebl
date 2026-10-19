@@ -778,7 +778,7 @@ with sync_playwright() as pw:
               s.js("""() => { const t = document.getElementById('dAbout').innerText; return /ул. Пара, 2/.test(t) && /ежедневно 8–22/.test(t) && /мужские пн, ср/.test(t)
                 && /1500 ₽/.test(t) && /проверила Комиссия/.test(t) && document.querySelectorAll('#dAbout .about-links a').length === 3; }"""))
         s.page.click("#drawer .x")
-        s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]'); s.page.wait_for_selector("#catList .radar-card", timeout=8000)
+        s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]'); s.page.wait_for_selector("#catList li", timeout=8000)   # вкладка могла опустеть
         s.page.fill("#catQ", "")
         s.no_clip("Сверка у Комиссии")
         s.clean("Сверка")
