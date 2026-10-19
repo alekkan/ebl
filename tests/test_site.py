@@ -240,6 +240,7 @@ with sync_playwright() as pw:
     cutover = sql("select value #>> '{}' from settings where key = 'cutover_week'")
     sql("update settings set value = to_jsonb((select max(w) from (values (39)) t(w))) where key = 'cutover_week'")
     bath = int(sql("select id from baths where name = 'Василевские' limit 1"))
+    sql(f"update baths set closed_on = null where id = {bath}")   # упавший прогон мог оставить её закрытой — тогда форма её не предложит
     # следы прошлых прогонов (упавший тест не успел убрать свой поход)
     sql(f"delete from visits where source = 'site' and bath_id = {bath} and created_by = '{player_id('Шурик')}' and created_at > now() - interval '2 days'")
     before = set(sql("select coalesce(string_agg(id::text, ','), '') from visits").split(",")) - {""}
