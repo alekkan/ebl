@@ -520,7 +520,7 @@
             <p class="where">${icon("pin")}<span><span id="dWhereTxt">${esc(where(b))}</span>${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${(() => {
               const acts = [geoAct && `<button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>`,
                 canModerate && D.live && `<button type="button" class="linkbtn" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "работает снова?" : "закрылась?"}</button>`].filter(Boolean);
-              return acts.length ? ` <span class="w-acts">· ${acts.join(" · ")}</span>` : "";   // переносятся целиком, а не посередине
+              return acts.length ? `<span class="w-acts">${acts.join(" · ")}</span>` : "";   // своей строкой под адресом: адреса бывают длинными
             })()}</span></p>
             ${geoAct ? `<form id="geoFixForm" class="geo-form" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
               <button class="btn sm solid" type="submit">${geoSubmit}</button></form>` : ""}
@@ -798,8 +798,10 @@
       const tags = [...new Set([...(f.sections || []), ...(f.amenities || [])].map((x) => String(x).trim()).filter(Boolean))].slice(0, 10);
       const q = encodeURIComponent([byId.get(id)?.name, f.address].filter(Boolean).join(", "));
       const a = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`;
-      const links = [site && a(site, "Сайт"), f.phone && `<a href="tel:${esc(f.phone.replace(/[^\d+]/g, ""))}">${esc(f.phone)}</a>`,
-        a(own(f.yandex_url) || `https://yandex.ru/maps/?text=${q}`, "Яндекс Карты"), a(own(f.twogis_url) || `https://2gis.ru/search/${q}`, "2ГИС")].filter(Boolean).join("");
+      // две группы — «сайт и телефон» и «карты»: переносятся целиком, а не по одной ссылке
+      const contacts = [site && a(site, "Сайт"), f.phone && `<a href="tel:${esc(f.phone.replace(/[^\d+]/g, ""))}">${esc(f.phone)}</a>`].filter(Boolean).join("");
+      const maps = a(own(f.yandex_url) || `https://yandex.ru/maps/?text=${q}`, "Яндекс Карты") + a(own(f.twogis_url) || `https://2gis.ru/search/${q}`, "2ГИС");
+      const links = (contacts ? `<span class="l-grp">${contacts}</span>` : "") + `<span class="l-grp">${maps}</span>`;
       box.innerHTML = hours + (gender ? `<p>${icon("users")}<span class="d-clamp">${esc(gender)}</span></p>` : "")
         + (tags.length ? `<div class="d-tags">${tags.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : "")
         + `<p class="d-links">${links}</p>`;
@@ -811,8 +813,11 @@
     // цена с сайта: первая — крупно, остальные варианты — под «ещё», откуда — подписью
     const ps = $("#dPriceSite");
     if (f.price && ps) {
-      const [main, ...rest] = tidy(f.price).split(/\s*;\s*/).filter(Boolean);
+      // в портал — только вход: кабины, аренду, номера, VIP, срубы «на 6 мест» агенты тоже записывали (22400 ₽ за кабину, 19.10)
+      const notEntry = /кабин|аренд|номер|\bvip\b|\bвип\b|на \d+(?:\s*[–—-]\s*\d+)?\s*(?:мест|чел|гост|персон)|до \d+\s*(?:чел|гост)|за компани|сруб|беседк/i;
+      const [main, ...rest] = tidy(f.price).split(/\s*;\s*/).filter((x) => x && !notEntry.test(x));
       const bold = (t) => esc(t).replace(/^([\d\s]+(?:[.,]\d+)?\s*(?:₽|руб\.?|€|\$|¥|BYN|₸))/, "<b>$1</b>");
+      if (!main) return;   // осталась только аренда — цены входа с сайта нет, блок не показываем
       ps.innerHTML = `<p class="ps-main">${bold(main)}</p>
         ${rest.length ? `<details class="ps-more"><summary>ещё ${rest.length} ${plural(rest.length, "вариант", "варианта", "вариантов")}</summary>${rest.map((r) => `<p>${bold(r)}</p>`).join("")}</details>` : ""}
         <small>по сайту бани${when ? `, ${when}` : ""}${src ? ` · <a href="${esc(src)}" target="_blank" rel="noopener">откуда</a>` : ""}</small>`;

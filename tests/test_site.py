@@ -734,7 +734,7 @@ with sync_playwright() as pw:
         cb_id, cb_lat, cb_lng, cb_prec = sql("select id || '|' || coalesce(lat::text, '') || '|' || coalesce(lng::text, '') || '|' || coalesce(precision, '') from baths where name = 'Василевские' limit 1").split("|")
         other = sql("select id from baths where status = 'ok' and name <> 'Василевские' order by id limit 1")
         sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, match_why, bin, website, hours, gender_days, price, price_src, place_status, is_public, note, amenities) values
-              ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22', 'мужские пн, ср (по 2ГИС)', '1500 ₽ — билет на 3 часа; 2000 ₽ — в выходные', 'https://zoon.ru/msk/sauna/test/', 'open', true, 'Точка из 2ГИС', '["купель", "веники"]'),
+              ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22', 'мужские пн, ср (по 2ГИС)', '1500 ₽ — билет на 3 часа; 2000 ₽ — в выходные; 22400 ₽ — кабина на 6 мест', 'https://zoon.ru/msk/sauna/test/', 'open', true, 'Точка из 2ГИС', '["купель", "веники"]'),
               ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]')""")
         c_sure, c_doubt = (sql(f"select id from catalog_proposals where run = 'test' and bath_id = {b}") for b in (cb_id, other))
         s = Site(browser, url, sess=vitek, name="commission-catalog")
@@ -777,12 +777,13 @@ with sync_playwright() as pw:
         check("карточка: принятое в сверке — на своих местах: адрес вместо региона, «Сегодня 8–22», дни без пояснений агента, плашки, ссылки",
               s.js("""() => { const i = document.getElementById('dInfo').innerText; return /ул. Пара, 2/.test(document.querySelector('#drawer .where').innerText)
                 && /Сегодня 8–22/.test(i) && /мужские пн, ср/.test(i) && !/по 2ГИС/.test(i) && document.querySelectorAll('#dInfo .d-tags span').length === 2
-                && document.querySelectorAll('#dInfo .d-links a').length === 3 && document.getElementById('dHours').hidden; }"""))
+                && document.querySelectorAll('#dInfo .d-links a').length === 3 && document.querySelectorAll('#dInfo .d-links .l-grp').length === 2
+                && document.getElementById('dHours').hidden && getComputedStyle(document.querySelector('#drawer .w-acts')).display === 'block'; }"""))
         s.page.click("#dHoursBtn")
         check("…«все часы» — расписание по дням", s.js("() => !document.getElementById('dHours').hidden && /пн–вс 8–22/.test(document.getElementById('dHours').innerText)"))
-        check("цена с сайта — в «Цене»: первая крупно, остальное под «ещё», подпись «по сайту бани»",
+        check("цена с сайта — в «Цене»: только вход (кабины и аренду не показываем), первая крупно, остальное под «ещё»",
               s.js("""() => { const p = document.getElementById('dPriceSite'); return /1500 ₽/.test(p.querySelector('.ps-main b').innerText) && /ещё 1 вариант/.test(p.innerText)
-                && /по сайту бани/.test(p.innerText) && !/Invalid/.test(document.getElementById('drawer').innerText); }"""))
+                && /по сайту бани/.test(p.innerText) && !/Invalid/.test(document.getElementById('drawer').innerText) && !/кабина|22400/.test(p.innerHTML); }"""))
         check("на справочники (Zoon, Yell) ссылок в карточке нет", s.js("() => ![...document.querySelectorAll('#drawer a')].some((a) => /zoon|yell/.test(a.href))"))
         s.page.click("#drawer .x")
         s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]'); s.page.wait_for_selector("#catList li", timeout=8000)   # вкладка могла опустеть
