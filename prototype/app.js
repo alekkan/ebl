@@ -517,7 +517,11 @@
           </div>` : ""}
           <h2 class="${long ? "long" : ""}">${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="rename" id="dRename" title="Поправить название — Комиссия" aria-label="Поправить название">✏️</button>` : ""}</h2>
           <div class="geo-move">
-            <p class="where">${icon("pin")}<span><span id="dWhereTxt">${esc(where(b))}</span>${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${geoAct ? ` · <button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>` : ""}${canModerate && D.live ? ` · <button type="button" class="linkbtn" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "работает снова?" : "закрылась?"}</button>` : ""}</span></p>
+            <p class="where">${icon("pin")}<span><span id="dWhereTxt">${esc(where(b))}</span>${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${(() => {
+              const acts = [geoAct && `<button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>`,
+                canModerate && D.live && `<button type="button" class="linkbtn" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "работает снова?" : "закрылась?"}</button>`].filter(Boolean);
+              return acts.length ? ` <span class="w-acts">· ${acts.join(" · ")}</span>` : "";   // переносятся целиком, а не посередине
+            })()}</span></p>
             ${geoAct ? `<form id="geoFixForm" class="geo-form" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
               <button class="btn sm solid" type="submit">${geoSubmit}</button></form>` : ""}
           </div>
@@ -547,7 +551,7 @@
             ${lastP ? `<p><span><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` · ${lastP.duration_min} мин` : ""}${schedLabel(lastP) ? ` · ${schedLabel(lastP)}` : ""}</span><small>${dayLabel(lastP.price_date)}</small></p>` : ""}
             ${lastBeer ? `<p><span>🍺 <b>${fmt(lastBeer.price)} ${curSign(lastBeer.currency)}</b> пиво</span><small>${dayLabel(lastBeer.price_date)}</small></p>` : ""}
             ${!lastP && !lastBeer ? `<p class="hint" id="dPriceNone">Цену пока никто не указал${member ? "" : "."}</p>` : ""}
-            <p class="price-site" id="dPriceSite" hidden></p>
+            <div class="price-site" id="dPriceSite" hidden></div>
           </div>
           ${olderP.length || olderBeer.length ? `<details class="price-old"><summary>Раньше · ${olderP.length + olderBeer.length}</summary>
             ${olderP.map((p) => `<p><span>${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` · ${p.duration_min} мин` : ""}${schedLabel(p) ? ` · ${schedLabel(p)}` : ""}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}
@@ -742,29 +746,76 @@
   // «О бане» (19.10): что агенты собрали в сверке и приняла Комиссия — простым списком, со ссылками и откуда это.
   // Держим только до перезагрузки страницы (как фото): решения Комиссии подтянутся при следующем заходе
   const factCache = new Map();
+  // часы из сверки — по дням недели (0 — пн): «ср–чт 14:00–23:00, пт 14:00–24:00; пн–вт закрыто», «ежедневно 8–22».
+  // Не разобрали — null, тогда показываем текст как есть
+  const WD = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+  function hoursByDay(text) {
+    const t = String(text || "").toLowerCase().replace(/\s*\([^)]*\)/g, "");
+    const D = "(?:пн|вт|ср|чт|пт|сб|вс)", T = "\\d{1,2}(?::\\d{2})?\\s*[–—-]\\s*\\d{1,2}(?::\\d{2})?";
+    const rx = new RegExp(`((?:${D}(?:\\s*[–—-]\\s*${D})?(?:\\s*,\\s*(?=${D}))?)+|ежедневно|без выходных|каждый день|будни|выходные)\\s*:?\\s*(${T}|закрыт[а-я]*|выходн[а-я]*|круглосуточно)`, "g");
+    const out = Array(7).fill(null); let hit = false;
+    for (const m of t.matchAll(rx)) {
+      const val = /^(закрыт|выходн)/.test(m[2]) ? "закрыто" : m[2].replace(/\s*[–—-]\s*/, "–");
+      const idx = [];
+      if (/ежедневно|без выходных|каждый день/.test(m[1])) idx.push(0, 1, 2, 3, 4, 5, 6);
+      else if (m[1] === "будни") idx.push(0, 1, 2, 3, 4);
+      else if (m[1] === "выходные") idx.push(5, 6);
+      else for (const part of m[1].split(/\s*,\s*/)) {
+        const r = part.match(new RegExp(`(${D})(?:\\s*[–—-]\\s*(${D}))?`)); if (!r) continue;
+        const from = WD.indexOf(r[1]), to = r[2] ? WD.indexOf(r[2]) : from;
+        for (let i = from, n = 0; n < 7; i = (i + 1) % 7, n++) { idx.push(i); if (i === to) break; }
+      }
+      for (const i of idx) if (out[i] == null) out[i] = val;
+      hit = true;
+    }
+    if (!hit && /круглосуточно/.test(t)) return Array(7).fill("круглосуточно");
+    return hit ? out : null;
+  }
+  // подряд идущие дни с одинаковыми часами — одной строкой: «ср–чт 14:00–23:00»
+  const hoursRows = (byDay) => byDay.reduce((acc, v, i) => {
+    const last = acc[acc.length - 1];
+    if (last && last.v === v && last.to === i - 1) last.to = i; else acc.push({ from: i, to: i, v });
+    return acc;
+  }, []).filter((r) => r.v).map((r) => `${WD[r.from]}${r.to > r.from ? `–${WD[r.to]}` : ""} ${r.v}`);
   function renderFacts(id, f) {
     if (openId !== id || !f) return;
     // на справочники (Zoon, Yell) ссылок не даём — только сайт самой бани и карты
     const own = (u) => (u && !/(^|\.)(zoon|yell)\.ru$/i.test(u.replace(/^https?:\/\//, "").split("/")[0]) ? u : null);
     const site = own(f.website), src = own(f.price_src);
     const when = /^\d{4}-\d{2}-\d{2}$/.test(f.run || "") ? new Date(f.run + "T12:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(" г.", "") : "";
+    const tidy = (t) => String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim();   // пояснения агента в скобках — не людям
     if (f.address && $("#dWhereTxt")) $("#dWhereTxt").textContent = f.address;   // адрес вместо «Москва, Россия»
     const box = $("#dInfo");
     if (box) {
-      const line = (ic, t) => (t ? `<p>${icon(ic)}<span>${t}</span></p>` : "");
+      // часы: главное — сегодня; всё расписание — по нажатию
+      const byDay = hoursByDay(f.hours), today = byDay?.[(new Date().getDay() + 6) % 7];
+      const hours = !f.hours ? "" : byDay
+        ? `<p>${icon("clock")}<span>${today ? `<b>Сегодня ${today === "закрыто" ? "закрыто" : today}</b>` : "<b>Сегодня не работает</b>"}
+            <button type="button" class="linkbtn" id="dHoursBtn" aria-expanded="false">все часы</button>
+            <span class="d-hours" id="dHours" hidden>${hoursRows(byDay).map(esc).join("<br>")}</span></span></p>`
+        : `<p>${icon("clock")}<span class="d-clamp">${esc(tidy(f.hours))}</span></p>`;
+      const gender = tidy(f.gender_days);
+      const tags = [...new Set([...(f.sections || []), ...(f.amenities || [])].map((x) => String(x).trim()).filter(Boolean))].slice(0, 10);
       const q = encodeURIComponent([byId.get(id)?.name, f.address].filter(Boolean).join(", "));
       const a = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`;
       const links = [site && a(site, "Сайт"), f.phone && `<a href="tel:${esc(f.phone.replace(/[^\d+]/g, ""))}">${esc(f.phone)}</a>`,
         a(own(f.yandex_url) || `https://yandex.ru/maps/?text=${q}`, "Яндекс Карты"), a(own(f.twogis_url) || `https://2gis.ru/search/${q}`, "2ГИС")].filter(Boolean).join("");
-      const has = [(f.sections || []).length && `отделения: ${(f.sections || []).join(", ")}`, (f.amenities || []).join(", ")].filter(Boolean).join(" · ");
-      box.innerHTML = line("clock", esc([f.hours, f.gender_days].filter(Boolean).join(" · "))) + line("check", esc(has))
+      box.innerHTML = hours + (gender ? `<p>${icon("users")}<span class="d-clamp">${esc(gender)}</span></p>` : "")
+        + (tags.length ? `<div class="d-tags">${tags.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : "")
         + `<p class="d-links">${links}</p>`;
       box.title = `По картам и сайту бани, проверила Комиссия${when ? ` · ${when}` : ""}`;
       box.hidden = false;
+      const hb = $("#dHoursBtn", box);
+      if (hb) hb.onclick = () => { const h = $("#dHours", box); h.hidden = !h.hidden; hb.textContent = h.hidden ? "все часы" : "свернуть"; hb.setAttribute("aria-expanded", String(!h.hidden)); };
     }
+    // цена с сайта: первая — крупно, остальные варианты — под «ещё», откуда — подписью
     const ps = $("#dPriceSite");
     if (f.price && ps) {
-      ps.innerHTML = `<span>${esc(f.price)}</span><small>по сайту бани${when ? `, ${when}` : ""}${src ? ` · <a href="${esc(src)}" target="_blank" rel="noopener">откуда</a>` : ""}</small>`;
+      const [main, ...rest] = tidy(f.price).split(/\s*;\s*/).filter(Boolean);
+      const bold = (t) => esc(t).replace(/^([\d\s]+(?:[.,]\d+)?\s*(?:₽|руб\.?|€|\$|¥|BYN|₸))/, "<b>$1</b>");
+      ps.innerHTML = `<p class="ps-main">${bold(main)}</p>
+        ${rest.length ? `<details class="ps-more"><summary>ещё ${rest.length} ${plural(rest.length, "вариант", "варианта", "вариантов")}</summary>${rest.map((r) => `<p>${bold(r)}</p>`).join("")}</details>` : ""}
+        <small>по сайту бани${when ? `, ${when}` : ""}${src ? ` · <a href="${esc(src)}" target="_blank" rel="noopener">откуда</a>` : ""}</small>`;
       ps.hidden = false;
       if ($("#dPriceNone")) $("#dPriceNone").hidden = true;
     }
