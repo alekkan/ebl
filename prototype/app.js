@@ -9,8 +9,8 @@
   // склоняем то, что видно на экране: 20,97 показывается как «21» — значит «21 очко»
   const plural = (n, a, b, c) => { n = Math.round(Math.abs(+n) * 10) / 10; if (!Number.isInteger(n)) return b; const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
   const TYPE_LABEL = { public: "Общественная", spa: "Хуитнес", private: "Частная", unknown: "Тип не указан" };
-  const PREC_SHORT = { city: "точка по городу", region: "точка по региону", country: "точка по стране" };   // фильтр Комиссии «Точка примерная»
-  const PREC_LABEL = { city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
+  const PREC_SHORT = { auto: "точка автоматом, не проверена", city: "точка по городу", region: "точка по региону", country: "точка по стране" };   // фильтр Комиссии «Точка примерная»
+  const PREC_LABEL = { auto: "нашёл геокодер по названию, не проверена", city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
   const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€", JPY: "¥", AED: "د.إ" };
   const curSign = (c) => CUR_SIGN[c] || c;
   // будни/выходной и «до HH:MM» у цены — оба поля необязательные, показываем только то, что указано
@@ -170,7 +170,7 @@
     if (c) {
       const [lat, lng, prec] = c;
       // примерные точки разносим детерминированно, чтобы бани одного города не слипались
-      const spread = { exact: 0, city: 0.02, region: 0.25, country: 1.2 }[prec] ?? 0;
+      const spread = { exact: 0, auto: 0, city: 0.02, region: 0.25, country: 1.2 }[prec] ?? 0;   // auto — «среднеточно» (19.10): ставим как есть
       const a = (b.id * 2.399963) % (2 * Math.PI), r = spread * Math.sqrt(((b.id * 7919) % 97) / 97);
       b.ll = [lat + r * Math.sin(a), lng + r * Math.cos(a) * 1.6];
       b.prec = prec;
@@ -348,7 +348,7 @@
       : season === "2026" ? (player ? metric(b) > 0 : b.n26 > 0 || b.isNew)
       : player ? !(b.v26?.[player] > 0) : b.n26 === 0;
     const pot = player && season === "never" ? potentialFor(player) : null;
-    const precOk = (b) => !prec || (prec === "none" ? !b.ll : !!b.ll && b.prec !== "exact");
+    const precOk = (b) => !prec || (prec === "none" ? !b.ll : prec === "auto" ? b.prec === "auto" : !!b.ll && b.prec !== "exact");
     const current = baths.filter((b) => (!type || b.t === type) && (!country || b.country === country) && (!q || b.search.includes(q)) && inSeason(b) && precOk(b));
     current.forEach((b) => {
       b._m = metric(b); b._pot = pot ? pot(b) : null;
@@ -368,7 +368,7 @@
     $("#count").textContent = pot
       ? `${player}: новых в 2026 — ${current.length} ${plural(current.length, "баня", "бани", "бань")}${rich ? ` · +3 и больше — ${rich}` : ""}`
       : `${current.length} ${plural(current.length, "баня", "бани", "бань")} · ${season === "2026" ? "походы в 2026" : "походы за 2023–2026"}`
-        + (prec === "rough" ? " · точка примерная" : prec === "none" ? " · без точки" : noPin ? ` · ${noPin} без точки` : "");
+        + (prec === "rough" ? " · точка примерная" : prec === "auto" ? " · среднеточные" : prec === "none" ? " · без точки" : noPin ? ` · ${noPin} без точки` : "");
     // подсказка, что значат цифры, — только там, где без неё непонятно
     const note = $("#potNote");
     let seen = false; try { seen = localStorage.getItem("ebl.potNote") === "1"; } catch { /* приватный режим — просто покажем */ }
@@ -383,7 +383,7 @@
     $("#list").innerHTML = current.length ? current.slice(0, LIMIT).map((b) => {
       const n = b._m, last = jrP?.get(b.id)?.last, known = pot ? knownSince(b, player) : null;
       const meta = [where(b), last && dayLabel(last), b._km != null && `${b.prec !== "exact" ? "~" : ""}${fmtKm(b._km)}`, known && `знакомая · ${known}`,
-        prec === "rough" && PREC_SHORT[b.prec]].filter(Boolean).join(" · ");
+        (prec === "rough" || prec === "auto") && PREC_SHORT[b.prec]].filter(Boolean).join(" · ");
       return `<button class="item ${b.id === openId ? "active" : ""}" data-id="${b.id}">
         ${tdot(b.t)}
         <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(meta)}</span></span>
@@ -463,7 +463,7 @@
     $(`.item[data-id="${id}"]`)?.classList.add("active");
     // на телефоне карточка бани — шторка на нижние 62% экрана: точку ставим в видимую полосу карты над ней
     if (fly && b.ll) {
-      const z = Math.max(map.getZoom(), b.prec === "exact" ? 15 : 11);
+      const z = Math.max(map.getZoom(), b.prec === "exact" || b.prec === "auto" ? 15 : 11);
       map.flyTo(aboveCard(b.ll, z), z, { duration: calm ? 0 : 0.7 });
       map.once("moveend", selectPin);
     } else {
@@ -489,7 +489,8 @@
     // точка: нет / примерная / точная — одна строка под регионом и действие для участника (Комиссия ставит сразу,
     // участник точную только предлагает — bath_point_requests)
     const exact = !!b.ll && b.prec === "exact";
-    const geoNote = !b.ll ? "ещё нет на карте" : exact ? "" : `точка примерная — ${PREC_LABEL[b.prec] || "по названию"}`;
+    const geoNote = !b.ll ? "ещё нет на карте" : exact ? "" : b.prec === "auto" ? "точка найдена автоматически по названию — может быть не та баня"
+      : `точка примерная — ${PREC_LABEL[b.prec] || "по названию"}`;
     const geoAct = D.live && member ? (!exact ? "знаю, где это" : canModerate ? "перенести точку" : "точка не там?") : "";
     const geoSubmit = !exact ? "Поставить" : canModerate ? "Перенести" : "Предложить Комиссии";
     // флажки — текстом в строке типа, без плашек; «место силы» и «ультрауникальная» — то, ради чего стоит сходить
@@ -1003,8 +1004,9 @@
   }
   function renderOwners() {
     if (!ownMap) return;
-    const rows = baths.filter((b) => b.ll && b.prec === "exact").map((b) => [b, ownerOf(b)]).filter(([, o]) => o);
-    const hidden = baths.filter((b) => (!b.ll || b.prec !== "exact") && ownerOf(b)?.kind === "owner").length;
+    const onOwn = (b) => b.ll && (b.prec === "exact" || b.prec === "auto");   // «среднеточные» (19.10) — тоже, они почти всегда рядом
+    const rows = baths.filter(onOwn).map((b) => [b, ownerOf(b)]).filter(([, o]) => o);
+    const hidden = baths.filter((b) => !onOwn(b) && ownerOf(b)?.kind === "owner").length;
     const kingdoms = new Map();
     for (const [b, o] of rows) if (o.kind === "owner") kingdoms.set(o.who[0], [...(kingdoms.get(o.who[0]) || []), [b, o.n]]);
     ownLayer.clearLayers(); ownFree.clearLayers();
@@ -2119,7 +2121,7 @@
   ];
   const RADAR_TYPES = [["public", "Общественная"], ["spa", "Хуитнес"], ["private", "Частная"]];
   const HIDE_REASONS = [["not_bath", "не баня"], ["rental", "аренда, сауна"], ["spa", "хуитнес"], ["closed", "закрыта"], ["duplicate", "дубль"], ["other", "другое"]];
-  const PREC_RU = { exact: "точная", city: "по городу", region: "по региону", approx: "примерная" };
+  const PREC_RU = { exact: "точная", auto: "среднеточная (нашёл геокодер)", city: "по городу", region: "по региону", approx: "примерная" };
   function radarVerdict(p) {
     const x = p.public_index ?? 0;
     if (p.kind === "public") return x >= 90 ? ["точно общественная", "ok"] : x >= 70 ? ["скорее общественная", "ok"] : ["под вопросом", "warn"];

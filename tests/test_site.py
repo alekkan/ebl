@@ -632,12 +632,25 @@ with sync_playwright() as pw:
         s.view("map"); s.page.fill("#q", ""); s.page.select_option("#fPrec", "rough"); s.page.wait_for_timeout(600)
         rough = s.js("""() => ({ season: document.querySelector('#fSeason [aria-pressed=true]').dataset.v, count: document.getElementById('count').innerText,
           items: document.querySelectorAll('#list .item').length,
-          bad: [...document.querySelectorAll('#list .item .it-meta')].slice(0, 30).map((m) => m.innerText).filter((t) => !/точка по (городу|региону|стране)/.test(t)).slice(0, 3) })""")
+          bad: [...document.querySelectorAll('#list .item .it-meta')].slice(0, 30).map((m) => m.innerText).filter((t) => !/точка (по (городу|региону|стране)|автоматом)/.test(t)).slice(0, 3) })""")
         check("Комиссии: «Точка примерная» — бани всех лет, у каждой видно, насколько точка примерная",
               rough["season"] == "all" and "точка примерная" in rough["count"] and rough["items"] > 0 and not rough["bad"], rough)
         s.page.select_option("#fPrec", "none"); s.page.wait_for_timeout(600)
         check("…«Без точки» — на карте ни одной метки, в счётчике так и сказано",
               s.js("() => /без точки/.test(document.getElementById('count').innerText) && !document.querySelector('#map .pin')"))
+        # 19.10: «среднеточные» — точку нашёл геокодер по названию, никто не проверял
+        auto_id = sql("select id from baths where precision = 'auto' and status = 'ok' order by id limit 1")
+        if auto_id:
+            s.page.select_option("#fPrec", "auto"); s.page.wait_for_timeout(600)
+            check("Комиссии: «Среднеточная» — только бани с точкой от геокодера, с пометкой",
+                  s.js("() => /среднеточные/.test(document.getElementById('count').innerText) && [...document.querySelectorAll('#list .item .it-meta')].slice(0, 20).every((m) => /точка автоматом/.test(m.innerText))"))
+            s.page.select_option("#fPrec", ""); s.page.wait_for_timeout(300)
+            s.js(f"() => document.querySelector('#list .item[data-id=\"{auto_id}\"]') || null")
+            s.page.fill("#q", sql(f"select name from baths where id = {auto_id}")); s.page.wait_for_timeout(400)
+            s.page.click(f'#list .item[data-id="{auto_id}"]'); s.page.wait_for_timeout(1200)
+            check("карточка среднеточной бани: «точка найдена автоматически — может быть не та баня»",
+                  s.js("() => /найдена автоматически/.test(document.querySelector('#drawer .geo-move')?.innerText || '')"))
+            s.page.click("#drawer .x"); s.page.fill("#q", "")
         s.page.select_option("#fPrec", ""); s.page.click('#fSeason [data-v="2026"]'); s.page.wait_for_timeout(300)
         s.clean("Комиссия")
         s.close()
