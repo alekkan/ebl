@@ -719,6 +719,11 @@ with sync_playwright() as pw:
                 && /нашли/i.test(c.innerText) && /Тестовые бани сверки · ул. Пара, 2/.test(c.innerText) && /точка — 2ГИС/.test(c.innerText) && /1500 ₽/.test(c.innerText)
                 && c.querySelectorAll('.radar-links a').length === 3 && /уверенность 95/.test(c.innerText)
                 && document.querySelector('#catTabs [aria-pressed="true"]').dataset.tab === 'sure' && /Принять все 1/.test(document.getElementById('catBatch').innerText); }}"""))
+        s.page.hover(f'{card} .cat-prop'); s.page.wait_for_timeout(1200)
+        check("навёл на карточку — карта переехала к бане: найденная и наша точки в кадре, между ними пунктир",
+              s.js("""() => { const m = document.getElementById('catmap').getBoundingClientRect();
+                const inside = (el) => { const r = el?.getBoundingClientRect(); return !!r && r.left >= m.left && r.right <= m.right && r.top >= m.top && r.bottom <= m.bottom; };
+                return inside(document.querySelector('#catmap path.rd-league')) && inside(document.querySelector('#catmap path.rd-new')) && !!document.querySelector('#catmap path.rd-link'); }"""))
         s.page.click('#catBatch [data-cat="batch"]')
         check("«Принять все» — сначала строка подтверждения, без неё ничего не меняется",
               s.js("() => /Принять 1 баню\\?/.test(document.getElementById('catBatch').innerText)") and sql(f"select status from catalog_proposals where id = {c_sure}") == "new")
