@@ -324,7 +324,6 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .type-acts { display: flex; align-items: center; gap: 12px; }
 .d-meta .plus { color: var(--oak); font-weight: 700; }
 .d-meta .flag { color: var(--ember); font-weight: 600; }
-.d-meta .d-close { font-size: 13px; }
 .d-hero.t-public { --tint: var(--oak-soft); } .d-hero.t-spa { --tint: color-mix(in srgb, var(--t-spa) 14%, var(--panel)); }
 .d-hero.t-private { --tint: var(--honey-soft); } .d-hero.t-unknown { --tint: var(--panel-2); }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; padding-right: 40px; }
@@ -361,16 +360,16 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .facts > div + div { border-left: 1px solid var(--line); }
 .facts b { font: 700 21px/1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .facts span { font-size: 12px; line-height: 1.3; color: var(--ink-3); }
-/* «О бане» — принятое Комиссией из сверки каталога: подпись слева, значение справа, простым текстом */
-.about { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 14px; }
-.about dt { color: var(--ink-3); }
-.about dd { margin: 0; overflow-wrap: anywhere; }
-.about dd small { color: var(--ink-3); }
-.about a, .about-links a { color: var(--oak); font-weight: 600; text-decoration: none; }
-.about a:hover, .about-links a:hover { text-decoration: underline; }
-.about-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 10px; font-size: 14px; }
-.about-src { margin: 8px 0 0; }
-@media (max-width: 560px) { .about { grid-template-columns: minmax(0, 1fr); gap: 0; } .about dd { margin-bottom: 6px; } }
+/* что агенты собрали и приняла Комиссия (19.10): часы и дни, что есть, ссылки — тихими строками под адресом */
+.d-info { display: grid; gap: 3px; margin-top: 6px; }
+.d-info p { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
+.d-info .ic { flex: none; width: 15px; height: 15px; margin-top: 3px; color: var(--ink-3); }
+.d-info .d-links { flex-wrap: wrap; gap: 2px 14px; padding-left: 21px; margin-top: 2px; }
+.d-info a { color: var(--oak); font-weight: 600; text-decoration: none; }
+.d-info a:hover { text-decoration: underline; }
+.price-site { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 7px 0; font-size: 15px; }
+.price-site small { flex: none; max-width: 45%; text-align: right; font-size: 12px; color: var(--ink-3); }
+.price-site a { color: var(--oak); }
 /* сколько даст первый поход — единственный яркий акцент карточки */
 .pot { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: var(--r); background: var(--honey-soft); }
 .pot > b { font: 700 24px/1 var(--display); color: var(--ember); letter-spacing: -.02em; }
