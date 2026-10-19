@@ -509,7 +509,17 @@
               : `<span class="t">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
             ${b.t === "public" ? '<span class="plus">+1 очко</span>' : ""}
             ${flags.map((f) => `<span class="flag">${f}</span>`).join("")}
-            ${canModerate && D.live ? `<button type="button" class="linkbtn d-close" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "Работает снова?" : "Закрылась?"}</button>` : ""}
+          </div>
+          ${canModerate && D.live ? `<div class="type-ask" id="dTypeAsk" hidden>
+            <div class="chips" role="group" aria-label="Новый тип бани">${Object.entries(TYPE_CHOICE).map(([t, l]) => `<button type="button" data-newtype="${t}" aria-pressed="${b.t === t}">${tdot(t)}${l}</button>`).join("")}</div>
+            <p class="type-note" id="dTypeNote">Выбери новый тип.</p>
+            <div class="type-acts"><button type="button" class="btn sm solid" id="dTypeGo" disabled>Сменить</button><button type="button" class="linkbtn" id="dTypeCancel">Отмена</button></div>
+          </div>` : ""}
+          <h2 class="${long ? "long" : ""}">${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="rename" id="dRename" title="Поправить название — Комиссия" aria-label="Поправить название">✏️</button>` : ""}</h2>
+          <div class="geo-move">
+            <p class="where">${icon("pin")}<span><span id="dWhereTxt">${esc(where(b))}</span>${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${geoAct ? ` · <button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>` : ""}${canModerate && D.live ? ` · <button type="button" class="linkbtn" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "работает снова?" : "закрылась?"}</button>` : ""}</span></p>
+            ${geoAct ? `<form id="geoFixForm" class="geo-form" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
+              <button class="btn sm solid" type="submit">${geoSubmit}</button></form>` : ""}
           </div>
           ${canModerate && D.live ? `<div class="type-ask" id="dCloseAsk" hidden>
             <p class="type-note">${b.closed_on
@@ -518,17 +528,7 @@
             ${b.closed_on ? "" : `<label class="lab">Закрылась в <input class="inp sm" type="month" id="dCloseMonth" value="${new Date().toISOString().slice(0, 7)}" max="${new Date().toISOString().slice(0, 7)}"></label>`}
             <div class="type-acts"><button type="button" class="btn sm solid" id="dCloseGo">${b.closed_on ? "Работает" : "Закрыта"}</button><button type="button" class="linkbtn" id="dCloseCancel">Отмена</button></div>
           </div>` : ""}
-          ${canModerate && D.live ? `<div class="type-ask" id="dTypeAsk" hidden>
-            <div class="chips" role="group" aria-label="Новый тип бани">${Object.entries(TYPE_CHOICE).map(([t, l]) => `<button type="button" data-newtype="${t}" aria-pressed="${b.t === t}">${tdot(t)}${l}</button>`).join("")}</div>
-            <p class="type-note" id="dTypeNote">Выбери новый тип.</p>
-            <div class="type-acts"><button type="button" class="btn sm solid" id="dTypeGo" disabled>Сменить</button><button type="button" class="linkbtn" id="dTypeCancel">Отмена</button></div>
-          </div>` : ""}
-          <h2 class="${long ? "long" : ""}">${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="rename" id="dRename" title="Поправить название — Комиссия" aria-label="Поправить название">✏️</button>` : ""}</h2>
-          <div class="geo-move">
-            <p class="where">${icon("pin")}<span>${esc(where(b))}${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${geoAct ? ` · <button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>` : ""}</span></p>
-            ${geoAct ? `<form id="geoFixForm" class="geo-form" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
-              <button class="btn sm solid" type="submit">${geoSubmit}</button></form>` : ""}
-          </div>
+          <div class="d-info" id="dInfo" hidden></div>
         </div>
         <div class="d-photos" id="dPhotos" hidden></div>
         <div class="facts">
@@ -541,13 +541,13 @@
           const parts = potentialFor(who)(b); if (!parts) return "";
           return `<div class="pot"><b>+${parts.length}</b><div><span>${who === myNick ? "тебе" : esc(who)} за первый поход в 2026</span><small>${parts.join(" · ")}</small></div></div>`;
         })()}
-        <section class="d-about" id="dAbout" hidden></section>
         <section>
           <h3>Цена</h3>
           <div class="price-now">
             ${lastP ? `<p><span><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` · ${lastP.duration_min} мин` : ""}${schedLabel(lastP) ? ` · ${schedLabel(lastP)}` : ""}</span><small>${dayLabel(lastP.price_date)}</small></p>` : ""}
             ${lastBeer ? `<p><span>🍺 <b>${fmt(lastBeer.price)} ${curSign(lastBeer.currency)}</b> пиво</span><small>${dayLabel(lastBeer.price_date)}</small></p>` : ""}
-            ${!lastP && !lastBeer ? `<p class="hint">Цену пока никто не указал${member ? "" : "."}</p>` : ""}
+            ${!lastP && !lastBeer ? `<p class="hint" id="dPriceNone">Цену пока никто не указал${member ? "" : "."}</p>` : ""}
+            <p class="price-site" id="dPriceSite" hidden></p>
           </div>
           ${olderP.length || olderBeer.length ? `<details class="price-old"><summary>Раньше · ${olderP.length + olderBeer.length}</summary>
             ${olderP.map((p) => `<p><span>${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` · ${p.duration_min} мин` : ""}${schedLabel(p) ? ` · ${schedLabel(p)}` : ""}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}
@@ -743,18 +743,31 @@
   // Держим только до перезагрузки страницы (как фото): решения Комиссии подтянутся при следующем заходе
   const factCache = new Map();
   function renderFacts(id, f) {
-    const box = $("#dAbout"); if (!box || openId !== id || !f) return;
-    const row = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
-    const price = f.price ? esc(f.price) + (f.price_date ? ` <small>· ${esc(f.price_date)}</small>` : "") + (f.price_src ? ` <a href="${esc(f.price_src)}" target="_blank" rel="noopener">откуда</a>` : "") : "";
-    const q = encodeURIComponent([byId.get(id)?.name, f.address].filter(Boolean).join(", "));
-    const a = (u, t) => (u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>` : "");
-    const links = [a(f.website, "Сайт бани"), a(f.yandex_url || `https://yandex.ru/maps/?text=${q}`, "Яндекс Карты"), a(f.twogis_url || `https://2gis.ru/search/${q}`, "2ГИС")].filter(Boolean).join("");
-    box.innerHTML = `<h3>О бане</h3>
-      <dl class="about">${row("Адрес", esc(f.address || ""))}${row("Часы", esc(f.hours || ""))}${row("Мужские и женские дни", esc(f.gender_days || ""))}
-        ${row("Цена по сайту", price)}${row("Отделения", esc((f.sections || []).join(", ")))}${row("Что есть", esc((f.amenities || []).join(", ")))}${row("Телефон", esc(f.phone || ""))}</dl>
-      <div class="about-links">${links}</div>
-      <p class="hint about-src">Собрали по картам и сайту бани, проверила Комиссия${f.run ? ` · ${new Date(f.run + "T12:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(" г.", "")}` : ""}</p>`;
-    box.hidden = false;
+    if (openId !== id || !f) return;
+    // на справочники (Zoon, Yell) ссылок не даём — только сайт самой бани и карты
+    const own = (u) => (u && !/(^|\.)(zoon|yell)\.ru$/i.test(u.replace(/^https?:\/\//, "").split("/")[0]) ? u : null);
+    const site = own(f.website), src = own(f.price_src);
+    const when = /^\d{4}-\d{2}-\d{2}$/.test(f.run || "") ? new Date(f.run + "T12:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(" г.", "") : "";
+    if (f.address && $("#dWhereTxt")) $("#dWhereTxt").textContent = f.address;   // адрес вместо «Москва, Россия»
+    const box = $("#dInfo");
+    if (box) {
+      const line = (ic, t) => (t ? `<p>${icon(ic)}<span>${t}</span></p>` : "");
+      const q = encodeURIComponent([byId.get(id)?.name, f.address].filter(Boolean).join(", "));
+      const a = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`;
+      const links = [site && a(site, "Сайт"), f.phone && `<a href="tel:${esc(f.phone.replace(/[^\d+]/g, ""))}">${esc(f.phone)}</a>`,
+        a(own(f.yandex_url) || `https://yandex.ru/maps/?text=${q}`, "Яндекс Карты"), a(own(f.twogis_url) || `https://2gis.ru/search/${q}`, "2ГИС")].filter(Boolean).join("");
+      const has = [(f.sections || []).length && `отделения: ${(f.sections || []).join(", ")}`, (f.amenities || []).join(", ")].filter(Boolean).join(" · ");
+      box.innerHTML = line("clock", esc([f.hours, f.gender_days].filter(Boolean).join(" · "))) + line("check", esc(has))
+        + `<p class="d-links">${links}</p>`;
+      box.title = `По картам и сайту бани, проверила Комиссия${when ? ` · ${when}` : ""}`;
+      box.hidden = false;
+    }
+    const ps = $("#dPriceSite");
+    if (f.price && ps) {
+      ps.innerHTML = `<span>${esc(f.price)}</span><small>по сайту бани${when ? `, ${when}` : ""}${src ? ` · <a href="${esc(src)}" target="_blank" rel="noopener">откуда</a>` : ""}</small>`;
+      ps.hidden = false;
+      if ($("#dPriceNone")) $("#dPriceNone").hidden = true;
+    }
   }
   let cardFor = null;
   const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv») — до перехода к другой бане

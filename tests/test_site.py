@@ -626,8 +626,8 @@ with sync_playwright() as pw:
               s.js("() => !document.getElementById('dCloseAsk').hidden && /Походы и очки останутся/.test(document.getElementById('dCloseAsk').innerText) && !!document.getElementById('dCloseMonth')") and bclosed() == "")
         s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
         month = sql("select to_char(now(), 'YYYY-MM')")
-        check("«Закрыта» — в лиге дата закрытия, в карточке «закрыта с …», кнопка — «Работает снова?»",
-              bclosed() == f"{month}-01" and s.js("() => /закрыта с/.test(document.querySelector('#drawer .d-meta').innerText) && /Работает снова/.test(document.getElementById('dCloseBtn').innerText)"), bclosed())
+        check("«Закрыта» — в лиге дата закрытия, в карточке «закрыта с …», в строке места — «работает снова?»",
+              bclosed() == f"{month}-01" and s.js("() => /закрыта с/.test(document.querySelector('#drawer .d-meta').innerText) && /работает снова/i.test(document.getElementById('dCloseBtn').innerText)"), bclosed())
         # страница помнит временное название из проверки переименования выше — перезагружаем, чтобы искать по настоящему
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
         s.page.click("#addVisitBtn"); s.page.wait_for_timeout(400)
@@ -733,9 +733,9 @@ with sync_playwright() as pw:
         sql("delete from catalog_proposals where run = 'test'")
         cb_id, cb_lat, cb_lng, cb_prec = sql("select id || '|' || coalesce(lat::text, '') || '|' || coalesce(lng::text, '') || '|' || coalesce(precision, '') from baths where name = 'Василевские' limit 1").split("|")
         other = sql("select id from baths where status = 'ok' and name <> 'Василевские' order by id limit 1")
-        sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, match_why, bin, website, hours, gender_days, price, place_status, is_public, note) values
-              ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22', 'мужские пн, ср', '1500 ₽', 'open', true, 'Точка из 2ГИС'),
-              ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, 'unknown', null, 'Спросить у участников')""")
+        sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, match_why, bin, website, hours, gender_days, price, price_src, place_status, is_public, note) values
+              ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22', 'мужские пн, ср', '1500 ₽', 'https://zoon.ru/msk/sauna/test/', 'open', true, 'Точка из 2ГИС'),
+              ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников')""")
         c_sure, c_doubt = (sql(f"select id from catalog_proposals where run = 'test' and bath_id = {b}") for b in (cb_id, other))
         s = Site(browser, url, sess=vitek, name="commission-catalog")
         s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]')
@@ -773,10 +773,12 @@ with sync_playwright() as pw:
         sql(f"update catalog_proposals set status = 'accepted' where id = {c_sure}")
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
-        s.page.click(f'#list .item[data-id="{cb_id}"]'); s.page.wait_for_selector("#dAbout:not([hidden])", timeout=8000)
-        check("карточка бани: «О бане» — принятое в сверке: адрес, часы, мужские дни, цена, ссылки на сайт и карты",
-              s.js("""() => { const t = document.getElementById('dAbout').innerText; return /ул. Пара, 2/.test(t) && /ежедневно 8–22/.test(t) && /мужские пн, ср/.test(t)
-                && /1500 ₽/.test(t) && /проверила Комиссия/.test(t) && document.querySelectorAll('#dAbout .about-links a').length === 3; }"""))
+        s.page.click(f'#list .item[data-id="{cb_id}"]'); s.page.wait_for_selector("#dInfo:not([hidden])", timeout=8000)
+        check("карточка: принятое в сверке — на своих местах: адрес вместо региона, часы и дни строкой, ссылки, цена с сайта в «Цене»",
+              s.js("""() => /ул. Пара, 2/.test(document.querySelector('#drawer .where').innerText) && /ежедневно 8–22 · мужские пн, ср/.test(document.getElementById('dInfo').innerText)
+                && document.querySelectorAll('#dInfo .d-links a').length === 3 && /1500 ₽/.test(document.getElementById('dPriceSite').innerText)
+                && /по сайту бани/.test(document.getElementById('dPriceSite').innerText) && !/Invalid/.test(document.getElementById('drawer').innerText)"""))
+        check("на справочники (Zoon, Yell) ссылок в карточке нет", s.js("() => ![...document.querySelectorAll('#drawer a')].some((a) => /zoon|yell/.test(a.href))"))
         s.page.click("#drawer .x")
         s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]'); s.page.wait_for_selector("#catList li", timeout=8000)   # вкладка могла опустеть
         s.page.fill("#catQ", "")
