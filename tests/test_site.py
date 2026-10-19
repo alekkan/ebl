@@ -632,6 +632,8 @@ with sync_playwright() as pw:
         check("закрытую баню форма похода не предлагает", s.js(f"() => !!document.querySelector('#vSuggest button') && !document.querySelector('#vSuggest [data-id=\"{bath}\"]')"))
         s.page.click("#visitModal [data-close]"); s.page.wait_for_timeout(300)
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        # метки собраны в группы и в странице только видимые — сначала к бане (открыл и закрыл карточку), потом смотрим метку
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(900); s.page.click("#drawer .x"); s.page.wait_for_timeout(500)
         check("на карте закрытая баня — бледная", s.js("() => !!document.querySelector('#map .pin.closed')"))
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
         s.page.click("#dCloseBtn"); s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
