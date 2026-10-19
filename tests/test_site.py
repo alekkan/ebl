@@ -701,6 +701,51 @@ with sync_playwright() as pw:
         s.no_clip("Радар на телефоне")
         s.close()
         sql("delete from radar_places where key like 'test:%'")
+        # Сверка каталога (19.10): что агенты нашли по баням лиги; решает Комиссия — по одной или уверенные пачкой
+        sql("delete from catalog_proposals where run = 'test'")
+        cb_id, cb_lat, cb_lng, cb_prec = sql("select id || '|' || coalesce(lat::text, '') || '|' || coalesce(lng::text, '') || '|' || coalesce(precision, '') from baths where name = 'Василевские' limit 1").split("|")
+        other = sql("select id from baths where status = 'ok' and name <> 'Василевские' order by id limit 1")
+        sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, match_why, bin, website, hours, gender_days, price, place_status, is_public, note) values
+              ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22', 'мужские пн, ср', '1500 ₽', 'open', true, 'Точка из 2ГИС'),
+              ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, 'unknown', null, 'Спросить у участников')""")
+        c_sure, c_doubt = (sql(f"select id from catalog_proposals where run = 'test' and bath_id = {b}") for b in (cb_id, other))
+        s = Site(browser, url, sess=vitek, name="commission-catalog")
+        s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]')
+        s.page.wait_for_selector("#catList .radar-card", timeout=8000)
+        s.page.fill("#catQ", "Тестовые бани сверки"); s.page.wait_for_timeout(400)
+        card = f'#catList .radar-card[data-id="{c_sure}"]'
+        check("Сверка у Комиссии: «Уверенные» с пачкой, в карточке — как записано у нас (регион, кто был) и что нашли",
+              s.js(f"""() => {{ const c = document.querySelector('{card}'); return !!c && /у нас/i.test(c.innerText) && /Василевские/.test(c.innerText)
+                && /нашли/i.test(c.innerText) && /Тестовые бани сверки · ул. Пара, 2/.test(c.innerText) && /точка — 2ГИС/.test(c.innerText) && /1500 ₽/.test(c.innerText)
+                && c.querySelectorAll('.radar-links a').length === 3 && /уверенность 95/.test(c.innerText)
+                && document.querySelector('#catTabs [aria-pressed="true"]').dataset.tab === 'sure' && /Принять все 1/.test(document.getElementById('catBatch').innerText); }}"""))
+        s.page.click('#catBatch [data-cat="batch"]')
+        check("«Принять все» — сначала строка подтверждения, без неё ничего не меняется",
+              s.js("() => /Принять 1 баню\\?/.test(document.getElementById('catBatch').innerText)") and sql(f"select status from catalog_proposals where id = {c_sure}") == "new")
+        s.page.click('#catBatch [data-cat="batch-go"]'); s.page.wait_for_timeout(1500)
+        check("…подтвердил — точка бани стала найденной точной, внизу «Отменить»",
+              sql(f"select status from catalog_proposals where id = {c_sure}") == "accepted" and sql(f"select lat || ' ' || lng || ' ' || precision from baths where id = {cb_id}") == "55.7 37.55 exact"
+              and s.js("() => /Принято 1 баня/.test(document.querySelector('.toast')?.innerText || '')"))
+        s.page.click(".toast .toast-act"); s.page.wait_for_timeout(1500)
+        check("…«Отменить» — точка прежняя, предложение снова ждёт решения",
+              sql(f"select status from catalog_proposals where id = {c_sure}") == "new"
+              and sql(f"select coalesce(lat::text, '') || '|' || coalesce(lng::text, '') || '|' || coalesce(precision, '') from baths where id = {cb_id}") == f"{cb_lat}|{cb_lng}|{cb_prec}")
+        s.page.fill("#catQ", "Тестовая неизвестная"); s.page.click('#catTabs [data-tab="doubt"]'); s.page.wait_for_timeout(400)
+        card = f'#catList .radar-card[data-id="{c_doubt}"]'
+        s.page.click(f'{card} [data-cat="reject"]')
+        s.page.click(f'{card} [data-cat="reject-go"][data-reason="closed"]'); s.page.wait_for_timeout(1200)
+        check("«Не нашли»: «Отклонить» — причина одним нажатием, предложение уходит в «Решено»",
+              sql(f"select status || ' ' || reject_reason from catalog_proposals where id = {c_doubt}") == "rejected closed")
+        s.page.fill("#catQ", "")
+        s.no_clip("Сверка у Комиссии")
+        s.clean("Сверка")
+        s.close()
+        s = Site(browser, url, sess=vitek, mobile=True, name="commission-catalog-phone")
+        s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]')
+        s.page.wait_for_selector("#catList .radar-card", timeout=8000)
+        s.no_clip("Сверка на телефоне")
+        s.close()
+        sql("delete from catalog_proposals where run = 'test'")
         # второй поход в ту же баню в те же сутки: Комиссия должна видеть до решения, что очков не будет (п. 5)
         dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
         sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")

@@ -389,4 +389,49 @@ check("«Завести» с выбранным типом — хуитнес", 
 check("неизвестный тип не проходит", req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid2, "p_action": "add", "p_type": "дача"}, token=vitek)[0] >= 400
       or sql(f"select bath_id from radar_places where id = {rid2}") == str(bid3))
 sql("delete from radar_places where key like 'test:%'"); sql(f"delete from baths where id in ({bid}, {bid3})")
+
+print("Сверка каталога — только Комиссии")
+sql("delete from catalog_proposals where run = 'test-run'")
+b1 = int(sql("insert into baths (name, type, lat, lng, precision, status, country, region) values ('Тестовые бани сверки', 'public', 55.0, 37.0, 'city', 'ok', 'Россия', 'Москва') returning id").splitlines()[0])
+b2 = int(sql("insert into baths (name, type, lat, lng, precision, status, country, region) values ('Тестовые бани сверки 2', 'public', 55.5, 37.5, 'exact', 'ok', 'Россия', 'Москва') returning id").splitlines()[0])
+found = [{"id": b1, "found_name": "Тестовые бани", "address": "ул. Пара, 1", "lat": 55.01, "lng": 37.01, "point_src": "2gis", "match": 93, "match_final": 95,
+          "bin": "new", "status": "open", "is_public": True, "price": "1000 ₽", "sections": ["общее"], "amenities": ["купель"],
+          "evidence": [{"quote": "Мужской день — суббота", "url": "https://example.org"}]},
+         {"id": b2, "found_name": "Тестовые бани 2", "lat": 55.5005, "lng": 37.5005, "point_src": "osm", "match": 92, "bin": "confirm", "status": "open"},
+         {"id": 999999999, "found_name": "Удалённая баня", "match": 90}]
+def push_cat(rows):
+    with tempfile.TemporaryDirectory() as d:
+        run = pathlib.Path(d, "test-run"); run.mkdir(); (run / "catalog.json").write_text(json.dumps(rows, ensure_ascii=False))
+        out = subprocess.run(["python3", "scripts/catalog/push.py", str(run)], capture_output=True, text=True, check=True).stdout
+    r = subprocess.run(["docker", "exec", "-i", "supabase_db_ebl", "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1"], input=out, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+push_cat(found)
+p1, p2 = (int(sql(f"select id from catalog_proposals where run = 'test-run' and bath_id = {b}")) for b in (b1, b2))
+check("заливка прогона (scripts/catalog/push.py) кладёт предложения; удалённую баню пропускает",
+      sql("select count(*) from catalog_proposals where run = 'test-run'") == "2" and sql(f"select match || ' ' || place_status || ' ' || (evidence->0->>'quote') from catalog_proposals where id = {p1}") == "95 open Мужской день — суббота")
+check("гость сверку не видит", req("GET", "/rest/v1/catalog_proposals?select=id")[0] in (401, 403))
+check("участник сверку не видит", req("GET", "/rest/v1/catalog_proposals?select=id", token=shurik)[1] == [])
+check("Комиссия сверку видит", {x["id"] for x in req("GET", "/rest/v1/catalog_proposals?select=id&run=eq.test-run", token=vitek)[1]} == {p1, p2})
+check("участник решать по сверке не может", req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1], "p_action": "accept"}, token=shurik)[0] >= 400
+      and sql(f"select status from catalog_proposals where id = {p1}") == "new")
+s, n = req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1, p2], "p_action": "accept"}, token=vitek)
+check("«Принять» пачкой: примерная точка становится найденной точной, нашу точную рядом не двигаем",
+      s == 200 and n == 2 and sql(f"select lat || ' ' || lng || ' ' || precision from baths where id = {b1}") == "55.01 37.01 exact"
+      and sql(f"select lat || ' ' || precision from baths where id = {b2}") == "55.5 exact", (s, n))
+check("повторное «Принять» по решённому ничего не делает", req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1, p2], "p_action": "accept"}, token=vitek)[1] == 0)
+found[0]["price"] = "1200 ₽"; push_cat(found)
+check("повторная заливка обновляет данные, но решение Комиссии не трогает",
+      sql(f"select price || ' ' || status from catalog_proposals where id = {p1}") == "1200 ₽ accepted")
+req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1], "p_action": "reopen"}, token=vitek)
+check("«Вернуть» после «Принять» — прежняя точка и точность", sql(f"select lat || ' ' || precision from baths where id = {b1}") == "55 city"
+      and sql(f"select status from catalog_proposals where id = {p1}") == "new")
+req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1], "p_action": "reject", "p_reason": "closed"}, token=vitek)
+req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p2], "p_action": "reopen"}, token=vitek)
+req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p2], "p_action": "keep"}, token=vitek)
+check("«Отклонить» с причиной и «Оставить нашу точку» — точки не трогают",
+      sql(f"select status || ' ' || reject_reason from catalog_proposals where id = {p1}") == "rejected closed"
+      and sql(f"select status from catalog_proposals where id = {p2}") == "kept" and sql(f"select lat || ' ' || precision from baths where id = {b1}") == "55 city")
+check("неизвестное действие не проходит", req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1], "p_action": "delete"}, token=vitek)[0] >= 400)
+sql(f"delete from baths where id in ({b1}, {b2})")
+check("баню удалили — её предложения уходят вместе с ней", sql("select count(*) from catalog_proposals where run = 'test-run'") == "0")
 print("Готово.")

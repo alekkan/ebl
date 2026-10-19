@@ -103,7 +103,7 @@
   const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
   const tileOpts = { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' };
   L.tileLayer(TILE_URL, tileOpts).addTo(map);
-  const syncTheme = () => $$("#map .leaflet-tile-pane, #pickmap .leaflet-tile-pane, #radarmap .leaflet-tile-pane").forEach((p) => { p.classList.toggle("tiles-dark", dark()); p.classList.toggle("tiles-soft", !dark()); });
+  const syncTheme = () => $$("#map .leaflet-tile-pane, #pickmap .leaflet-tile-pane, #radarmap .leaflet-tile-pane, #catmap .leaflet-tile-pane").forEach((p) => { p.classList.toggle("tiles-dark", dark()); p.classList.toggle("tiles-soft", !dark()); });
   syncTheme();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
   new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -241,7 +241,7 @@
   $("#curWeek").textContent = "W" + curWeek;
 
   // ---------- вкладки ----------
-  let radarMode = "dir";   // во вкладке «Бани» у Комиссии: справочник или радар (ниже, «Радар»)
+  let radarMode = "dir";   // во вкладке «Бани» у Комиссии: справочник, радар или сверка (ниже, «Радар» и «Сверка»)
   function show(view) {
     $$(".nav button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
     $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + view));
@@ -249,7 +249,7 @@
     if (view === "owners") initOwners();
     if (view === "feed") renderFeed();
     if (view === "dir") renderDir();
-    history.replaceState(null, "", "#" + (view === "dir" && radarMode === "radar" ? "radar" : view));
+    history.replaceState(null, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
   }
   $$(".nav button").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
 
@@ -2121,7 +2121,7 @@
   ];
   const RADAR_TYPES = [["public", "Общественная"], ["spa", "Хуитнес"], ["private", "Частная"]];
   const HIDE_REASONS = [["not_bath", "не баня"], ["rental", "аренда, сауна"], ["spa", "хуитнес"], ["closed", "закрыта"], ["duplicate", "дубль"], ["other", "другое"]];
-  const PREC_RU = { exact: "точная", auto: "среднеточная (нашёл геокодер)", city: "по городу", region: "по региону", approx: "примерная" };
+  const PREC_RU = { exact: "точная", auto: "среднеточная (нашёл геокодер)", city: "по городу", region: "по региону", country: "по стране", approx: "примерная" };
   function radarVerdict(p) {
     const x = p.public_index ?? 0;
     if (p.kind === "public") return x >= 90 ? ["точно общественная", "ok"] : x >= 70 ? ["скорее общественная", "ok"] : ["под вопросом", "warn"];
@@ -2279,9 +2279,11 @@
     $$("#dirMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
     $("#dirBox").hidden = mode !== "dir";
     $("#radarBox").hidden = mode !== "radar";
-    $("#dirTitle").textContent = mode === "radar" ? "Радар" : "Справочник бань";
+    $("#catBox").hidden = mode !== "catalog";
+    $("#dirTitle").textContent = { radar: "Радар", catalog: "Сверка каталога" }[mode] || "Справочник бань";
     if (mode === "radar") renderRadar();
-    history.replaceState(null, "", "#" + (mode === "radar" ? "radar" : "dir"));
+    if (mode === "catalog") renderCat();
+    history.replaceState(null, "", "#" + mode);
   }
   $("#dirMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-mode]"); if (b) setDirMode(b.dataset.mode); });
   $("#radarTabs").addEventListener("click", (e) => {
@@ -2359,6 +2361,257 @@
     }
   });
 
+  // ---------- Сверка каталога — только Комиссии (19.10) ----------
+  // Агенты прошли бани лиги по 2ГИС, Яндекс Картам, OpenStreetMap и сайтам бань (docs/catalog.md). В карточке — как баня
+  // записана у нас (тип, регион, походы, кто был) и что нашли (название, адрес, точка, ссылки, факты) с индексом уверенности.
+  // «Принять» — найденная точка становится точной (нашу точную рядом не двигаем), «Оставить нашу», «Отклонить» с причиной.
+  // Уверенные — пачкой. Регион Комиссии не меняем: расхождение показываем отдельной вкладкой.
+  let cat = null, catTab = null, catQ = "", catRegion = "", catFitKey = "", catAsk = null, catPin = null;
+  const catOpen = new Set();
+  function catBase(p) {
+    if (p.region_conflict) return "region";
+    if (p.is_public === false || p.place_status === "closed" || p.place_status === "repair") return "flag";
+    if (p.match >= 90 && p.lat != null && p.bin !== "move") return "sure";
+    return p.match >= 70 ? "check" : "doubt";
+  }
+  const catGroup = (p) => (p.status !== "new" ? "done" : catBase(p));
+  const CAT_TABS = [
+    ["sure", "Уверенные", "Название, город и регион сошлись, адрес подтвердили два источника. Можно принять пачкой: найденная точка станет точной, а нашу точную, если она рядом, не тронем."],
+    ["check", "Проверить", "Нашли, но источник один, данных мало или наша точка далеко. Глянь по ссылкам и реши по одной."],
+    ["region", "Регион", "Регион по карточке не тот, что у нас. Точку можно принять — регион от этого не меняется, его правят в справочнике."],
+    ["flag", "Флажки", "Похоже, баня закрылась, на ремонте или это не общественная баня (аренда, спа при отеле). Реши, что с ней делать."],
+    ["doubt", "Не нашли", "Агенты не нашли или сомневаются. Спроси у тех, кто был, — они в строке «У нас»."],
+    ["done", "Решено", "Что уже решили. Передумал — «Вернуть»: принятая точка вернётся прежней, если баню с тех пор не двигали."],
+  ];
+  const CAT_REJECT = [["other_bath", "другая баня"], ["wrong_point", "точка не та"], ["not_public", "не общественная"], ["closed", "закрыта"], ["duplicate", "дубль"], ["other", "другое"]];
+  const CAT_SRC = { "2gis": "2ГИС", yandex: "Яндекс Карты", osm: "OpenStreetMap", site: "сайт бани" };
+  const catRaw = (b) => (b?.lat != null ? [b.lat, b.lng] : null);
+  const catFar = (p, b) => (catRaw(b) && p.lat != null ? distKm(catRaw(b), [p.lat, p.lng]) : null);
+  // принять — значит двинуть точку? (так же решает catalog_decide: наша точная ближе 300 м остаётся)
+  const catMoves = (p, b) => p.lat != null && (!catRaw(b) || b.precision !== "exact" || catFar(p, b) > 0.3);
+  function catOurs(p, b) {
+    if (!b) return `<div class="cat-ours"><span class="cat-lbl">У нас</span> баню удалили из лиги</div>`;
+    const who = dirWho(b), more = who.length > 6 ? ` и ещё ${who.length - 6}` : "";
+    const visits = b.nAll ? `${b.nAll} ${plural(b.nAll, "поход", "похода", "походов")}${b.n26 ? `, в 2026 — ${b.n26}` : ""}` : "походов нет";
+    const pt = !catRaw(b) ? "точки нет" : `точка ${PREC_RU[b.precision || "exact"] || "примерная"}`;
+    return `<div class="cat-ours"><span class="cat-lbl">У нас</span><div><b>${esc(b.name)}</b> · ${esc(TYPE_LABEL[b.t] || "")} · ${esc(where(b))} · ${pt} · ${visits}
+      ${who.length ? `<div class="cat-who">Были: ${who.slice(0, 6).map(([n, k]) => `${esc(n)}${k > 1 ? ` ${k}` : ""}`).join(", ")}${more}</div>` : ""}</div></div>`;
+  }
+  function catProp(p, b) {
+    const far = catFar(p, b);
+    const pt = p.lat == null ? "координат в источниках нет — наша точка останется"
+      : !catRaw(b) ? `точка — ${CAT_SRC[p.point_src] || "из источника"}, у нас точки не было`
+      : `точка — ${CAT_SRC[p.point_src] || "из источника"}, ${far < 0.05 ? "там же, где наша" : `${fmtKm(far)} от нашей`}`;
+    const reg = p.region_conflict ? `<div class="cat-warn">Регион по карточке: ${esc(p.region_found || "другой")}, у нас — ${esc(b?.region || "не указан")}</div>` : "";
+    const facts = [p.hours, p.gender_days, p.price && `${p.price}${p.price_date ? ` (${p.price_date})` : ""}`].filter(Boolean);
+    const flag = p.place_status === "closed" ? "похоже, закрыта" : p.place_status === "repair" ? "на ремонте" : p.is_public === false ? "не общественная" : "";
+    return `<div class="cat-prop"><span class="cat-lbl">Нашли</span><div>
+      <b>${esc(p.found_name || "—")}</b>${p.address ? ` · ${esc(p.address)}` : ""}
+      <div class="cat-pt">${pt}</div>${reg}
+      ${flag ? `<div class="cat-warn">${flag}${p.public_why ? `: ${esc(p.public_why)}` : ""}</div>` : ""}
+      ${facts.length ? `<div class="cat-facts">${facts.map((f) => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
+      ${p.note ? `<p class="radar-note">${esc(p.note)}</p>` : ""}</div></div>`;
+  }
+  function catLinks(p) {
+    const q = encodeURIComponent([p.found_name, p.address || p.city].filter(Boolean).join(", "));
+    const ll = p.lat != null ? `${p.lng.toFixed(5)},${p.lat.toFixed(5)}` : "";
+    const ya = p.yandex_url || (q && `https://yandex.ru/maps/?text=${q}${ll ? `&ll=${ll}&z=16` : ""}`);
+    const dg = p.twogis_url || (q && `https://2gis.ru/search/${q}${ll ? `?m=${ll}/16` : ""}`);
+    const a = (u, t) => (u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>` : "");
+    return a(p.website, `Сайт: ${esc((p.website || "").replace(/^https?:\/\/(www\.)?/, "").split("/")[0])}`) + a(ya, "Яндекс Карты") + a(dg, "2ГИС");
+  }
+  function catMore(p) {
+    const row = (k, v) => (v ? `<p><b>${k}:</b> ${esc(v)}</p>` : "");
+    const quotes = (p.evidence || []).filter((e) => e.quote).map((e) => `<blockquote>«${esc(e.quote)}» <a href="${esc(e.url)}" target="_blank" rel="noopener">источник</a></blockquote>`).join("");
+    return `<div class="radar-more">${row("Почему так уверены", p.match_why)}${row("Телефон", p.phone)}${row("Отделения", (p.sections || []).join(", "))}
+      ${row("Что есть", (p.amenities || []).join(", "))}${row("Общественная", p.public_why)}
+      ${p.price_src ? `<p><b>Цена:</b> <a href="${esc(p.price_src)}" target="_blank" rel="noopener">откуда</a></p>` : ""}${quotes}
+      <p class="hint">Прогон ${esc(p.run)}</p></div>`;
+  }
+  function catActs(p, b) {
+    if (p.status !== "new") {
+      const what = p.status === "accepted" ? (p.prev_precision ? "Точка перенесена сюда" : "Принято") : p.status === "kept" ? "Оставили нашу точку"
+        : `Отклонено${p.reject_reason ? ": " + (CAT_REJECT.find(([k]) => k === p.reject_reason)?.[1] || "") : ""}`;
+      return `<span class="radar-doneline">${what}</span>${b ? `<button type="button" class="linkbtn" data-cat="ourbath" data-id="${p.id}">на карте лиги</button>` : ""}<button type="button" class="linkbtn" data-cat="reopen" data-id="${p.id}">Вернуть</button>`;
+    }
+    if (catAsk?.id === p.id) {
+      return `<div class="radar-ask"><span>Отклонить — почему?</span>${CAT_REJECT.map(([k, l]) => `<button type="button" class="chip" data-cat="reject-go" data-reason="${k}" data-id="${p.id}">${l}</button>`).join("")}<button type="button" class="linkbtn" data-cat="cancel">Отмена</button></div>`;
+    }
+    const moves = catMoves(p, b);
+    const main = p.lat == null ? "Подтвердить данные" : !moves ? "Подтвердить" : catRaw(b) ? "Перенести точку сюда" : "Поставить точку";
+    const solid = p.match >= 70 && !p.region_conflict;
+    return `<button type="button" class="btn sm${solid ? " solid" : ""}" data-cat="accept" data-id="${p.id}">${main}</button>`
+      + (moves ? `<button type="button" class="btn sm" data-cat="keep" data-id="${p.id}">Оставить нашу точку</button>` : "")
+      + `<button type="button" class="linkbtn" data-cat="reject" data-id="${p.id}">Отклонить</button>`;
+  }
+  function catCard(p) {
+    const b = byId.get(p.bath_id), g = catGroup(p), open = catOpen.has(p.id);
+    const title = esc(b?.name || p.found_name || "Баня");
+    const name = p.lat != null || catRaw(b) ? `<button type="button" class="radar-name" data-cat="fly" data-id="${p.id}" title="Показать на карте">${title}</button>` : `<b class="radar-name">${title}</b>`;
+    const tone = p.match >= 90 ? "ok" : p.match >= 70 ? "ok" : p.match >= 40 ? "warn" : "muted";
+    return `<li class="radar-card cat-card${g === "done" ? " is-done" : ""}${p.id === catPin ? " focus" : ""}" data-id="${p.id}">
+      <div class="radar-head">${name}<span class="vd vd-${tone}">уверенность ${p.match}</span></div>
+      ${catOurs(p, b)}${catProp(p, b)}
+      <div class="radar-links">${catLinks(p)}<button type="button" class="linkbtn" data-cat="more" data-id="${p.id}">${open ? "Свернуть" : "Подробнее"}</button></div>
+      ${open ? catMore(p) : ""}
+      <div class="radar-acts">${catActs(p, b)}</div></li>`;
+  }
+  // карта: найденные точки вкладки; на выбранной — наша точка сейчас и пунктир до найденной
+  let catMap = null, catLayer = null, catGhost = null, catHot = null;
+  const catMarks = new Map();
+  function catMapRender(rows) {
+    if ($("#catSide").classList.contains("folded")) return;
+    if (!catMap) {
+      catMap = L.map("catmap", { zoomSnap: 0.5 }).setView([55.75, 37.6], 5);
+      catMap.attributionControl.setPrefix(false);
+      L.tileLayer(TILE_URL, tileOpts).addTo(catMap); syncTheme();
+      catLayer = L.layerGroup().addTo(catMap);
+    }
+    setTimeout(() => catMap.invalidateSize(), 0);
+    catLayer.clearLayers(); catMarks.clear(); catGhost = null; catHot = null;
+    const pts = [];
+    for (const p of rows) {
+      const ll = p.lat != null ? [p.lat, p.lng] : catRaw(byId.get(p.bath_id));
+      if (!ll) continue;
+      pts.push(ll);
+      const m = L.circleMarker(ll, { radius: 7, weight: 2, className: `rd ${p.lat != null ? "rd-new" : "rd-search"}${p.status !== "new" ? " rd-done" : ""}` })
+        .bindTooltip(`<b>${esc(byId.get(p.bath_id)?.name || p.found_name || "")}</b>${p.address ? `<br>${esc(p.address)}` : ""}`, { direction: "top", offset: [0, -6] })
+        .on("click", () => catFocus(p.id, true))
+        .addTo(catLayer);
+      catMarks.set(p.id, m);
+    }
+    const key = catTab + "|" + catQ + "|" + catRegion;
+    if (key !== catFitKey && pts.length) { catMap.fitBounds(pts, { padding: [28, 28], maxZoom: 13, animate: false }); catFitKey = key; }
+  }
+  function catPair(p) {
+    if (catGhost) { catLayer.removeLayer(catGhost); catGhost = null; }
+    const ours = p && catRaw(byId.get(p.bath_id));
+    if (!ours || p.lat == null || !catMap || catFar(p, byId.get(p.bath_id)) < 0.03) return ours || null;
+    catGhost = L.layerGroup([
+      L.polyline([[p.lat, p.lng], ours], { className: "rd-link", weight: 2, dashArray: "4 6", interactive: false }),
+      L.circleMarker(ours, { radius: 6, weight: 2, className: "rd rd-league" }).bindTooltip("Наша точка сейчас", { direction: "top", offset: [0, -6] }),
+    ]);
+    catLayer.addLayer(catGhost);
+    return ours;
+  }
+  function catHover(id, on) {
+    if (on ? catHot === id : catHot !== id) return;
+    catHot = on ? id : null;
+    const m = catMarks.get(id);
+    if (m) { m.setRadius(on ? 12 : 7); if (on) m.bringToFront(); }
+    catPair(cat.find((x) => x.id === (on ? id : catPin)));
+  }
+  function catFocus(id, scroll) {
+    $$("#catList .radar-card.focus").forEach((x) => x.classList.remove("focus"));
+    const card = $(`#catList .radar-card[data-id="${id}"]`); if (!card) return;
+    card.classList.add("focus");
+    if (scroll) card.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
+  }
+  const catPass = () => {
+    const q = lowerE(catQ.trim());
+    return (p) => {
+      const b = byId.get(p.bath_id);
+      if (catRegion && (b?.region || b?.country || "") !== catRegion) return false;
+      return !q || lowerE(`${b?.name || ""} ${p.found_name || ""} ${p.city || ""} ${p.address || ""} ${b?.region || ""} ${b ? dirWho(b).map(([n]) => n).join(" ") : ""}`).includes(q);
+    };
+  };
+  function renderCat() {
+    if (!cat) {
+      D.catalog().then((rows) => { cat = rows; renderCat(); })
+        .catch((err) => { $("#catList").innerHTML = `<li class="hint">Сверка не загрузилась: ${esc(err.message)}</li>`; });
+      return;
+    }
+    const regions = [...new Set(cat.map((p) => byId.get(p.bath_id)).filter(Boolean).map((b) => b.region || b.country).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
+    if ($("#catRegion").options.length !== regions.length + 1)
+      $("#catRegion").innerHTML = `<option value="">Все регионы</option>` + regions.map((r) => `<option${r === catRegion ? " selected" : ""}>${esc(r)}</option>`).join("");
+    const pass = catPass(), by = {};
+    for (const p of cat) if (pass(p)) (by[catGroup(p)] ||= []).push(p);
+    if (!catTab || !CAT_TABS.some(([t]) => t === catTab)) catTab = ["sure", "check", "region", "flag", "doubt"].find((t) => by[t]?.length) || "sure";
+    $("#catTabs").innerHTML = CAT_TABS.map(([t, l]) => `<button type="button" role="tab" data-tab="${t}" aria-pressed="${t === catTab}">${l}<span class="n">${by[t]?.length || 0}</span></button>`).join("");
+    const doneN = cat.filter((p) => p.status !== "new").length;
+    $("#catProgress").hidden = !cat.length;
+    $("#catProgress").innerHTML = `<div class="bar"><i style="width:${cat.length ? Math.round(doneN / cat.length * 100) : 0}%"></i></div><span>Разобрано <b>${doneN}</b> из ${cat.length}</span>`;
+    $("#catN").textContent = cat.length - doneN ? ` · ${cat.length - doneN}` : "";
+    $("#catTabNote").textContent = CAT_TABS.find(([t]) => t === catTab)[2];
+    const rows = (by[catTab] || []).sort((a, b) => (catTab === "done" ? Date.parse(b.decided_at || 0) - Date.parse(a.decided_at || 0) : b.match - a.match || (byId.get(b.bath_id)?.nAll || 0) - (byId.get(a.bath_id)?.nAll || 0)));
+    // пачкой — только уверенные: у них два источника сошлись
+    const batch = catTab === "sure" ? rows.filter((p) => p.status === "new") : [];
+    $("#catBatch").hidden = !batch.length;
+    $("#catBatch").innerHTML = !batch.length ? "" : catAsk?.batch
+      ? `<div class="radar-ask"><span>Принять ${batch.length} ${plural(batch.length, "баню", "бани", "бань")}? Найденные точки станут точными, наши точные рядом не тронем.</span>
+          <button type="button" class="btn solid sm" data-cat="batch-go">Принять ${batch.length}</button><button type="button" class="linkbtn" data-cat="cancel">Отмена</button></div>`
+      : `<span>${batch.length} ${plural(batch.length, "баня ждёт", "бани ждут", "бань ждут")} решения${catQ || catRegion ? " (с учётом фильтра)" : ""}</span><button type="button" class="btn solid sm" data-cat="batch">Принять все ${batch.length}</button>`;
+    $("#catList").innerHTML = rows.length ? rows.map(catCard).join("")
+      : `<li class="radar-empty">${catTab === "done" ? "Пока ничего не решено." : catQ || catRegion ? "Ничего не нашлось — попробуй убрать фильтр." : "Здесь всё разобрано."}</li>`;
+    catMapRender(rows);
+  }
+  $("#catTabs").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-tab]"); if (!b) return;
+    catTab = b.dataset.tab; catAsk = null; catPin = null; store.set("catTab", catTab); renderCat();
+  });
+  catTab = store.get("catTab", null);
+  let catQT = null;
+  $("#catQ").addEventListener("input", (e) => { clearTimeout(catQT); catQT = setTimeout(() => { catQ = e.target.value; catAsk = null; renderCat(); }, 150); });
+  $("#catRegion").addEventListener("change", (e) => { catRegion = e.target.value; catAsk = null; renderCat(); });
+  $("#catMapToggle").addEventListener("click", () => {
+    const f = $("#catSide").classList.toggle("folded");
+    $("#catMapToggle").textContent = f ? "Показать карту" : "Свернуть карту";
+    store.set("catMapFolded", f);
+    if (!f) renderCat();
+  });
+  if (store.get("catMapFolded", false) && innerWidth <= 1000) { $("#catSide").classList.add("folded"); $("#catMapToggle").textContent = "Показать карту"; }
+  $("#catList").addEventListener("mouseover", (e) => { const c = e.target.closest(".radar-card"); if (c) catHover(Number(c.dataset.id), true); });
+  $("#catList").addEventListener("mouseout", (e) => { const c = e.target.closest(".radar-card"); if (c && !c.contains(e.relatedTarget)) catHover(Number(c.dataset.id), false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && catAsk) { catAsk = null; renderCat(); } });
+  // решение по одной или пачке; после — данные бань заново (точки на карте лиги), внизу «Отменить»
+  async function catDo(list, act, reason = null) {
+    await D.catalogDecide(list.map((p) => p.id), act, reason);
+    const fresh = await D.catalog();
+    cat = fresh; catAsk = null; renderCat();
+    if (act !== "reject" && act !== "keep") refreshData().then(renderCat).catch(() => {});
+  }
+  function catUndo(list, msg) {
+    radarToast(msg, "Отменить", () => catDo(list, "reopen").then(() => toast("Вернули в сверку")).catch((err) => toast("Не получилось: " + err.message)));
+  }
+  async function catClick(e) {
+    const b = e.target.closest("[data-cat]"); if (!b) return;
+    const act = b.dataset.cat, p = cat?.find((x) => x.id === Number(b.dataset.id));
+    if (act === "cancel") { catAsk = null; return renderCat(); }
+    if (act === "batch") { catAsk = { batch: true }; return renderCat(); }
+    if (act === "batch-go") {
+      const pass = catPass(), list = cat.filter((x) => x.status === "new" && catGroup(x) === "sure" && pass(x));
+      b.disabled = true;
+      try { await catDo(list, "accept"); catUndo(list, `Принято ${list.length} ${plural(list.length, "баня", "бани", "бань")}`); }
+      catch (err) { b.disabled = false; toast("Не получилось: " + err.message); }
+      return;
+    }
+    if (!p) return;
+    if (act === "fly") {
+      catFocus(p.id); catPin = p.id;
+      const ours = catPair(p), here = p.lat != null ? [p.lat, p.lng] : ours;
+      if (ours && here !== ours) catMap?.fitBounds([here, ours], { padding: [48, 48], maxZoom: 16, animate: !calm });
+      else if (here) catMap?.setView(here, 16, { animate: !calm });
+      if (innerWidth <= 1000) $("#catmap").scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
+      return;
+    }
+    if (act === "more") { catOpen.has(p.id) ? catOpen.delete(p.id) : catOpen.add(p.id); return renderCat(); }
+    if (act === "ourbath") { if (byId.has(p.bath_id)) { show("map"); openBath(p.bath_id, true); } return; }
+    if (act === "reject") { catAsk = { id: p.id }; return renderCat(); }
+    const name = byId.get(p.bath_id)?.name || p.found_name || "баня";
+    $$("button", b.closest(".radar-acts")).forEach((x) => (x.disabled = true));
+    try {
+      if (act === "accept") { await catDo([p], "accept"); catUndo([p], `«${name}»: принято`); }
+      else if (act === "keep") { await catDo([p], "keep"); catUndo([p], `«${name}»: оставили нашу точку`); }
+      else if (act === "reject-go") { await catDo([p], "reject", b.dataset.reason); catUndo([p], `«${name}»: отклонено`); }
+      else if (act === "reopen") { await catDo([p], "reopen"); toast("Вернули в сверку"); }
+    } catch (err) {
+      $$("button", b.closest(".radar-acts")).forEach((x) => (x.disabled = false));
+      toast("Не получилось: " + err.message);
+    }
+  }
+  $("#catList").addEventListener("click", catClick);
+  $("#catBatch").addEventListener("click", catClick);
+
   // решения Комиссии с прошлого захода (18.10): «✅ Комиссия засчитала „Василевские“ · +4» — один раз. Отметку, что видел,
   // браузер помнит у себя (это не данные, а «уже показал»); первый заход — старые решения не вываливаем; свои решения
   // Комиссии на свои походы не показываем
@@ -2389,5 +2642,5 @@
   setTimeout(announceDecisions, 600);   // после первой отрисовки — не поверх заставки
   const h = location.hash.slice(1);
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
-  if (h === "radar" && canModerate && D.live) { show("dir"); setDirMode("radar"); }
+  if ((h === "radar" || h === "catalog") && canModerate && D.live) { show("dir"); setDirMode(h); }
 })();
