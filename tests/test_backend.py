@@ -434,4 +434,13 @@ check("«Отклонить» с причиной и «Оставить нашу
 check("неизвестное действие не проходит", req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p1], "p_action": "delete"}, token=vitek)[0] >= 400)
 sql(f"delete from baths where id in ({b1}, {b2})")
 check("баню удалили — её предложения уходят вместе с ней", sql("select count(*) from catalog_proposals where run = 'test-run'") == "0")
+
+print("Закрытая баня")
+bc = int(sql("insert into baths (name, type, lat, lng, precision, status, country, region) values ('Тестовая закрытая баня', 'public', 55.1, 37.1, 'exact', 'ok', 'Россия', 'Москва') returning id").splitlines()[0])
+req("PATCH", f"/rest/v1/baths?id=eq.{bc}", {"closed_on": "2026-09-01"}, token=shurik)
+check("участник баню закрытой не отметит", sql(f"select coalesce(closed_on::text, '') from baths where id = {bc}") == "")
+s, _ = req("PATCH", f"/rest/v1/baths?id=eq.{bc}", {"closed_on": "2026-09-01"}, token=vitek)
+check("Комиссия отмечает «закрыта» месяцем — баня остаётся в лиге, в общих данных с датой",
+      s in (200, 204) and any(b["id"] == bc and b["closed_on"] == "2026-09-01" for b in req("POST", "/rest/v1/rpc/baths_all", {})[1]), s)
+sql(f"delete from baths where id = {bc}")
 print("Готово.")

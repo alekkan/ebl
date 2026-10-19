@@ -203,6 +203,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .pin svg { width: 64%; height: 64%; fill: currentColor; }
 .pin:hover { transform: scale(1.15); }
 .pin.approx { opacity: .6; }
+.pin.closed { opacity: .35; filter: grayscale(1); }   /* баня закрылась — в истории, но не зовёт */
 .pin.hot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ember) 35%, transparent), 0 2px 6px rgba(20, 30, 20, .35); }
 /* выбранная баня — капля: кончик в точке бани, силуэт типа в «головке», лёгкая тень на земле */
 .pin-drop { position: relative; width: 40px; height: 52px; filter: drop-shadow(0 3px 3px rgba(20, 30, 20, .3)); cursor: pointer; }
@@ -323,6 +324,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .type-acts { display: flex; align-items: center; gap: 12px; }
 .d-meta .plus { color: var(--oak); font-weight: 700; }
 .d-meta .flag { color: var(--ember); font-weight: 600; }
+.d-meta .d-close { font-size: 13px; }
 .d-hero.t-public { --tint: var(--oak-soft); } .d-hero.t-spa { --tint: color-mix(in srgb, var(--t-spa) 14%, var(--panel)); }
 .d-hero.t-private { --tint: var(--honey-soft); } .d-hero.t-unknown { --tint: var(--panel-2); }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; padding-right: 40px; }
