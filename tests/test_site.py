@@ -628,9 +628,12 @@ with sync_playwright() as pw:
         month = sql("select to_char(now(), 'YYYY-MM')")
         check("«Закрыта» — в лиге дата закрытия, в карточке «закрыта с …», кнопка — «Работает снова?»",
               bclosed() == f"{month}-01" and s.js("() => /закрыта с/.test(document.querySelector('#drawer .d-meta').innerText) && /Работает снова/.test(document.getElementById('dCloseBtn').innerText)"), bclosed())
-        s.page.click("#drawer .x"); s.page.click("#addVisitBtn"); s.page.wait_for_timeout(400)
+        # страница помнит временное название из проверки переименования выше — перезагружаем, чтобы искать по настоящему
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+        s.page.click("#addVisitBtn"); s.page.wait_for_timeout(400)
         s.page.fill("#vBathQ", "Василевские"); s.page.wait_for_timeout(300)
-        check("закрытую баню форма похода не предлагает", s.js(f"() => !!document.querySelector('#vSuggest button') && !document.querySelector('#vSuggest [data-id=\"{bath}\"]')"))
+        check("закрытую баню форма похода не предлагает (открытые с похожим названием — предлагает)",
+              s.js(f"() => !document.querySelector('#vSuggest [data-id=\"{bath}\"]')") and sql(f"select closed_on is not null from baths where id = {bath}") == "t")
         s.page.click("#visitModal [data-close]"); s.page.wait_for_timeout(300)
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         # метки собраны в группы и в странице только видимые — сначала к бане (открыл и закрыл карточку), потом смотрим метку
@@ -641,7 +644,7 @@ with sync_playwright() as pw:
         check("«Работает снова» — дата закрытия снята", bclosed() == "")
         sql(f"update baths set closed_on = null where id = {bath}")
         # поход за другого (только на сайте): Комиссия сама выбирает «Кто» и в бане могла не быть
-        s.page.click("#dVisit")   # из карточки этой бани: на странице она ещё под временным названием
+        s.page.click("#dVisit")   # из карточки этой бани
         check("Комиссии «Кто» можно выбрать", s.js("() => !document.getElementById('vPlayer').disabled && !document.getElementById('vPlayerHint').hidden"))
         s.page.select_option("#vPlayer", "Леха")
         s.page.fill("#vDate", "2026-10-01T19:00"); s.page.wait_for_timeout(300)
