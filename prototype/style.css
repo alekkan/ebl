@@ -989,7 +989,7 @@ tr.below { color: var(--ink-2); }
 .radar-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42%); gap: 18px; align-items: start; }
 .radar-col { min-width: 0; grid-column: 1; grid-row: 1; }
 .radar-side { grid-column: 2; grid-row: 1; position: sticky; top: 12px; display: grid; gap: 6px; }
-#radarmap { height: min(72vh, 640px); border-radius: var(--r); border: 1px solid var(--line); background: var(--panel-2); z-index: 0; }
+#radarmap, #catmap { height: min(72vh, 640px); border-radius: var(--r); border: 1px solid var(--line); background: var(--panel-2); z-index: 0; }
 .radar-maptoggle { display: none; justify-self: start; }
 .radar-tabnote { margin: 0 0 10px; }
 .radar-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
@@ -1038,18 +1038,31 @@ path.rd-search, path.rd-rest { fill: var(--ink-3); }
 path.rd-done { fill-opacity: .45; }
 path.rd-league { fill: var(--panel); stroke: var(--t-spa); }      /* наша точка сейчас — пустой кружок того же цвета */
 path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
+/* сверка каталога: «У нас» и «Нашли» — две строки-таблички с подписью слева */
+.cat-ours, .cat-prop { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; font-size: 14px; color: var(--ink-2); overflow-wrap: anywhere; }
+.cat-ours { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
+.cat-prop { padding: 2px 10px; }
+.cat-ours b, .cat-prop b { color: var(--ink); }
+.cat-lbl { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
+.cat-who, .cat-pt { color: var(--ink-3); font-size: 13px; margin-top: 2px; }
+.cat-warn { color: var(--honey); font-weight: 600; margin-top: 2px; }
+.cat-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; color: var(--ink); }
+.cat-prop .radar-note { margin-top: 4px; }
+.cat-batch { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 10px; font-size: 14px; color: var(--ink-2); }
+.cat-batch .radar-ask { margin: 0; }
 @media (max-width: 1000px) {
   .radar-body { grid-template-columns: minmax(0, 1fr); }
   .radar-side { grid-column: 1; grid-row: 1; position: static; }
   .radar-col { grid-row: 2; }
-  #radarmap { height: 300px; }
-  .radar-side.folded #radarmap { display: none; }
+  #radarmap, #catmap { height: 300px; }
+  .radar-side.folded #radarmap, .radar-side.folded #catmap { display: none; }
   .radar-maptoggle { display: inline-block; }
 }
 @media (max-width: 560px) {
   .radar-acts .btn { flex: 1 1 auto; justify-content: center; }
   .radar-city { max-width: 40%; }
-  #radarmap { height: 220px; }
+  #radarmap, #catmap { height: 220px; }
+  .cat-ours, .cat-prop { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 
 /* ---------- справочник бань (Комиссия) ---------- */

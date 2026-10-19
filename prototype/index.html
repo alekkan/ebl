@@ -273,6 +273,7 @@
         <div class="seg" id="dirMode" role="group" aria-label="Раздел">
           <button type="button" data-mode="dir" aria-pressed="true">Справочник</button>
           <button type="button" data-mode="radar" aria-pressed="false">Радар<span class="radar-n" id="radarN"></span></button>
+          <button type="button" data-mode="catalog" aria-pressed="false">Сверка<span class="radar-n" id="catN"></span></button>
         </div>
       </div>
       <div id="radarBox" hidden>
@@ -293,6 +294,28 @@
           <div class="radar-col">
             <p class="hint radar-tabnote" id="radarTabNote"></p>
             <ul class="radar-list" id="radarList"><li class="hint">Загружаю радар…</li></ul>
+          </div>
+        </div>
+      </div>
+      <div id="catBox" hidden>
+        <p class="lead radar-lead">Агенты прошли бани лиги по 2ГИС, Яндекс Картам, OpenStreetMap и сайтам бань. Слева — как баня записана у нас, ниже — что нашли. Принятая точка становится точной; регион не меняется.</p>
+        <div class="radar-progress" id="catProgress" hidden></div>
+        <div class="radar-tools">
+          <div class="seg radar-tabs" id="catTabs" role="tablist" aria-label="Что показать"></div>
+          <div class="radar-filters">
+            <input class="inp" id="catQ" type="search" placeholder="Название, город или кто был" aria-label="Поиск в сверке">
+            <select class="sel" id="catRegion" aria-label="Регион"><option value="">Все регионы</option></select>
+          </div>
+        </div>
+        <div class="radar-body">
+          <aside class="radar-side" id="catSide">
+            <div id="catmap" aria-label="Карта сверки"></div>
+            <button type="button" class="linkbtn radar-maptoggle" id="catMapToggle">Свернуть карту</button>
+          </aside>
+          <div class="radar-col">
+            <p class="hint radar-tabnote" id="catTabNote"></p>
+            <div class="cat-batch" id="catBatch" hidden></div>
+            <ul class="radar-list" id="catList"><li class="hint">Загружаю сверку…</li></ul>
           </div>
         </div>
       </div>

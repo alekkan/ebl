@@ -391,6 +391,15 @@ window.EBLData = (() => {
     async radarDecide(id, action, { bath = null, type = "public", reason = null } = {}) {
       return check(await sb.rpc("radar_decide", { p_id: id, p_action: action, p_bath: bath, p_type: type, p_reason: reason }));
     },
+    // Сверка каталога (19.10) — только Комиссии: что агенты нашли по баням лиги (точка, адрес, ссылки, факты) и её решения
+    async catalog() {
+      if (!live) return [];
+      return check(await sb.from("catalog_proposals").select("*").order("match", { ascending: false }).limit(3000));
+    },
+    // action: accept (точка — найденная), keep (точку не трогаем), reject (reason), reopen; ids — одна или пачка
+    async catalogDecide(ids, action, reason = null) {
+      return check(await sb.rpc("catalog_decide", { p_ids: ids, p_action: action, p_reason: reason }));
+    },
     // Комиссия: баня оказалась дублем — походы переезжают в оригинал, дубль отклоняется
     async mergeBath(dupId, origId) {
       check(await sb.from("visits").update({ bath_id: origId }).eq("bath_id", dupId));
