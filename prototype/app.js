@@ -902,7 +902,7 @@
     $("#wPrev").disabled = viewWeek <= 1; $("#wNext").disabled = viewWeek >= curWeek;
     // пьедестал недели: ступени по порядку мест, на ступени — настоящее место (при ничьей у двоих может быть «1»)
     const podRow = (r, pos) => {
-      if (!r) return `<div class="pod p${pos} empty"><span class="pod-step">${pos}</span></div>`;
+      if (!r) return `<div class="pod p${pos} vacant" aria-hidden="true"><span class="pod-step">${pos}</span></div>`;   // не .empty — это заглушка «пусто» с фоном и тенью
       const more = pos === 3 ? rows.filter((x, j) => j > 2 && x.place === r.place).length : 0;
       return `<button class="pod p${pos}" data-player="${esc(r.name)}">
         ${ava(r.name, "xl")}

@@ -214,6 +214,9 @@ def all_views(s, label, mobile=False):
     s.page.click('#tMode [data-m="week"]')
     s.page.wait_for_selector("#tWeek:not([hidden])", timeout=8000)
     check(f"{label}: недельный зачёт открылся", s.js("() => !document.getElementById('tWeek').hidden && document.querySelectorAll('#weekTable tbody tr').length > 0"))
+    # пустые места пьедестала — бледная ступенька, а не заглушка .empty с фоном и тенью (19.10 стали серыми плашками)
+    check(f"{label}: на недельном пьедестале у мест нет плашек-заглушек",
+          s.js("() => [...document.querySelectorAll('#weekPodium .pod')].every((p) => !p.classList.contains('empty') && getComputedStyle(p).boxShadow === 'none' && getComputedStyle(p).backgroundColor === 'rgba(0, 0, 0, 0)')"))
     if mobile:
         s.no_clip(f"{label}: недельный зачёт на телефоне", "#view-table")
     s.page.click('#tMode [data-m="season"]')
