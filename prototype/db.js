@@ -391,6 +391,11 @@ window.EBLData = (() => {
     async radarDecide(id, action, { bath = null, type = "public", reason = null } = {}) {
       return check(await sb.rpc("radar_decide", { p_id: id, p_action: action, p_bath: bath, p_type: type, p_reason: reason }));
     },
+    // факты о бане из сверки каталога, которые приняла Комиссия (19.10): адрес, часы, дни, цена, ссылки — всем, по одной бане
+    async bathFacts(bathId) {
+      if (!live) return null;
+      return check(await sb.rpc("bath_facts", { p_bath: bathId }));
+    },
     // Сверка каталога (19.10) — только Комиссии: что агенты нашли по баням лиги (точка, адрес, ссылки, факты) и её решения
     async catalog() {
       if (!live) return [];
