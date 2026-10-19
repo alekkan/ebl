@@ -195,6 +195,7 @@
   const leafSvg = (on) => `<svg class="leaf ${on ? "on" : ""}" viewBox="-6 -17 12 18" aria-hidden="true"><use href="#oak-leaf"/></svg>`;
   const leaves = (n, cls = "") => `<span class="leaves ${cls}" title="${fmt(n)} из 5">${[1, 2, 3, 4, 5].map((i) => leafSvg(i <= Math.round(n))).join("")}</span>`;
   const where = (b) => [b.region, b.country].filter(Boolean).join(", ") || "регион не указан";
+  const closedWhen = (b) => new Date(b.closed_on + "T12:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(" г.", "");
   const markSvg = () => $(".brand .mark").outerHTML;
 
   // ---------- недели чемпионата (МСК) ----------
@@ -273,7 +274,7 @@
     const glyph = b.t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${b.t}"/></svg>` : "";
     return L.divIcon({
       className: "", iconSize: [size, size],
-      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}${b._pot?.length >= 3 ? `<span class="pot">+${b._pot.length}</span>` : ""}</div>`,
+      html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""} ${b.closed_on ? "closed" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}${b._pot?.length >= 3 ? `<span class="pot">+${b._pot.length}</span>` : ""}</div>`,
     });
   }
   function markerFor(b) {
@@ -494,7 +495,7 @@
     const geoAct = D.live && member ? (!exact ? "знаю, где это" : canModerate ? "перенести точку" : "точка не там?") : "";
     const geoSubmit = !exact ? "Поставить" : canModerate ? "Перенести" : "Предложить Комиссии";
     // флажки — текстом в строке типа, без плашек; «место силы» и «ультрауникальная» — то, ради чего стоит сходить
-    const flags = [b.isNew && "новая, на модерации", !b.n26 && !b.nHist && !b.isNew && "кандидат в ультрауникальные", b.n26 >= 15 && "🔥 место силы"].filter(Boolean);
+    const flags = [b.closed_on && `закрыта с ${closedWhen(b)}`, b.isNew && "новая, на модерации", !b.n26 && !b.nHist && !b.isNew && "кандидат в ультрауникальные", b.n26 >= 15 && "🔥 место силы"].filter(Boolean);
     const long = b.name.length > 18;   // длинное название — обычным жирным: широкий шрифт его рвёт на три строки
     if (cardFor !== id) { cardFor = id; cardOpen.clear(); }
     d.innerHTML = `
@@ -508,7 +509,15 @@
               : `<span class="t">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
             ${b.t === "public" ? '<span class="plus">+1 очко</span>' : ""}
             ${flags.map((f) => `<span class="flag">${f}</span>`).join("")}
+            ${canModerate && D.live ? `<button type="button" class="linkbtn d-close" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "Работает снова?" : "Закрылась?"}</button>` : ""}
           </div>
+          ${canModerate && D.live ? `<div class="type-ask" id="dCloseAsk" hidden>
+            <p class="type-note">${b.closed_on
+              ? `«${esc(b.name)}» снова работает? Вернётся на карту обычной и в форму похода.`
+              : `Отметить «${esc(b.name)}» закрытой? Походы и очки останутся в истории, на карте она станет бледной, в форме похода её не предложим.`}</p>
+            ${b.closed_on ? "" : `<label class="lab">Закрылась в <input class="inp sm" type="month" id="dCloseMonth" value="${new Date().toISOString().slice(0, 7)}" max="${new Date().toISOString().slice(0, 7)}"></label>`}
+            <div class="type-acts"><button type="button" class="btn sm solid" id="dCloseGo">${b.closed_on ? "Работает" : "Закрыта"}</button><button type="button" class="linkbtn" id="dCloseCancel">Отмена</button></div>
+          </div>` : ""}
           ${canModerate && D.live ? `<div class="type-ask" id="dTypeAsk" hidden>
             <div class="chips" role="group" aria-label="Новый тип бани">${Object.entries(TYPE_CHOICE).map(([t, l]) => `<button type="button" data-newtype="${t}" aria-pressed="${b.t === t}">${tdot(t)}${l}</button>`).join("")}</div>
             <p class="type-note" id="dTypeNote">Выбери новый тип.</p>
@@ -627,6 +636,22 @@
           b.type = pick; b.t = pick; render(); openBath(b.id);
           toast(`«${b.name}»: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); recomputeSoon();
         } catch (err) { go.disabled = false; toast("Не получилось: " + err.message); }
+      };
+    }
+    // баня закрылась (19.10) — Комиссия отмечает месяцем с подтверждением; походы и очки остаются, это история
+    const closeAsk = $("#dCloseAsk", d);
+    if (closeAsk) {
+      const btn = $("#dCloseBtn", d);
+      btn.onclick = () => { closeAsk.hidden = !closeAsk.hidden; btn.setAttribute("aria-expanded", String(!closeAsk.hidden)); };
+      $("#dCloseCancel", d).onclick = () => { closeAsk.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+      $("#dCloseGo", d).onclick = async (e) => {
+        e.target.disabled = true;
+        const closed_on = b.closed_on ? null : ($("#dCloseMonth", d).value || new Date().toISOString().slice(0, 7)) + "-01";
+        try {
+          await D.moderateBath(b.id, { closed_on });
+          b.closed_on = closed_on; render(); openBath(b.id);
+          toast(closed_on ? `«${b.name}»: закрыта с ${closedWhen(b)}` : `«${b.name}» снова работает`);
+        } catch (err) { e.target.disabled = false; toast("Не получилось: " + err.message); }
       };
     }
     $("#dVisit", d).onclick = () => openVisit({ bathId: id });
@@ -1349,7 +1374,7 @@
   $("#vBathQ").addEventListener("input", () => {
     const raw = $("#vBathQ").value.trim(), q = raw.toLowerCase(), sg = $("#vSuggest");
     if (q.length < 2) { sg.hidden = true; return; }
-    const hits = baths.filter((b) => b.search.includes(q)).sort((a, b) => b.n26 - a.n26).slice(0, 7);
+    const hits = baths.filter((b) => !b.closed_on && b.search.includes(q)).sort((a, b) => b.n26 - a.n26).slice(0, 7);   // закрытые не предлагаем
     sg.innerHTML = hits.map((b) => `<button type="button" data-id="${b.id}"><span class="sn">${tdot(b.t)}${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("") +
       `<button type="button" data-new="1"><span class="sn new">${icon("plus")}Новая баня «${esc(raw)}»</span><small>нет в справочнике</small></button>`;
     sg.hidden = false;
@@ -1617,7 +1642,7 @@
       const b = byId.get(nb.id);
       if (!b) { hydrate(nb); baths.push(nb); byId.set(nb.id, nb); continue; }
       Object.assign(b, { v26: nb.v26, hist: nb.hist, histBy: nb.histBy, type: nb.type, country: nb.country, region: nb.region,
-        lat: nb.lat, lng: nb.lng, precision: nb.precision, status: nb.status, isNew: nb.isNew });
+        lat: nb.lat, lng: nb.lng, precision: nb.precision, status: nb.status, isNew: nb.isNew, closed_on: nb.closed_on });
       hydrate(b);
     }
     visits = fresh.visits;
@@ -2044,7 +2069,7 @@
         const who = dirWho(b), open = dirOpen.has(b.id), list = open ? who : who.slice(0, DIR_WHO);
         // одна строка на баню: длинное — троеточием (полностью — в подсказке), участники — «Ден 216 · Alex B 72 · +12»
         return `<tr data-t="${b.t}" data-id="${b.id}" class="${open ? "open" : ""}">
-          <td class="dir-name" title="${esc(b.name)}"><button type="button" class="dir-bath" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}</td>
+          <td class="dir-name" title="${esc(b.name)}"><button type="button" class="dir-bath" data-dirbath="${b.id}">${esc(b.name)}</button>${b.isNew ? ' <span class="pill ember">новая</span>' : ""}${b.closed_on ? ' <span class="pill">закрыта</span>' : ""}</td>
           <td><label class="dir-pill t-${b.t}"><i class="dir-dot"></i><select data-dirtype="${b.id}" aria-label="Тип бани «${esc(b.name)}»">${b.t === "unknown" ? '<option value="" selected>не указан</option>' : ""}${Object.entries(TYPE_CHOICE).map(([k2, l]) => `<option value="${k2}" ${b.t === k2 ? "selected" : ""}>${l}</option>`).join("")}</select></label></td>
           <td class="dir-country" title="${esc(b.country || "")}">${b.country ? esc(b.country) : '<span class="hint">—</span>'}</td>
           <td class="dir-region" title="${esc(b.region || "")}">${b.region ? esc(b.region) : '<span class="hint">—</span>'}</td>
@@ -2393,7 +2418,7 @@
     if (!b) return `<div class="cat-ours"><span class="cat-lbl">У нас</span> баню удалили из лиги</div>`;
     const who = dirWho(b), more = who.length > 6 ? ` и ещё ${who.length - 6}` : "";
     const visits = b.nAll ? `${b.nAll} ${plural(b.nAll, "поход", "похода", "походов")}${b.n26 ? `, в 2026 — ${b.n26}` : ""}` : "походов нет";
-    const pt = !catRaw(b) ? "точки нет" : `точка ${PREC_RU[b.precision || "exact"] || "примерная"}`;
+    const pt = (!catRaw(b) ? "точки нет" : `точка ${PREC_RU[b.precision || "exact"] || "примерная"}`) + (b.closed_on ? ` · закрыта с ${closedWhen(b)}` : "");
     return `<div class="cat-ours"><span class="cat-lbl">У нас</span><div><b>${esc(b.name)}</b> · ${esc(TYPE_LABEL[b.t] || "")} · ${esc(where(b))} · ${pt} · ${visits}
       ${who.length ? `<div class="cat-who">Были: ${who.slice(0, 6).map(([n, k]) => `${esc(n)}${k > 1 ? ` ${k}` : ""}`).join(", ")}${more}</div>` : ""}</div></div>`;
   }
@@ -2442,6 +2467,7 @@
     const solid = p.match >= 70 && !p.region_conflict;
     return `<button type="button" class="btn sm${solid ? " solid" : ""}" data-cat="accept" data-id="${p.id}">${main}</button>`
       + (moves ? `<button type="button" class="btn sm" data-cat="keep" data-id="${p.id}">Оставить нашу точку</button>` : "")
+      + (p.place_status === "closed" && b && !b.closed_on ? `<button type="button" class="btn sm" data-cat="close" data-id="${p.id}">Отметить закрытой</button>` : "")
       + `<button type="button" class="linkbtn" data-cat="reject" data-id="${p.id}">Отклонить</button>`;
   }
   function catCard(p) {
@@ -2614,6 +2640,13 @@
     try {
       if (act === "accept") { await catDo([p], "accept"); catUndo([p], `«${name}»: принято`); }
       else if (act === "keep") { await catDo([p], "keep"); catUndo([p], `«${name}»: оставили нашу точку`); }
+      else if (act === "close") {   // баня закрылась: отметка в лиге (походы остаются), предложение — «оставили нашу»
+        const bath = byId.get(p.bath_id), was = bath.closed_on;
+        bath.closed_on = new Date().toISOString().slice(0, 7) + "-01";
+        await D.moderateBath(bath.id, { closed_on: bath.closed_on });
+        await catDo([p], "keep"); render();
+        radarToast(`«${name}»: закрыта`, "Отменить", () => D.moderateBath(bath.id, { closed_on: was || null }).then(() => { bath.closed_on = was || null; return catDo([p], "reopen"); }).then(() => { render(); toast("Вернули"); }).catch((err) => toast("Не получилось: " + err.message)));
+      }
       else if (act === "reject-go") { await catDo([p], "reject", b.dataset.reason); catUndo([p], `«${name}»: отклонено`); }
       else if (act === "reopen") { await catDo([p], "reopen"); toast("Вернули в сверку"); }
     } catch (err) {

@@ -458,7 +458,7 @@ with sync_playwright() as pw:
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
         check("участнику переименовать баню и сменить её тип нельзя, фильтра по точкам нет — это Комиссии",
-              s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && document.getElementById('fPrec').hidden"))
+              s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && !document.getElementById('dCloseBtn') && document.getElementById('fPrec').hidden"))
         s.page.click("#geoFixBtn"); s.page.fill("#geoFixInput", "55.783951, 37.354822"); s.page.click('#geoFixForm button[type="submit"]')
         s.page.wait_for_function("() => /Передал Комиссии|Не нашёл|Войди/.test(document.querySelector('#drawer .geo-move')?.innerText || '')", timeout=15000)
         req_row = sql(f"select status || ' ' || source || ' ' || round(lat::numeric, 4) from bath_point_requests where bath_id = {bath}")
@@ -618,6 +618,25 @@ with sync_playwright() as pw:
         s.page.click("#dTypeBtn"); s.page.click(f'#dTypeAsk [data-newtype="{card_type}"]'); s.page.click("#dTypeGo"); s.page.wait_for_timeout(1500)
         check("«Сменить» — тип бани поменялся", btype() == card_type)
         sql(f"update baths set type = {repr(old_type) if old_type else 'null'} where id = {bath}")
+        # баня закрылась (19.10): Комиссия отмечает в карточке с подтверждением; походы остаются, в форме похода не предлагаем
+        bclosed = lambda: sql(f"select coalesce(closed_on::text, '') from baths where id = {bath}")
+        s.page.click("#dCloseBtn")
+        check("«Закрылась?» — строка подтверждения с месяцем, без «Закрыта» ничего не меняется",
+              s.js("() => !document.getElementById('dCloseAsk').hidden && /Походы и очки останутся/.test(document.getElementById('dCloseAsk').innerText) && !!document.getElementById('dCloseMonth')") and bclosed() == "")
+        s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
+        month = sql("select to_char(now(), 'YYYY-MM')")
+        check("«Закрыта» — в лиге дата закрытия, в карточке «закрыта с …», кнопка — «Работает снова?»",
+              bclosed() == f"{month}-01" and s.js("() => /закрыта с/.test(document.querySelector('#drawer .d-meta').innerText) && /Работает снова/.test(document.getElementById('dCloseBtn').innerText)"), bclosed())
+        s.page.click("#drawer .x"); s.page.click("#addVisitBtn"); s.page.wait_for_timeout(400)
+        s.page.fill("#vBathQ", "Василевские"); s.page.wait_for_timeout(300)
+        check("закрытую баню форма похода не предлагает", s.js(f"() => !!document.querySelector('#vSuggest button') && !document.querySelector('#vSuggest [data-id=\"{bath}\"]')"))
+        s.page.click("#visitModal [data-close]"); s.page.wait_for_timeout(300)
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        check("на карте закрытая баня — бледная", s.js("() => !!document.querySelector('#map .pin.closed')"))
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
+        s.page.click("#dCloseBtn"); s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
+        check("«Работает снова» — дата закрытия снята", bclosed() == "")
+        sql(f"update baths set closed_on = null where id = {bath}")
         # поход за другого (только на сайте): Комиссия сама выбирает «Кто» и в бане могла не быть
         s.page.click("#dVisit")   # из карточки этой бани: на странице она ещё под временным названием
         check("Комиссии «Кто» можно выбрать", s.js("() => !document.getElementById('vPlayer').disabled && !document.getElementById('vPlayerHint').hidden"))
