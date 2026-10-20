@@ -733,9 +733,12 @@ with sync_playwright() as pw:
         sql("delete from catalog_proposals where run = 'test'")
         cb_id, cb_lat, cb_lng, cb_prec = sql("select id || '|' || coalesce(lat::text, '') || '|' || coalesce(lng::text, '') || '|' || coalesce(precision, '') from baths where name = 'Василевские' limit 1").split("|")
         other = sql("select id from baths where status = 'ok' and name <> 'Василевские' order by id limit 1")
+        own_b = sql(f"select id from baths where status = 'ok' and name <> 'Василевские' and id <> {other} order by id limit 1")
+        own_was = sql(f"select coalesce(lat::text, 'null') || ',' || coalesce(lng::text, 'null') || ',' || coalesce(quote_literal(precision), 'null') from baths where id = {own_b}")
         sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, match_why, bin, website, hours, gender_days, price, price_src, place_status, is_public, note, amenities) values
               ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22', 'мужские пн, ср (по 2ГИС)', '1500 ₽ — билет на 3 часа; 2000 ₽ — в выходные; 22400 ₽ — кабина на 6 мест', 'https://zoon.ru/msk/sauna/test/', 'open', true, 'Точка из 2ГИС', '["купель", "веники"]'),
-              ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]')""")
+              ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]'),
+              ('test', {own_b}, 'Тестовая баня для своей точки', null, null, null, null, 20, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]')""")
         c_sure, c_doubt = (sql(f"select id from catalog_proposals where run = 'test' and bath_id = {b}") for b in (cb_id, other))
         s = Site(browser, url, sess=vitek, name="commission-catalog")
         s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]')
@@ -769,6 +772,18 @@ with sync_playwright() as pw:
         s.page.click(f'{card} [data-cat="reject-go"][data-reason="closed"]'); s.page.wait_for_timeout(1200)
         check("«Не нашли»: «Отклонить» — причина одним нажатием, предложение уходит в «Решено»",
               sql(f"select status || ' ' || reject_reason from catalog_proposals where id = {c_doubt}") == "rejected closed")
+        # своя точка (20.10): Комиссия вставляет ссылку, адрес или координаты прямо в сверке — точка бани точная, предложение в «Решено»
+        c_own = sql(f"select id from catalog_proposals where run = 'test' and bath_id = {own_b}")
+        s.page.fill("#catQ", "Тестовая баня для своей"); s.page.wait_for_timeout(400)
+        card = f'#catList .radar-card[data-id="{c_own}"]'
+        s.page.click(f'{card} [data-cat="own"]'); s.page.fill(f'{card} form[data-own] input', "55.7612, 37.6201")
+        s.page.click(f'{card} form[data-own] button[type="submit"]'); s.page.wait_for_timeout(2500)
+        check("«своя точка» — ссылка или координаты прямо в сверке: точка бани точная, предложение — «поставили свою точку»",
+              sql(f"select round(lat::numeric, 4) || ' ' || round(lng::numeric, 4) || ' ' || precision from baths where id = {own_b}") == "55.7612 37.6201 exact"
+              and sql(f"select status || ' ' || reject_reason from catalog_proposals where id = {c_own}") == "rejected own_point",
+              sql(f"select lat || ' ' || lng || ' ' || precision from baths where id = {own_b}"))
+        lat0, lng0, prec0 = own_was.split(",")
+        sql(f"update baths set lat = {lat0}, lng = {lng0}, precision = {prec0} where id = {own_b}")
         # принятое из сверки видно в карточке бани всем — «О бане»: часы, дни, цена, ссылки и откуда это (19.10)
         sql(f"update catalog_proposals set status = 'accepted' where id = {c_sure}")
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)

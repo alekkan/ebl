@@ -2500,6 +2500,7 @@
     ["done", "Решено", "Что уже решили. Передумал — «Вернуть»: принятая точка вернётся прежней, если баню с тех пор не двигали."],
   ];
   const CAT_REJECT = [["other_bath", "другая баня"], ["wrong_point", "точка не та"], ["not_public", "не общественная"], ["closed", "закрыта"], ["duplicate", "дубль"], ["other", "другое"]];
+  const CAT_REASON = Object.fromEntries([...CAT_REJECT, ["own_point", "поставили свою точку"]]);
   const CAT_SRC = { "2gis": "2ГИС", yandex: "Яндекс Карты", osm: "OpenStreetMap", site: "сайт бани" };
   const catRaw = (b) => (b?.lat != null ? [b.lat, b.lng] : null);
   const catFar = (p, b) => (catRaw(b) && p.lat != null ? distKm(catRaw(b), [p.lat, p.lng]) : null);
@@ -2547,8 +2548,14 @@
   function catActs(p, b) {
     if (p.status !== "new") {
       const what = p.status === "accepted" ? (p.prev_precision ? "Точка перенесена сюда" : "Принято") : p.status === "kept" ? "Оставили нашу точку"
-        : `Отклонено${p.reject_reason ? ": " + (CAT_REJECT.find(([k]) => k === p.reject_reason)?.[1] || "") : ""}`;
+        : p.reject_reason === "own_point" ? "Поставили свою точку" : `Отклонено${p.reject_reason ? ": " + (CAT_REASON[p.reject_reason] || "") : ""}`;
       return `<span class="radar-doneline">${what}</span>${b ? `<button type="button" class="linkbtn" data-cat="ourbath" data-id="${p.id}">на карте лиги</button>` : ""}<button type="button" class="linkbtn" data-cat="reopen" data-id="${p.id}">Вернуть</button>`;
+    }
+    // своя точка (20.10): Комиссия знает, где баня, — ссылка на карты, адрес или координаты, как «перенести точку» в карточке
+    if (catAsk?.id === p.id && catAsk.own) {
+      return `<form class="radar-ask cat-own" data-own="${p.id}"><span>Где баня? Ссылка на Яндекс Карты, 2ГИС или Google, адрес с домом или координаты</span>
+        <input class="inp" name="own" required autocomplete="off" placeholder="https://yandex.ru/maps/org/… или 55.7558, 37.6173" aria-label="Где баня">
+        <button type="submit" class="btn solid sm">Поставить</button><button type="button" class="linkbtn" data-cat="cancel">Отмена</button></form>`;
     }
     if (catAsk?.id === p.id) {
       return `<div class="radar-ask"><span>Отклонить — почему?</span>${CAT_REJECT.map(([k, l]) => `<button type="button" class="chip" data-cat="reject-go" data-reason="${k}" data-id="${p.id}">${l}</button>`).join("")}<button type="button" class="linkbtn" data-cat="cancel">Отмена</button></div>`;
@@ -2559,6 +2566,7 @@
     return `<button type="button" class="btn sm${solid ? " solid" : ""}" data-cat="accept" data-id="${p.id}">${main}</button>`
       + (moves ? `<button type="button" class="btn sm" data-cat="keep" data-id="${p.id}">Оставить нашу точку</button>` : "")
       + (p.place_status === "closed" && b && !b.closed_on ? `<button type="button" class="btn sm" data-cat="close" data-id="${p.id}">Отметить закрытой</button>` : "")
+      + `<button type="button" class="linkbtn" data-cat="own" data-id="${p.id}">своя точка</button>`
       + `<button type="button" class="linkbtn" data-cat="reject" data-id="${p.id}">Отклонить</button>`;
   }
   function catCard(p) {
@@ -2726,6 +2734,7 @@
     if (act === "more") { catOpen.has(p.id) ? catOpen.delete(p.id) : catOpen.add(p.id); return renderCat(); }
     if (act === "ourbath") { if (byId.has(p.bath_id)) { show("map"); openBath(p.bath_id, true); } return; }
     if (act === "reject") { catAsk = { id: p.id }; return renderCat(); }
+    if (act === "own") { catAsk = { id: p.id, own: true }; renderCat(); $(`#catList form[data-own="${p.id}"] input`)?.focus(); return; }
     const name = byId.get(p.bath_id)?.name || p.found_name || "баня";
     $$("button", b.closest(".radar-acts")).forEach((x) => (x.disabled = true));
     try {
@@ -2746,6 +2755,23 @@
     }
   }
   $("#catList").addEventListener("click", catClick);
+  // своя точка: ставим обычным путём (bath-location — точная), предложение агентов — в «Решено»: их место не то
+  $("#catList").addEventListener("submit", async (e) => {
+    const f = e.target.closest("form[data-own]"); if (!f) return;
+    e.preventDefault();
+    const p = cat.find((x) => x.id === Number(f.dataset.own)), v = f.own.value.trim(); if (!p || !v) return;
+    const name = byId.get(p.bath_id)?.name || p.found_name || "баня";
+    $$("button, input", f).forEach((x) => (x.disabled = true));
+    try {
+      await D.setBathLocation(p.bath_id, v);
+      await catDo([p], "reject", "own_point");
+      refreshData().then(renderCat).catch(() => {});
+      toast(`«${name}»: точка поставлена`);
+    } catch (err) {
+      $$("button, input", f).forEach((x) => (x.disabled = false));
+      toast("Не нашёл: " + err.message);
+    }
+  });
   $("#catBatch").addEventListener("click", catClick);
 
   // решения Комиссии с прошлого захода (18.10): «✅ Комиссия засчитала „Василевские“ · +4» — один раз. Отметку, что видел,

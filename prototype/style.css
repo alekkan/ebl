@@ -1076,6 +1076,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .cat-prop .radar-note { margin-top: 4px; }
 .cat-batch { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 10px; font-size: 14px; color: var(--ink-2); }
 .cat-batch .radar-ask { margin: 0; }
+.cat-own .inp { flex: 1 1 260px; min-width: 0; height: 36px; }
 @media (max-width: 1000px) {
   .radar-body { grid-template-columns: minmax(0, 1fr); }
   .radar-side { grid-column: 1; grid-row: 1; position: static; }
