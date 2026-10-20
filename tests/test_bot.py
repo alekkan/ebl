@@ -196,11 +196,16 @@ check("бот пишет о нём в чат лиги и Комиссии (св�
       sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"))
 check("второй раз о том же походе не пишет", req("POST", f"/functions/v1/tg-bot?new={vid}", {})[1] == {"notified": False})
 # Комиссия завела поход за участника на сайте — в посте и уведомлении видно, кто внёс (иначе «Махмуд отметил», а он не отмечал)
+# упавший прогон оставлял этот поход на решении — и следующий спотыкался на «ждать нечего» (20.10)
+sql("delete from visits where bath_id = 5 and created_by = (select id from players where nick='Махмуд') and entered_by = (select id from players where nick='Витёк')")
 seen_by = len(TELEGRAM.calls)
 vby = sql("insert into visits (bath_id, entered_at, duration_min, created_by, entered_by) select 5, now() - interval '3 hours', 120, "
           "(select id from players where nick='Махмуд'), (select id from players where nick='Витёк') returning id").splitlines()[0]
 req("POST", f"/functions/v1/tg-bot?new={vby}", {})
-texts = [p.get("text") or "" for m, p in TELEGRAM.calls[seen_by:] if m == "sendMessage"]
+for _ in range(10):   # пост и уведомление уходят не мгновенно — ждём до 3 с
+    texts = [p.get("text") or "" for m, p in TELEGRAM.calls[seen_by:] if m == "sendMessage"]
+    if any("внёс Витёк" in t for t in texts) and len(texts) >= 2: break
+    time.sleep(0.3)
 check("поход внесла Комиссия — в чате «(внёс Витёк)», Комиссии — «· внёс Витёк»",
       any("Махмуд</b> (внёс Витёк)" in t for t in texts) and any("· внёс Витёк" in t for t in texts), texts)
 sql(f"delete from visits where id = {vby}")
