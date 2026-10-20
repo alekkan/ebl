@@ -745,6 +745,10 @@ with sync_playwright() as pw:
         sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, bin, place_status, kind_found, kind_why) values
               ('test', {spa_b}, 'Тестовые бани на деле', 'ул. Пара, 3', 55.712, 37.512, '2gis', 92, 'new', 'open', 'public', 'билет 800 ₽ на человека, общее мужское отделение')""")
         c_type = sql(f"select id from catalog_proposals where run = 'test' and bath_id = {spa_b}")
+        none_b = sql("insert into baths (name, type, lat, lng, precision, status, country, region) values ('Тестовая баня без типа', null, 55.72, 37.52, 'city', 'ok', 'Россия', 'Москва') returning id").splitlines()[0]
+        sql(f"""insert into catalog_proposals (run, bath_id, found_name, lat, lng, point_src, match, bin, place_status, kind_found, kind_why) values
+              ('test', {none_b}, 'Тестовый фитнес', 55.721, 37.521, '2gis', 90, 'new', 'open', 'spa', 'фитнес-клуб, сауна по абонементу')""")
+        c_spa = sql(f"select id from catalog_proposals where run = 'test' and bath_id = {none_b}")
         s = Site(browser, url, sess=vitek, name="commission-catalog")
         s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]')
         s.page.wait_for_selector("#catList .radar-card", timeout=8000)
@@ -755,6 +759,10 @@ with sync_playwright() as pw:
         s.page.click(f'#catList .radar-card[data-id="{c_type}"] [data-cat="retype"]'); s.page.wait_for_timeout(1500)
         check("«Сделать общественной» — баня общественная, найденная точка точная",
               sql(f"select type || ' ' || precision from baths where id = {spa_b}") == "public exact")
+        check("у бани без типа — и «Сделать хуитнесом», если агенты нашли хуитнес",
+              s.js(f"() => /Сделать хуитнесом/.test(document.querySelector('#catList .radar-card[data-id=\"{c_spa}\"] [data-cat=\"retype\"]')?.innerText || '')"))
+        s.page.click(f'#catList .radar-card[data-id="{c_spa}"] [data-cat="retype"]'); s.page.wait_for_timeout(1500)
+        check("…нажал — тип бани «хуитнес»", sql(f"select type from baths where id = {none_b}") == "spa")
         s.page.click('#catTabs [data-tab="sure"]'); s.page.wait_for_timeout(300)
         s.page.fill("#catQ", "Тестовые бани сверки"); s.page.wait_for_timeout(400)
         card = f'#catList .radar-card[data-id="{c_sure}"]'
@@ -824,7 +832,7 @@ with sync_playwright() as pw:
         s.page.click('#catTabs [data-tab="done"]'); s.page.wait_for_selector("#catList .radar-card", timeout=8000)   # тестовые уже решены
         s.no_clip("Сверка на телефоне")
         s.close()
-        sql("delete from catalog_proposals where run = 'test'"); sql(f"delete from baths where id = {spa_b}")
+        sql("delete from catalog_proposals where run = 'test'"); sql(f"delete from baths where id in ({spa_b}, {none_b})")
         # второй поход в ту же баню в те же сутки: Комиссия должна видеть до решения, что очков не будет (п. 5)
         dup = sql(f"insert into visits (bath_id, entered_at, duration_min, created_by, source) select {bath}, now(), 120, id, 'site' from players where nick='Шурик' returning id").splitlines()[0]
         sql(f"insert into visit_players (visit_id, player_id) select {dup}, id from players where nick='Шурик'")
