@@ -1072,6 +1072,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .cat-lbl { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
 .cat-who, .cat-pt { color: var(--ink-3); font-size: 13px; margin-top: 2px; }
 .cat-warn { color: var(--honey); font-weight: 600; margin-top: 2px; }
+.cat-type { color: var(--oak); font-weight: 600; margin-top: 2px; }   /* «по факту — общественная»: главное во вкладке «Тип» */
 .cat-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; color: var(--ink); }
 .cat-prop .radar-note { margin-top: 4px; }
 .cat-batch { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 10px; font-size: 14px; color: var(--ink-2); }

@@ -11,7 +11,7 @@ import json, pathlib, sys
 
 COLS = ["found_name", "address", "city", "region_found", "region_conflict", "lat", "lng", "point_src", "match", "match_why", "bin",
         "website", "yandex_url", "twogis_url", "phone", "place_status", "is_public", "public_why", "hours", "gender_days",
-        "price", "price_date", "price_src", "sections", "amenities", "evidence", "note"]
+        "price", "price_date", "price_src", "sections", "amenities", "evidence", "note", "kind_found", "kind_why"]
 STATUS = {"open", "closed", "repair", "unknown"}
 TYPES = {"region_conflict": "boolean", "is_public": "boolean", "lat": "float8", "lng": "float8", "match": "int",
          "sections": "jsonb", "amenities": "jsonb", "evidence": "jsonb"}   # остальное — text; без типов union спотыкается о null
@@ -34,6 +34,7 @@ def row(run, r):
     p["match"] = max(0, min(100, int(r.get("match_final") if r.get("match_final") is not None else r.get("match") or 0)))
     p["place_status"] = r.get("status") if r.get("status") in STATUS else "unknown"
     p["region_conflict"] = bool(r.get("region_conflict"))
+    if p["kind_found"] not in ("public", "spa", "private", "unknown"): p["kind_found"] = None   # тип по факту — обратный ход 20.10
     if p["lat"] is None or p["lng"] is None: p["lat"] = p["lng"] = None
     for k in ("sections", "amenities"): p[k] = [str(x) for x in (r.get(k) or []) if x]
     p["evidence"] = [{"quote": e.get("quote"), "url": e.get("url")} for e in (r.get("evidence") or [])[:3] if isinstance(e, dict) and e.get("url")]
