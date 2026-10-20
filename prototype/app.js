@@ -2484,7 +2484,10 @@
   // Уверенные — пачкой. Регион Комиссии не меняем: расхождение показываем отдельной вкладкой.
   let cat = null, catTab = null, catQ = "", catRegion = "", catFitKey = "", catAsk = null, catPin = null;
   const catOpen = new Set();
+  // похоже на общественную, а у нас — хуитнес, частная или без типа (обратный ход 20.10)
+  const catRetype = (p) => p.kind_found === "public" && (byId.get(p.bath_id)?.t || "unknown") !== "public";
   function catBase(p) {
+    if (catRetype(p)) return "type";
     if (p.region_conflict) return "region";
     if (p.is_public === false || p.place_status === "closed" || p.place_status === "repair") return "flag";
     if (p.match >= 90 && p.lat != null && p.bin !== "move") return "sure";
@@ -2492,6 +2495,7 @@
   }
   const catGroup = (p) => (p.status !== "new" ? "done" : catBase(p));
   const CAT_TABS = [
+    ["type", "Тип", "Похоже на общественную, а у нас — хуитнес, частная или без типа. Проверь по ссылкам: «Сделать общественной» поменяет тип (очки за походы сюда пересчитаются) и примет точку и данные."],
     ["sure", "Уверенные", "Название, город и регион сошлись, адрес подтвердили два источника. Можно принять пачкой: найденная точка станет точной, а нашу точную, если она рядом, не тронем."],
     ["check", "Проверить", "Нашли, но источник один, данных мало или наша точка далеко. Глянь по ссылкам и реши по одной."],
     ["region", "Регион", "Регион по карточке не тот, что у нас. Точку можно принять — регион от этого не меняется, его правят в справочнике."],
@@ -2520,11 +2524,14 @@
       : !catRaw(b) ? `точка — ${CAT_SRC[p.point_src] || "из источника"}, у нас точки не было`
       : `точка — ${CAT_SRC[p.point_src] || "из источника"}, ${far < 0.05 ? "там же, где наша" : `${fmtKm(far)} от нашей`}`;
     const reg = p.region_conflict ? `<div class="cat-warn">Регион по карточке: ${esc(p.region_found || "другой")}, у нас — ${esc(b?.region || "не указан")}</div>` : "";
+    const KIND = { public: "общественная", spa: "хуитнес", private: "частная, аренда" };
+    const kind = !p.kind_found || p.kind_found === "unknown" || !b || p.kind_found === b.t ? ""
+      : `<div class="${catRetype(p) ? "cat-type" : "cat-pt"}">По факту — ${KIND[p.kind_found]}${p.kind_why ? `: ${esc(p.kind_why)}` : ""}</div>`;
     const facts = [p.hours, p.gender_days, p.price && `${p.price}${p.price_date ? ` (${p.price_date})` : ""}`].filter(Boolean);
     const flag = p.place_status === "closed" ? "похоже, закрыта" : p.place_status === "repair" ? "на ремонте" : p.is_public === false ? "не общественная" : "";
     return `<div class="cat-prop"><span class="cat-lbl">Нашли</span><div>
       <b>${esc(p.found_name || "—")}</b>${p.address ? ` · ${esc(p.address)}` : ""}
-      <div class="cat-pt">${pt}</div>${reg}
+      <div class="cat-pt">${pt}</div>${reg}${kind}
       ${flag ? `<div class="cat-warn">${flag}${p.public_why ? `: ${esc(p.public_why)}` : ""}</div>` : ""}
       ${facts.length ? `<div class="cat-facts">${facts.map((f) => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
       ${p.note ? `<p class="radar-note">${esc(p.note)}</p>` : ""}</div></div>`;
@@ -2547,7 +2554,7 @@
   }
   function catActs(p, b) {
     if (p.status !== "new") {
-      const what = p.status === "accepted" ? (p.prev_precision ? "Точка перенесена сюда" : "Принято") : p.status === "kept" ? "Оставили нашу точку"
+      const what = p.status === "accepted" ? (p.prev_type ? "Сделали общественной" + (p.prev_precision ? ", точка перенесена" : "") : p.prev_precision ? "Точка перенесена сюда" : "Принято") : p.status === "kept" ? "Оставили нашу точку"
         : p.reject_reason === "own_point" ? "Поставили свою точку" : `Отклонено${p.reject_reason ? ": " + (CAT_REASON[p.reject_reason] || "") : ""}`;
       return `<span class="radar-doneline">${what}</span>${b ? `<button type="button" class="linkbtn" data-cat="ourbath" data-id="${p.id}">на карте лиги</button>` : ""}<button type="button" class="linkbtn" data-cat="reopen" data-id="${p.id}">Вернуть</button>`;
     }
@@ -2561,6 +2568,12 @@
       return `<div class="radar-ask"><span>Отклонить — почему?</span>${CAT_REJECT.map(([k, l]) => `<button type="button" class="chip" data-cat="reject-go" data-reason="${k}" data-id="${p.id}">${l}</button>`).join("")}<button type="button" class="linkbtn" data-cat="cancel">Отмена</button></div>`;
     }
     const moves = catMoves(p, b);
+    if (catRetype(p)) {   // главное здесь — тип; точку и данные «Сделать общественной» тоже принимает
+      return `<button type="button" class="btn sm solid" data-cat="retype" data-id="${p.id}">Сделать общественной</button>`
+        + `<button type="button" class="btn sm" data-cat="accept" data-id="${p.id}">Тип не менять, ${p.lat == null ? "данные" : "точку"} принять</button>`
+        + `<button type="button" class="linkbtn" data-cat="own" data-id="${p.id}">своя точка</button>`
+        + `<button type="button" class="linkbtn" data-cat="reject" data-id="${p.id}">Отклонить</button>`;
+    }
     const main = p.lat == null ? "Подтвердить данные" : !moves ? "Подтвердить" : catRaw(b) ? "Перенести точку сюда" : "Поставить точку";
     const solid = p.match >= 70 && !p.region_conflict;
     return `<button type="button" class="btn sm${solid ? " solid" : ""}" data-cat="accept" data-id="${p.id}">${main}</button>`
@@ -2665,7 +2678,7 @@
       $("#catRegion").innerHTML = `<option value="">Все регионы</option>` + regions.map((r) => `<option${r === catRegion ? " selected" : ""}>${esc(r)}</option>`).join("");
     const pass = catPass(), by = {};
     for (const p of cat) if (pass(p)) (by[catGroup(p)] ||= []).push(p);
-    if (!catTab || !CAT_TABS.some(([t]) => t === catTab)) catTab = ["sure", "check", "region", "flag", "doubt"].find((t) => by[t]?.length) || "sure";
+    if (!catTab || !CAT_TABS.some(([t]) => t === catTab)) catTab = ["type", "sure", "check", "region", "flag", "doubt"].find((t) => by[t]?.length) || "sure";
     $("#catTabs").innerHTML = CAT_TABS.map(([t, l]) => `<button type="button" role="tab" data-tab="${t}" aria-pressed="${t === catTab}">${l}<span class="n">${by[t]?.length || 0}</span></button>`).join("");
     const doneN = cat.filter((p) => p.status !== "new").length;
     $("#catProgress").hidden = !cat.length;
@@ -2704,10 +2717,13 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && catAsk) { catAsk = null; renderCat(); } });
   // решение по одной или пачке; после — данные бань заново (точки на карте лиги), внизу «Отменить»
   async function catDo(list, act, reason = null) {
+    // вернули «сделали общественной» — тип бани прежний, очки снова пересчитать (смотрим по свежим данным, а не по старым карточкам)
+    const retyped = act === "reopen" && (cat || []).some((x) => x.prev_type && list.some((l) => l.id === x.id));
     await D.catalogDecide(list.map((p) => p.id), act, reason);
     const fresh = await D.catalog();
     cat = fresh; catAsk = null; renderCat(); factCache.clear();   // «О бане» в карточках — по новым решениям
     if (act !== "reject" && act !== "keep") refreshData().then(renderCat).catch(() => {});
+    if (retyped) recomputeSoon();
   }
   function catUndo(list, msg) {
     radarToast(msg, "Отменить", () => catDo(list, "reopen").then(() => toast("Вернули в сверку")).catch((err) => toast("Не получилось: " + err.message)));
@@ -2739,6 +2755,10 @@
     $$("button", b.closest(".radar-acts")).forEach((x) => (x.disabled = true));
     try {
       if (act === "accept") { await catDo([p], "accept"); catUndo([p], `«${name}»: принято`); }
+      else if (act === "retype") {   // тип бани → общественная: очки за походы сюда пересчитаются
+        await catDo([p], "retype"); recomputeSoon();
+        catUndo([p], `«${name}» — общественная, таблица пересчитывается`);
+      }
       else if (act === "keep") { await catDo([p], "keep"); catUndo([p], `«${name}»: оставили нашу точку`); }
       else if (act === "close") {   // баня закрылась: отметка в лиге (походы остаются), предложение — «оставили нашу»
         const bath = byId.get(p.bath_id), was = bath.closed_on;

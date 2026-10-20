@@ -435,6 +435,20 @@ check("неизвестное действие не проходит", req("POST
 check("«О бане» всем: гостю — принятое (данные и ссылки), без заметок агентов и цитат",
       (lambda f: f and f.get("address") is None and f.get("run") == "test-run" and "note" not in f and "evidence" not in f)(req("POST", "/rest/v1/rpc/bath_facts", {"p_bath": b2})[1]))
 check("непринятое и отклонённое гостю не видно", req("POST", "/rest/v1/rpc/bath_facts", {"p_bath": b1})[1] is None)
+# обратный ход (20.10): у нас хуитнес, по факту — общественная; «Сделать общественной» и «Вернуть»
+b3 = int(sql("insert into baths (name, type, lat, lng, precision, status, country, region) values ('Тестовый хуитнес сверки', 'spa', 55.2, 37.2, 'city', 'ok', 'Россия', 'Москва') returning id").splitlines()[0])
+push_cat([{"id": b3, "found_name": "Тестовые бани", "lat": 55.21, "lng": 37.21, "point_src": "2gis", "match": 92, "bin": "new", "status": "open",
+           "kind_found": "public", "kind_why": "билет 800 ₽ на человека, общее мужское отделение"}])
+p3 = int(sql(f"select id from catalog_proposals where run = 'test-run' and bath_id = {b3}"))
+check("заливка кладёт тип по факту и почему", sql(f"select kind_found || ' | ' || kind_why from catalog_proposals where id = {p3}") == "public | билет 800 ₽ на человека, общее мужское отделение")
+s, n = req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p3], "p_action": "retype"}, token=vitek)
+check("«Сделать общественной» — тип бани общественная, точка найденная точная", s == 200 and n == 1
+      and sql(f"select type || ' ' || lat || ' ' || precision from baths where id = {b3}") == "public 55.21 exact", (s, n))
+req("POST", "/rest/v1/rpc/catalog_decide", {"p_ids": [p3], "p_action": "reopen"}, token=vitek)
+check("«Вернуть» после «Сделать общественной» — прежние тип и точка", sql(f"select type || ' ' || lat || ' ' || precision from baths where id = {b3}") == "spa 55.2 city")
+sql(f"update baths set type = 'private' where id = {b2}")
+check("у частной бани данные агентов всем не показываем (может быть чьей-то дачей)", req("POST", "/rest/v1/rpc/bath_facts", {"p_bath": b2})[1] is None)
+sql(f"delete from baths where id = {b3}")
 sql(f"delete from baths where id in ({b1}, {b2})")
 check("баню удалили — её предложения уходят вместе с ней", sql("select count(*) from catalog_proposals where run = 'test-run'") == "0")
 

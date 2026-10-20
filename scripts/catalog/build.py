@@ -49,6 +49,13 @@ lines = [f"# Единый каталог — прогон {run.name}", "", f"Р�
 lines += [f"- {names[k]}: {bins.get(k, 0)}" for k in names]
 lines += [f"- не общественная / закрыта / ремонт (отдельно от точки): {sum(1 for e in cat if e['flag'])}",
           f"- с ценой: {sum(1 for e in cat if e.get('price'))}, с мужскими/женскими днями: {sum(1 for e in cat if e.get('gender_days'))}, с сайтом: {sum(1 for e in cat if e.get('website'))}", ""]
+# обратный ход (20.10): у нас не общественная, а по факту — общественная
+retype = [e for e in cat if e.get("kind_found") == "public" and e.get("type") not in (None, "public")]
+if retype:
+    lines += [f"## похоже на общественные ({len(retype)})", ""]
+    for e in sorted(retype, key=lambda e: -e["n26"]):
+        lines.append(f"- **{e['name']}** ({e.get('type')}) — {e.get('found_name') or '—'}, {e.get('address') or ''} · уверенность {e['match_final']} · {e.get('kind_why') or ''}")
+    lines.append("")
 for k in ("move", "region", "notfound"):
     sel = [e for e in cat if e["bin"] == k]
     if not sel: continue
