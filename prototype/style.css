@@ -323,6 +323,8 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .type-ask { display: grid; gap: 8px; margin: 2px 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; }
 .type-note { margin: 0; color: var(--ink-2); }
 .type-acts { display: flex; align-items: center; gap: 12px; }
+.place-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.place-row .inp { flex: 1 1 140px; min-width: 0; }
 .d-meta .plus { color: var(--oak); font-weight: 700; }
 .d-meta .flag { color: var(--ember); font-weight: 600; }
 .d-hero.t-public { --tint: var(--oak-soft); } .d-hero.t-spa { --tint: color-mix(in srgb, var(--t-spa) 14%, var(--panel)); }

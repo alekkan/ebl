@@ -459,7 +459,7 @@ with sync_playwright() as pw:
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
         check("участнику переименовать баню и сменить её тип нельзя, фильтра по точкам нет — это Комиссии",
-              s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && !document.getElementById('dCloseBtn') && document.getElementById('fPrec').hidden"))
+              s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && !document.getElementById('dCloseBtn') && !document.getElementById('dPlaceBtn') && document.getElementById('fPrec').hidden"))
         s.page.click("#geoFixBtn"); s.page.fill("#geoFixInput", "55.783951, 37.354822"); s.page.click('#geoFixForm button[type="submit"]')
         s.page.wait_for_function("() => /Передал Комиссии|Не нашёл|Войди/.test(document.querySelector('#drawer .geo-move')?.innerText || '')", timeout=15000)
         req_row = sql(f"select status || ' ' || source || ' ' || round(lat::numeric, 4) from bath_point_requests where bath_id = {bath}")
@@ -643,6 +643,20 @@ with sync_playwright() as pw:
         s.page.click("#dCloseBtn"); s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
         check("«Работает снова» — дата закрытия снята", bclosed() == "")
         sql(f"update baths set closed_on = null where id = {bath}")
+        # страна и регион (21.10): из таблицы бывают неверные («Хельсинки» в Хабаровском крае) — Комиссия правит в карточке
+        bplace = lambda: sql(f"select coalesce(country, '') || '|' || coalesce(region, '') from baths where id = {bath}")
+        old_place = bplace(); old_country, old_region = old_place.split("|")
+        s.page.click("#dPlaceBtn")
+        check("«Регион не тот?» — строка со страной и регионом, как сейчас у бани",
+              s.js("() => !document.getElementById('dPlaceAsk').hidden") and s.page.input_value("#dPlaceCountry") == old_country and s.page.input_value("#dPlaceRegion") == old_region)
+        s.page.fill("#dPlaceCountry", "Финляндия"); s.page.fill("#dPlaceRegion", "Уусимаа"); s.page.click("#dPlaceGo"); s.page.wait_for_timeout(1500)
+        check("«Сохранить» — в лиге новые страна и регион, в карточке тоже", bplace() == "Финляндия|Уусимаа" and
+              s.js("() => /Уусимаа, Финляндия/.test(document.getElementById('dWhereTxt').innerText)"), bplace())
+        # написание — как уже встречалось у лиги: «москва» не заводит новый регион рядом с «Москва»
+        s.page.click("#dPlaceBtn"); s.page.fill("#dPlaceCountry", old_country.lower()); s.page.fill("#dPlaceRegion", old_region.lower())
+        s.page.click("#dPlaceGo"); s.page.wait_for_timeout(1500)
+        check("регион строчными — сохранился в написании лиги", bplace() == old_place, bplace())
+        sql(f"update baths set country = {repr(old_country) if old_country else 'null'}, region = {repr(old_region) if old_region else 'null'} where id = {bath}")
         # поход за другого (только на сайте): Комиссия сама выбирает «Кто» и в бане могла не быть
         s.page.click("#dVisit")   # из карточки этой бани
         check("Комиссии «Кто» можно выбрать", s.js("() => !document.getElementById('vPlayer').disabled && !document.getElementById('vPlayerHint').hidden"))
