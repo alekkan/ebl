@@ -654,8 +654,9 @@
         } catch (err) { go.disabled = false; toast("Не получилось: " + err.message); }
       };
     }
-    // страна и регион (21.10): по точке они ставятся, только если пустые — неверные из таблицы («Хельсинки» в Хабаровском
-    // крае) правит Комиссия здесь; написание приводим к уже встречавшемуся у лиги, иначе бонус за «новый» регион
+    // страна и регион (21.10): у точной точки их ставит геокодер, у примерной — из таблицы; ошибся тот или другой
+    // («Хельсинки» в Хабаровском крае) — правит Комиссия здесь. Написание — как уже встречалось у лиги, иначе бонус за «новый»
+    // регион; у точной точки запоминаем, что регион к ней решён (place_lat), — геокодер его больше не перепишет
     const placeAsk = $("#dPlaceAsk", d);
     if (placeAsk) {
       const btn = $("#dPlaceBtn", d);
@@ -666,6 +667,7 @@
         const p = matchPlace($("#dPlaceCountry", d).value.trim(), $("#dPlaceRegion", d).value.trim());
         const patch = { country: p.country || null, region: p.region || null };
         if (patch.country === (b.country || null) && patch.region === (b.region || null)) { $("#dPlaceCancel", d).click(); return; }
+        if (b.precision === "exact" && b.lat != null) Object.assign(patch, { place_lat: b.lat, place_lng: b.lng });
         $("#dPlaceGo", d).disabled = true;
         try {
           await D.moderateBath(b.id, patch);

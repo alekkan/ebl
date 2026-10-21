@@ -318,6 +318,22 @@ sql("update baths set country = null, region = null, precision = 'region' where 
 put(13, "58.6036, 49.6601")   # Киров
 check("страна и регион по точке — в написании таблицы (п. 14)", sql("select country || ' / ' || region from baths where id = 13") == "Россия / Кировская обл",
       sql("select country || ' / ' || region from baths where id = 13"))
+# точная точка — регион по ней, даже если в таблице был другой (21.10: Хельсинки стояли в Хабаровском крае)
+sql("update baths set country = 'Россия', region = 'Хабаровский край', precision = 'region' where id = 13")
+put(13, "58.6036, 49.6601")
+check("точная точка: регион по ней, а не из таблицы", sql("select country || ' / ' || region || ' / ' || (place_lat = lat) from baths where id = 13") == "Россия / Кировская обл / true",
+      sql("select country || ' / ' || region from baths where id = 13"))
+# точку передвинули мимо функции (Сверка, Радар, решение по запросу точки) — баня в очереди геокодера, он и правит регион
+sql("update baths set lat = 55.7558, lng = 37.6176, precision = 'exact' where id = 13")
+check("точку передвинули в базе — баня в очереди ebl-fill-places", sql("select count(*) from bath_place_due where id = 13") == "1")
+req("GET", "/functions/v1/tg-bot?fillplaces=1&id=13")
+check("очередь: регион по новой точке, баня из очереди ушла",
+      sql("select region from baths where id = 13") == "Москва" and sql("select count(*) from bath_place_due where id = 13") == "0", sql("select region from baths where id = 13"))
+# Комиссия поправила регион руками (карточка «Регион не тот?») и отметила точку — геокодер его не перепишет
+sql("update baths set region = 'Московская обл', place_lat = lat, place_lng = lng where id = 13")
+check("регион, решённый Комиссией к этой точке, в очередь не попадает", sql("select count(*) from bath_place_due where id = 13") == "0")
+sql("update baths set lat = 58.6036, lng = 49.6601, country = 'Россия', region = 'Кировская обл', place_lat = 58.6036, place_lng = 49.6601 where id = 13")   # как после проверки выше
+check("очередь видна только служебной роли", sql("select has_table_privilege('anon', 'public.bath_place_due', 'select') or has_table_privilege('authenticated', 'public.bath_place_due', 'select')") == "f")
 # настоящий геокодер отвечает так же, как заглушка? Это проверка чужого сервиса по сети: сети нет или он ограничил частые
 # запросы (429) — честно пропускаем с пометкой, а не валим весь набор
 try:

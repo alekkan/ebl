@@ -13,7 +13,7 @@
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { distKm, hasLocationHint, locate, looksLikeAddress, parseLocation, useDbGeocoder } from "../_shared/geo.ts";
-import { placeByPoint } from "../_shared/place.ts";
+import { placePatch } from "../_shared/place.ts";
 import { requestPoint } from "../_shared/point-request.ts";
 import { greetLine } from "../_shared/greetings.ts";
 import { TELEGRAM_API } from "../_shared/hosts.ts";
@@ -637,22 +637,19 @@ async function pointFromMessage(msg: Any) {
 async function setBathPoint(bathId: number, p: { lat: number; lng: number }, byCommission = false) {
   const { data: b } = await sb.from("baths").select("precision, lat, country, region").eq("id", bathId).single();
   if (!byCommission && b?.precision === "exact" && b?.lat != null) return false;
-  // страну и регион не знали (новая баня) — берём по точке: без них не посчитать бонусы за регион и страну (п. 14)
-  const place = b?.country && b?.region ? {} : await placeFor(p, b);
+  // страна и регион — по точной точке (21.10, даже если были): от них бонусы за регион и страну (п. 14)
+  const place = await placePatch(sb, p, b);
   await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact", ...place }).eq("id", bathId);
   return true;
 }
 
-// страна и регион по точке — в написании Комиссии («Кировская обл»); уже заполненное не трогаем (см. _shared/place.ts)
-const placeFor = (p: { lat: number; lng: number }, have: Any = {}) => placeByPoint(sb, p, have);
-
-// Дозаполнить страну и регион у бань с точной точкой, где их тогда не узнали (геокодер не ответил): pg_cron
+// Страна и регион у бань с точной точкой — по этой точке (21.10): где их тогда не узнали (геокодер не ответил) и где точку
+// передвинули мимо функций (Сверка, Радар, решение Комиссии по запросу точки) — представление bath_place_due. pg_cron
 // ebl-fill-places каждые 5 минут берёт тех, кого пора спросить (bath_place_tries: через 5 мин, 30 мин, 2 ч, 6 ч, дальше раз
 // в сутки), и вручную — ?fillplaces=dry показывает, что проставится, ничего не записывая; &id=<баня> — одну, без очереди.
 // Примерные точки (город/область из таблицы Комиссии) не трогаем: регион у старых бань — решение Комиссии.
 async function fillPlaces(dry: boolean, id?: number) {
-  let q = sb.from("baths").select("id, name, lat, lng, country, region").neq("status", "rejected")
-    .eq("precision", "exact").not("lat", "is", null).or("country.is.null,region.is.null");
+  let q = sb.from("bath_place_due").select("id, name, lat, lng, country, region");
   if (id) q = q.eq("id", id);
   const { data: all } = await q.order("id").limit(200);
   // по расписанию — только те, кого пора спросить; вручную (dry или id) — все
@@ -662,15 +659,15 @@ async function fillPlaces(dry: boolean, id?: number) {
   const rows = (all ?? []).filter(due).slice(0, id || dry ? 20 : 5);   // по расписанию — по 5 за раз: геокодер не чаще раза в секунду
   const out: Any[] = [];
   for (const b of rows) {
-    const place = await placeFor({ lat: b.lat, lng: b.lng }, b);
-    const done = !!(b.country || place.country) && !!(b.region || place.region);
+    const place: Any = await placePatch(sb, { lat: b.lat, lng: b.lng }, b);
+    const done = !!place.country && !!place.region;
     if (!dry) {
       const n = ((tr.get(b.id) as Any)?.tries ?? 0) + 1;
       if (done) await sb.from("bath_place_tries").delete().eq("bath_id", b.id);
       else await sb.from("bath_place_tries").upsert({ bath_id: b.id, tries: n, next_at: new Date(Date.now() + placeBackoff(n)).toISOString() });
     }
-    if (Object.keys(place).length) {
-      out.push({ id: b.id, name: b.name, ...place });
+    if (place.country) {
+      out.push({ id: b.id, name: b.name, country: place.country, region: place.region, was: [b.region, b.country].filter(Boolean).join(", ") || null });
       if (!dry) {
         await sb.from("baths").update(place).eq("id", b.id);
         // регион появился — пометка «не определён» у Комиссии больше не нужна: обновляем её уведомления по этой бане
@@ -782,7 +779,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
   if (!bathId) {
     const { data: nb, error } = await sb.from("baths").insert({
       name: st.newBath, status: "pending", created_by: st.authorId, type: st.type ?? null,
-      ...(st.geo ? { lat: st.geo.lat, lng: st.geo.lng, precision: "exact", ...(await placeFor(st.geo)) } : {}),
+      ...(st.geo ? { lat: st.geo.lat, lng: st.geo.lng, precision: "exact", ...(await placePatch(sb, st.geo)) } : {}),
     }).select().single();
     if (error) return submitFailed(st, lg, tgId, `Не получилось добавить баню: ${error.message}`);
     bathId = st.newBathId = nb.id;

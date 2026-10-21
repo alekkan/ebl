@@ -3,7 +3,7 @@
 // Комиссия ставит любую сама.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { locate, useDbGeocoder } from "../_shared/geo.ts";
-import { placeByPoint } from "../_shared/place.ts";
+import { placePatch } from "../_shared/place.ts";
 import { requestPoint } from "../_shared/point-request.ts";
 
 const ALLOWED = (Deno.env.get("ALLOWED_ORIGINS") ?? "https://ebl.su,https://www.ebl.su,http://ebl.su,http://www.ebl.su,https://alekkan.github.io,http://localhost:8765")
@@ -47,10 +47,15 @@ Deno.serve(async (req) => {
     const r = await requestPoint(sb, b.id, p, acc.player_id, "site");
     return new Response(JSON.stringify({ ...p, ...r }), { status: r.same ? 200 : 202, headers });
   }
-  // страну и регион не знали — берём по точке в написании Комиссии: без них не посчитать бонусы за регион и страну (п. 14)
-  // только по координатам, через геокодер (_shared/place.ts); не ответил — пусто, ночью спросим снова
-  const place = !b.country || !b.region ? await placeByPoint(sb, p, b) : {};
+  // страна и регион — по точной точке, в написании Комиссии: от них бонусы за регион и страну (п. 14); только по координатам,
+  // через геокодер (_shared/place.ts); не ответил — прежние, ebl-fill-places спросит снова через несколько минут
+  const place = await placePatch(sb, p, b);
   const { error } = await sb.from("baths").update({ lat: p.lat, lng: p.lng, precision: "exact", ...place }).eq("id", b.id);
   if (error) return fail(500, error.message);
+  // регион или страна поменялись — очки за новый регион и страну (п. 14) пересчитываем сразу
+  // deno-lint-ignore no-explicit-any
+  const pl = place as any;
+  if (pl.country && (pl.country !== b.country || pl.region !== b.region))
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
   return new Response(JSON.stringify(p), { headers });
 });
