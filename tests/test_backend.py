@@ -332,6 +332,11 @@ check("очередь: регион по новой точке, баня из о
 # Комиссия поправила регион руками (карточка «Регион не тот?») и отметила точку — геокодер его не перепишет
 sql("update baths set region = 'Московская обл', place_lat = lat, place_lng = lng where id = 13")
 check("регион, решённый Комиссией к этой точке, в очередь не попадает", sql("select count(*) from bath_place_due where id = 13") == "0")
+place13 = lambda: sql("select country || ' / ' || region from baths where id = 13")
+req("POST", "/functions/v1/bath-location", {"bath_id": 13, "input": "24.4539, 54.3773"}, token=vitek)
+check("страна в написании лиги: «ОАЭ», а не «Объединённые Арабские Эмираты»", place13() == "ОАЭ / Абу-Даби", place13())
+req("POST", "/functions/v1/bath-location", {"bath_id": 13, "input": "36.8500, 31.0600"}, token=vitek)
+check("Турция — провинция («Анталья»), не макрорегион", place13() == "Турция / Анталья", place13())
 sql("update baths set lat = 58.6036, lng = 49.6601, country = 'Россия', region = 'Кировская обл', place_lat = 58.6036, place_lng = 49.6601 where id = 13")   # как после проверки выше
 check("очередь видна только служебной роли", sql("select has_table_privilege('anon', 'public.bath_place_due', 'select') or has_table_privilege('authenticated', 'public.bath_place_due', 'select')") == "f")
 # настоящий геокодер отвечает так же, как заглушка? Это проверка чужого сервиса по сети: сети нет или он ограничил частые

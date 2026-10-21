@@ -25,8 +25,9 @@ export async function reversePlace(lat: number, lng: number, tries = 3): Promise
 
 // deno-lint-ignore no-explicit-any
 type Sb = any;
+// province — провинция там, где state нет (Турция: «Анталья», а region — «Средиземноморский регион»)
 const fromAddress = (a: Record<string, string> | undefined): Place =>
-  ({ country: a?.country ?? null, region: a?.state ?? a?.region ?? a?.city ?? null });
+  ({ country: a?.country ?? null, region: a?.province ?? a?.state ?? a?.region ?? a?.city ?? null });
 
 // тот же геокодер, но с сервера базы (pg_net): edge-функциям он не отвечает. Ставим запрос и ждём ответ до ~8 секунд
 async function reverseViaDb(sb: Sb, p: { lat: number; lng: number }): Promise<Place> {
@@ -63,13 +64,22 @@ export async function placePatch(sb: Sb, p: { lat: number; lng: number }, have: 
   return { country: pl.country, region, place_lat: p.lat, place_lng: p.lng };
 }
 
+// написания геокодера, которые у лиги короче (21.10: «Объединённые Арабские Эмираты» дали бы бонус «новая страна» рядом с «ОАЭ»)
+export const COUNTRY_ALIAS: Record<string, string> = {
+  "объединенные арабские эмираты": "ОАЭ", "соединенные штаты америки": "США", "соединенное королевство": "Великобритания",
+  "республика корея": "Корея",
+};
+export const REGION_ALIAS: Record<string, string> = { "алтай": "Горный Алтай" };   // Россия; ключ — regionKey («Республика Алтай» → «алтай»)
+
 const stem = (s: string | null) => regionKey(s).split(/[\s-]/)[0].slice(0, 7);
 const tableStyle = (r: string) => r.replace(/\s+область$/i, " обл").replace(/^Республика\s+/i, "").trim();
 
 // known — пары страна/регион из справочника, самые частые первыми (представление bath_places)
 export function matchPlace(p: Place, known: Known[]): Place {
-  const country = known.find((k) => k.country && regionKey(k.country) === regionKey(p.country))?.country ?? p.country;
+  const c0 = p.country && (COUNTRY_ALIAS[regionKey(p.country)] ?? p.country);
+  const country = known.find((k) => k.country && regionKey(k.country) === regionKey(c0))?.country ?? c0;
   if (!p.region) return { country, region: null };
+  p = { country, region: (country === "Россия" && REGION_ALIAS[regionKey(p.region)]) || p.region };
   const same = known.filter((k) => k.country === country && k.region);
   const hit = same.find((k) => regionKey(k.region) === regionKey(p.region)) ?? same.find((k) => stem(k.region) === stem(p.region));
   return { country, region: hit?.region ?? tableStyle(p.region) };

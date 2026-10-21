@@ -1452,10 +1452,15 @@
   // страна и регион по точке (если ещё не заполнены) — от них зависят очки за новый регион и страну
   // название из OpenStreetMap — к написанию, которое уже есть у бань лиги («Кировская область» → «Кировская обл»),
   // иначе бонус «новый регион» дадут там, где участник уже был (то же делает бот: _shared/place.ts)
+  // написания геокодера, которые у лиги короче, — как COUNTRY_ALIAS / REGION_ALIAS в _shared/place.ts
+  const COUNTRY_ALIAS = { "объединенные арабские эмираты": "ОАЭ", "соединенные штаты америки": "США", "соединенное королевство": "Великобритания", "республика корея": "Корея" };
+  const REGION_ALIAS = { "алтай": "Горный Алтай" };
   function matchPlace(country, region) {
     const stem = (s) => regionKey(s).split(/[\s-]/)[0].slice(0, 7);
-    const c = baths.find((b) => b.country && regionKey(b.country) === regionKey(country))?.country ?? country ?? "";
+    const c0 = country && (COUNTRY_ALIAS[regionKey(country)] ?? country);
+    const c = baths.find((b) => b.country && regionKey(b.country) === regionKey(c0))?.country ?? c0 ?? "";
     if (!region) return { country: c, region: "" };
+    if (c === "Россия") region = REGION_ALIAS[regionKey(region)] ?? region;
     const same = baths.filter((b) => b.country === c && b.region), freq = {};
     same.forEach((b) => (freq[b.region] = (freq[b.region] || 0) + 1));
     const names = Object.keys(freq).sort((x, y) => freq[y] - freq[x]);
@@ -1469,7 +1474,7 @@
     if (!auto("#nbCountry") && !auto("#nbRegion")) return;
     try {
       const r = await (await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=5&accept-language=ru&lat=${lat}&lon=${lng}`)).json();
-      const a = r.address || {}, p = matchPlace(a.country, a.state || a.region || a.city);
+      const a = r.address || {}, p = matchPlace(a.country, a.province || a.state || a.region || a.city);
       if (auto("#nbCountry") && p.country) $("#nbCountry").value = p.country;
       if (auto("#nbRegion") && p.region) $("#nbRegion").value = p.region;
       calc();
