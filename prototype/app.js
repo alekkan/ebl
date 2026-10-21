@@ -519,12 +519,19 @@
           <div class="geo-move">
             <p class="where">${icon("pin")}<span><span id="dWhereTxt">${esc(where(b))}</span>${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${(() => {
               const acts = [geoAct && `<button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>`,
+                canModerate && D.live && `<button type="button" class="linkbtn" id="dPlaceBtn" aria-expanded="false" aria-controls="dPlaceAsk">регион не тот?</button>`,
                 canModerate && D.live && `<button type="button" class="linkbtn" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "работает снова?" : "закрылась?"}</button>`].filter(Boolean);
               return acts.length ? `<span class="w-acts">${acts.join(" · ")}</span>` : "";   // своей строкой под адресом: адреса бывают длинными
             })()}</span></p>
             ${geoAct ? `<form id="geoFixForm" class="geo-form" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
               <button class="btn sm solid" type="submit">${geoSubmit}</button></form>` : ""}
           </div>
+          ${canModerate && D.live ? `<form class="type-ask" id="dPlaceAsk" hidden>
+            <p class="type-note">Страна и регион бани — по ним бонусы за новый регион и страну, очки пересчитаются.</p>
+            <div class="place-row"><input class="inp sm" id="dPlaceCountry" list="countryList" value="${esc(b.country || "")}" placeholder="Страна" aria-label="Страна" required>
+              <input class="inp sm" id="dPlaceRegion" list="regionList" value="${esc(b.region || "")}" placeholder="Регион" aria-label="Регион"></div>
+            <div class="type-acts"><button type="submit" class="btn sm solid" id="dPlaceGo">Сохранить</button><button type="button" class="linkbtn" id="dPlaceCancel">Отмена</button></div>
+          </form>` : ""}
           ${canModerate && D.live ? `<div class="type-ask" id="dCloseAsk" hidden>
             <p class="type-note">${b.closed_on
               ? `«${esc(b.name)}» снова работает? Вернётся на карту обычной и в форму похода.`
@@ -645,6 +652,28 @@
           b.type = pick; b.t = pick; render(); openBath(b.id);
           toast(`«${b.name}»: ${TYPE_LABEL[b.t]} — таблица пересчитывается`); recomputeSoon();
         } catch (err) { go.disabled = false; toast("Не получилось: " + err.message); }
+      };
+    }
+    // страна и регион (21.10): у точной точки их ставит геокодер, у примерной — из таблицы; ошибся тот или другой
+    // («Хельсинки» в Хабаровском крае) — правит Комиссия здесь. Написание — как уже встречалось у лиги, иначе бонус за «новый»
+    // регион; у точной точки запоминаем, что регион к ней решён (place_lat), — геокодер его больше не перепишет
+    const placeAsk = $("#dPlaceAsk", d);
+    if (placeAsk) {
+      const btn = $("#dPlaceBtn", d);
+      btn.onclick = () => { placeAsk.hidden = !placeAsk.hidden; btn.setAttribute("aria-expanded", String(!placeAsk.hidden)); if (!placeAsk.hidden) $("#dPlaceCountry", d).focus(); };
+      $("#dPlaceCancel", d).onclick = () => { placeAsk.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+      placeAsk.onsubmit = async (e) => {
+        e.preventDefault();
+        const p = matchPlace($("#dPlaceCountry", d).value.trim(), $("#dPlaceRegion", d).value.trim());
+        const patch = { country: p.country || null, region: p.region || null };
+        if (patch.country === (b.country || null) && patch.region === (b.region || null)) { $("#dPlaceCancel", d).click(); return; }
+        if (b.precision === "exact" && b.lat != null) Object.assign(patch, { place_lat: b.lat, place_lng: b.lng });
+        $("#dPlaceGo", d).disabled = true;
+        try {
+          await D.moderateBath(b.id, patch);
+          Object.assign(b, patch); hydrate(b); render(); openBath(b.id);
+          toast(`«${b.name}»: ${where(b)} — таблица пересчитывается`); recomputeSoon();
+        } catch (err) { $("#dPlaceGo", d).disabled = false; toast("Не получилось: " + err.message); }
       };
     }
     // баня закрылась (19.10) — Комиссия отмечает месяцем с подтверждением; походы и очки остаются, это история

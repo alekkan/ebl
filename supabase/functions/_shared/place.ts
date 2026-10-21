@@ -53,6 +53,16 @@ export async function placeByPoint(sb: Sb, p: { lat: number; lng: number }, have
   return { ...(!have?.country && pl.country ? { country: pl.country } : {}), ...(!have?.region && pl.region ? { region: pl.region } : {}) };
 }
 
+// Страна и регион для бани, которой ставят точную точку (21.10): по координатам, даже если были заполнены — точка точнее
+// таблицы (Хельсинки стояли в Хабаровском крае). Геокодер не ответил — {}: ничего не меняем, спросит ebl-fill-places.
+// Регион не определился, а страна та же — прежний регион оставляем; place_lat/lng — по какой точке определили.
+export async function placePatch(sb: Sb, p: { lat: number; lng: number }, have: Partial<Place> | null = {}) {
+  const pl = await placeByPoint(sb, p);
+  if (!pl.country) return {};
+  const region = pl.region ?? (pl.country === have?.country ? have?.region ?? null : null);
+  return { country: pl.country, region, place_lat: p.lat, place_lng: p.lng };
+}
+
 const stem = (s: string | null) => regionKey(s).split(/[\s-]/)[0].slice(0, 7);
 const tableStyle = (r: string) => r.replace(/\s+область$/i, " обл").replace(/^Республика\s+/i, "").trim();
 
