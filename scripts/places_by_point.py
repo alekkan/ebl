@@ -32,10 +32,18 @@ def stem(s):
     return re.split(r"[\s-]", region_key(s))[0][:7]
 
 
+COUNTRY_ALIAS = {"объединенные арабские эмираты": "ОАЭ", "соединенные штаты америки": "США",
+                 "соединенное королевство": "Великобритания", "республика корея": "Корея"}   # как в _shared/place.ts
+REGION_ALIAS = {"алтай": "Горный Алтай"}
+
+
 def match_place(country, region, known):
+    country = COUNTRY_ALIAS.get(region_key(country), country)
     c = next((k["country"] for k in known if k["country"] and region_key(k["country"]) == region_key(country)), country)
     if not region:
         return c, None
+    if c == "Россия":
+        region = REGION_ALIAS.get(region_key(region), region)
     same = [k for k in known if k["country"] == c and k["region"]]
     hit = next((k["region"] for k in same if region_key(k["region"]) == region_key(region)), None) \
         or next((k["region"] for k in same if stem(k["region"]) == stem(region)), None)
@@ -46,7 +54,7 @@ def reverse(lat, lng):
     q = urllib.parse.urlencode({"lat": lat, "lon": lng, "format": "jsonv2", "zoom": 5, "accept-language": "ru"})
     req = urllib.request.Request(f"https://nominatim.openstreetmap.org/reverse?{q}", headers={"User-Agent": "EBL-bot/1.0 (https://ebl.su)"})
     a = json.load(urllib.request.urlopen(req, timeout=20)).get("address") or {}
-    return a.get("country"), a.get("state") or a.get("region") or a.get("city")
+    return a.get("country"), a.get("province") or a.get("state") or a.get("region") or a.get("city")
 
 
 def lit(v):
