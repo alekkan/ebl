@@ -100,8 +100,10 @@ def merge(run):
         pt = (lat, lng) if real_point(lat, lng) else None
         key = card_id(p.get("map_url")) or "dir:" + re.sub(r"[^а-яa-z0-9]", "", (p["name"] + (p.get("address") or "")).lower())[:60]
         addr = " ".join(filter(None, [p.get("city"), p.get("address")]))
+        # по точке, если она есть у обоих; по адресу — только без точек: «улица Ленина, 1» есть в каждом городе (24.10 «Баня №1»
+        # в Саратове получила вторую карточку самарской)
         dup = next((c for c in cands if c["key"] == key or same_name(p["name"], c["name"]) and (
-                    pt and c.get("lat") and km(pt, (c["lat"], c["lng"])) < 0.3 or flat_addr(addr) and flat_addr(addr) == flat_addr(c["addr"]))), None)
+                    km(pt, (c["lat"], c["lng"])) < 0.3 if pt and c.get("lat") else flat_addr(addr) and flat_addr(addr) == flat_addr(c["addr"]))), None)
         if dup:   # вторая карточка того же места — добавим ссылку, если её не было
             dup["map_url_2"] = dup.get("map_url_2") or (p.get("map_url") if p.get("map_url") != dup.get("map_url") else None)
             skip["дубль"] += 1; continue
