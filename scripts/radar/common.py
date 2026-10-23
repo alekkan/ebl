@@ -67,7 +67,7 @@ def league_match(name, lat, lng, league, region=None, where=""):
             return b, None
         # тёзка с точной точкой далеко — другая баня («Жар-птица» в Сходне и на Масловке); подсказываем только примерным
         if b.get("precision") != "exact" or not pt: named.append(b)
-    reg = REGION.get(region)
+    reg = REGION.get(region) or (region and re.sub(r"\s+область$", " обл", region))   # «Тверская область» → как у Комиссии
     named.sort(key=lambda b: (bool(reg) and b.get("region") != reg, dist(b)))
     if named and (not reg or named[0].get("region") == reg):
         return None, named[0]
