@@ -96,7 +96,8 @@ def main():
         if r is None and c == b["country"]:
             r = b["region"]
         # точку или регион с тех пор поменяли — строка не сработает, баню разберёт очередь ebl-fill-places
-        same_point = f"lat = {b['lat']!r} and lng = {b['lng']!r}"
+        # выгрузка CLI режет координаты до 15 знаков — сравниваем с допуском (~1 см), а не на равенство (23.10: 12 строк не сработали)
+        same_point = f"abs(lat - {b['lat']!r}) < 1e-7 and abs(lng - {b['lng']!r}) < 1e-7"
         if (c, r) != (b["country"], b["region"]):
             diff.append((b, c, r))
             sql.append(f"update public.baths set country = {lit(c)}, region = {lit(r)}, place_lat = lat, place_lng = lng "
