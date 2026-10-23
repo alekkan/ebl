@@ -76,6 +76,15 @@ window.EBLData = (() => {
   // «2026-09-26T11:42» по Москве
   const mskLocal = (iso) => new Date(new Date(iso).getTime() + 3 * 3600e3).toISOString().slice(0, 16);
   const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+  // PostgREST отдаёт не больше 1000 строк (24.10: в Сверке 1322 предложения, сайт видел 1000) — читаем страницами
+  async function pagedAll(make) {
+    const out = [];
+    for (let i = 0; ; i += 1000) {
+      const rows = check(await make().range(i, i + 999));
+      out.push(...rows);
+      if (rows.length < 1000) return out;
+    }
+  }
 
   // ---------- витрина ----------
   async function loadStatic() {
@@ -385,7 +394,7 @@ window.EBLData = (() => {
     // Радар (16.10) — только Комиссии: места из еженедельного прогона агентов и её решения по ним
     async radar() {
       if (!live) return [];
-      return check(await sb.from("radar_places").select("*").order("public_index", { ascending: false, nullsFirst: false }).limit(3000));
+      return pagedAll(() => sb.from("radar_places").select("*").order("public_index", { ascending: false, nullsFirst: false }).order("id"));
     },
     // action: add (type — public / spa / private), match (bath — баня лиги), hide (reason), reopen
     async radarDecide(id, action, { bath = null, type = "public", reason = null } = {}) {
@@ -399,7 +408,7 @@ window.EBLData = (() => {
     // Сверка каталога (19.10) — только Комиссии: что агенты нашли по баням лиги (точка, адрес, ссылки, факты) и её решения
     async catalog() {
       if (!live) return [];
-      return check(await sb.from("catalog_proposals").select("*").order("match", { ascending: false }).limit(3000));
+      return pagedAll(() => sb.from("catalog_proposals").select("*").order("match", { ascending: false }).order("id"));
     },
     // action: accept (точка — найденная), keep (точку не трогаем), reject (reason), reopen; ids — одна или пачка
     async catalogDecide(ids, action, reason = null) {
