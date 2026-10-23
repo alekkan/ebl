@@ -62,7 +62,7 @@ def main():
         for line in d.read_text(encoding="utf-8").splitlines():
             if not line.strip() or line.startswith("#"): continue
             name, addr, rub = (line.split("|") + ["", ""])[:3]
-            sure, hint = league_match(name, None, None, league, region)
+            sure, hint = league_match(name, None, None, league, region, addr)
             cands.append({"key": "dir:" + re.sub(r"[^а-яa-z0-9]", "", (name + addr).lower())[:60], "name": name, "region": region,
                           "addr": addr, "rubric_hint": rub, "league_hint": (sure or hint or {}).get("id")})
     (out / "candidates.json").write_text(json.dumps(cands, ensure_ascii=False, indent=1), encoding="utf-8")

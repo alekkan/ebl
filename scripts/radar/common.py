@@ -20,7 +20,8 @@ def real_point(lat, lng):
     return lat is not None and lng is not None and (round(lat, 5), round(lng, 5)) not in PLACEHOLDERS
 
 
-STOP = (r"\b(баня|бани|банный|банное|комплекс|сауна|сауны|спа|spa|клуб|центр|оздоровительный|городская|городские|общественная|"
+STOP = (r"\b(баня|бани|банный|банное|банька|баньки|банно|бань|комплекс|сауна|сауны|спа|spa|клуб|центр|оздоровительный|городская|городские|общественная|"
+        r"отель|гостиница|hotel|парк|дом|двор|дворик|"
         r"русская|русские|мужской|мужская|женский|женская|fitness|фитнес|nice|термолэнд|термоленд|двор|усадьба|и|на|в|№|ул|улица|пр|г)\b")
 
 
@@ -49,7 +50,7 @@ def league_baths():
 REGION = {"Москва": "Москва", "Московская область": "Московская обл"}   # регион радара → как у Комиссии
 
 
-def league_match(name, lat, lng, league, region=None):
+def league_match(name, lat, lng, league, region=None, where=""):
     """(уверенно, подсказка): уверенно — то же название ближе 1,5 км; подсказка — название совпало, а точка далеко или неточная,
     или любая баня лиги ближе 300 м. Из тёзок — сначала в том же регионе и ближе (23.10: «Сандуновские бани» Москвы
     получали подсказку «Алтай, Сандуны»). Хуитнес и термы лиги с общественной не склеиваем."""
@@ -64,10 +65,20 @@ def league_match(name, lat, lng, league, region=None):
             continue
         if dist(b) < 1.5:
             return b, None
-        named.append(b)
+        # тёзка с точной точкой далеко — другая баня («Жар-птица» в Сходне и на Масловке); подсказываем только примерным
+        if b.get("precision") != "exact" or not pt: named.append(b)
     reg = REGION.get(region)
     named.sort(key=lambda b: (bool(reg) and b.get("region") != reg, dist(b)))
     if named and (not reg or named[0].get("region") == reg):
         return None, named[0]
-    near = min((b for b in league if b.get("type") != "spa" and dist(b) < 0.3), key=dist, default=None)
+    # баня лиги названа по посёлку, а точка у неё примерная: «Лесной» ↔ «Быт-сервис, баня», пгт Лесной (23.10, Леха там был)
+    # целыми словами, не по корню: «Красноармейск» не равен «Красноармейской улице»
+    whole = lambda t: set(re.findall(r"[а-яa-z0-9-]{4,}", (t or "").lower().replace("ё", "е")))
+    ww = whole(where)
+    town = [b for b in league if b.get("precision") != "exact" and b.get("type") != "spa" and whole(b["name"]) and whole(b["name"]) <= ww
+            and (not reg or b.get("region") in (reg, None))]
+    if town:
+        return None, town[0]
+    # рядом — только с точной точкой: примерная стоит в центре города, и любая баня у площади к ней «рядом» (Красноармейск)
+    near = min((b for b in league if b.get("type") != "spa" and b.get("precision") == "exact" and dist(b) < 0.3), key=dist, default=None)
     return None, near
