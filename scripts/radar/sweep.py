@@ -104,7 +104,7 @@ def merge(run):
         if dup:   # вторая карточка того же места — добавим ссылку, если её не было
             dup["map_url_2"] = dup.get("map_url_2") or (p.get("map_url") if p.get("map_url") != dup.get("map_url") else None)
             skip["дубль"] += 1; continue
-        sure, hint = league_match(p["name"], lat, lng, league)
+        sure, hint = league_match(p["name"], lat, lng, league, p.get("region"))
         if sure: skip["уже в лиге"] += 1; continue
         if any(pt and r.get("lat") and same_name(p["name"], r["name"]) and km(pt, (r["lat"], r["lng"])) < 1 for r in radar):
             skip["уже в Радаре"] += 1; continue
