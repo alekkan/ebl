@@ -703,6 +703,10 @@ with sync_playwright() as pw:
               ('test:new', 'Тестовые общественные бани', 'Московская обл', 'Тестово', 'ул. Пара, 1', 55.9, 37.9, 'public', 93, 'Билет на сеанс, мужские и женские дни', null, 'https://example.org'),
               ('test:ours', 'Василевские бани', 'Москва', 'Москва', 'ул. Пара, 2', 55.75, 37.6, 'public', 90, 'Похоже на нашу', {hint}, null),
               ('test:rest', 'Сауна у Тестового', 'Москва', 'Москва', null, null, null, 'private', 5, 'Почасовая аренда', null, null)""")
+        # ближе 150 м к точной точке бани лиги — это она (23.10): в Радаре не показываем, только строкой «не показываем 1 место»
+        near_b = sql("select lat + 0.0005 || ', ' || lng from baths where precision = 'exact' and status <> 'rejected' and lat is not null "
+                     "and lat not between 55.74 and 55.91 order by id limit 1")
+        sql(f"insert into radar_places (key, name, region, city, lat, lng, kind, public_index) values ('test:near', 'Баня у нашей точки', 'Москва', 'Москва', {near_b}, 'public', 95)")
         s = Site(browser, url, sess=vitek, name="commission-radar")
         s.view("dir"); s.page.click('#dirMode [data-mode="radar"]')
         s.page.wait_for_selector("#radarList .radar-card", timeout=8000)
@@ -710,6 +714,9 @@ with sync_playwright() as pw:
         check("Радар у Комиссии: вкладки по решению со счётчиками, открыты «Новые», прогресс разбора",
               tabs() == {"new": 1, "ours": 1, "review": 0, "search": 0, "rest": 1, "done": 0}
               and s.js("() => document.querySelector('#radarTabs [aria-pressed=\"true\"]').dataset.tab === 'new' && /Разобрано 0 из 2/.test(document.getElementById('radarProgress').innerText)"), tabs())
+        check("место ближе 150 м к точной бане лиги не показываем — только строкой в прогрессе",
+              s.js("() => !/Баня у нашей точки/.test(document.getElementById('radarList').innerText) && /не показываем 1 место ближе 150 м/.test(document.getElementById('radarProgress').innerText)"),
+              s.js("() => document.getElementById('radarProgress').innerText"))
         check("карточка: вердикт словами и факты, ссылки на сайт, Яндекс Карты и 2ГИС, главная кнопка «Завести в лигу»",
               s.js("""() => { const c = document.querySelector('#radarList .radar-card'); return /точно общественная · 93/.test(c.innerText)
                 && c.querySelectorAll('.radar-links a').length === 3 && !!c.querySelector('[data-radar="add"].solid'); }"""))
