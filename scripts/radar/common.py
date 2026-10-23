@@ -46,14 +46,25 @@ def league_baths():
         return json.load(r)["baths"]
 
 
-def league_match(name, lat, lng, league):
-    """(уверенно, подсказка): уверенно — то же название ближе 1,5 км; подсказка — название совпало, а точка далеко или неточная.
-    Хуитнес и термы лиги с общественной не склеиваем."""
-    hint = None
+REGION = {"Москва": "Москва", "Московская область": "Московская обл"}   # регион радара → как у Комиссии
+
+
+def league_match(name, lat, lng, league, region=None):
+    """(уверенно, подсказка): уверенно — то же название ближе 1,5 км; подсказка — название совпало, а точка далеко или неточная,
+    или любая баня лиги ближе 300 м. Из тёзок — сначала в том же регионе и ближе (23.10: «Сандуновские бани» Москвы
+    получали подсказку «Алтай, Сандуны»). Хуитнес и термы лиги с общественной не склеиваем."""
+    pt = (lat, lng) if real_point(lat, lng) else None
+    dist = lambda b: km(pt, (b["lat"], b["lng"])) if pt and b.get("lat") is not None else 9999
+    named = []
     for b in league:
         if b.get("type") == "spa" or AQUA.search(b["name"]) or not same_name(name, b["name"]):
             continue
-        if real_point(lat, lng) and b.get("lat") is not None and km((lat, lng), (b["lat"], b["lng"])) < 1.5:
+        if dist(b) < 1.5:
             return b, None
-        hint = hint or b
-    return None, hint
+        named.append(b)
+    reg = REGION.get(region)
+    named.sort(key=lambda b: (bool(reg) and b.get("region") != reg, dist(b)))
+    if named and (not reg or named[0].get("region") == reg):
+        return None, named[0]
+    near = min((b for b in league if b.get("type") != "spa" and dist(b) < 0.3), key=dist, default=None)
+    return None, near

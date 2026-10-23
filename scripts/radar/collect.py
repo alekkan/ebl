@@ -49,7 +49,7 @@ def main():
         if not name or not lat: skipped["без названия"] += 1; continue
         if JUNK.search(name) or any(t.get(k) for k in NOT_BATH_TAGS) and not tagged or (not tagged and not BATH.search(name)):
             skipped["мусор"] += 1; continue
-        sure, hint = league_match(name, lat, lng, league)
+        sure, hint = league_match(name, lat, lng, league, region)
         if sure: skipped["уже в лиге"] += 1; continue
         cands.append({"key": f"osm:{e['type'][0]}{e['id']}", "name": name, "region": region, "lat": lat, "lng": lng,
                       "addr": " ".join(filter(None, [t.get("addr:city") or t.get("addr:place"), t.get("addr:street"), t.get("addr:housenumber")])),
@@ -62,7 +62,7 @@ def main():
         for line in d.read_text(encoding="utf-8").splitlines():
             if not line.strip() or line.startswith("#"): continue
             name, addr, rub = (line.split("|") + ["", ""])[:3]
-            sure, hint = league_match(name, None, None, league)
+            sure, hint = league_match(name, None, None, league, region)
             cands.append({"key": "dir:" + re.sub(r"[^а-яa-z0-9]", "", (name + addr).lower())[:60], "name": name, "region": region,
                           "addr": addr, "rubric_hint": rub, "league_hint": (sure or hint or {}).get("id")})
     (out / "candidates.json").write_text(json.dumps(cands, ensure_ascii=False, indent=1), encoding="utf-8")
