@@ -12,9 +12,12 @@
 merge выкидывает то, что уже есть в лиге (то же название ближе 1,5 км) и в Радаре (ближе 1 км), и склеивает дубли
 из двух справочников (та же карточка или то же название ближе 300 м).
 """
-import json, re, sys, pathlib
+import json, re, sys, time, pathlib, urllib.parse, urllib.request
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from common import km, league_baths, league_match, same_name, real_point
+from common import UA, km, league_baths, league_match, same_name, real_point
+
+# Москва и область — рамка для геокодера: адрес-тёзка из другого региона нам не нужен
+BOX = "35.1,56.99,40.3,54.2"
 
 AREAS = {
     # округа Москвы: в выдаче по всей Москве справочники показывают десяток самых известных — идём по округам
@@ -46,6 +49,30 @@ def flat_addr(a):
     return "".join(re.findall(r"[а-яa-z]+|\d+", a.split(",", 1)[-1]))
 
 
+def geocode(run, found):
+    """точки по адресу из справочника — геокодер OpenStreetMap раз в 1,1 с, кэш в sweep/geocache.json. Справочники
+    координаты почти не отдают (23.10: у 33 из 369), а без точки не понять, есть ли баня уже в лиге или в Радаре.
+    Берём только дом или организацию: центр улицы или города — не точка бани."""
+    cf = run / "sweep" / "geocache.json"
+    cache = json.loads(cf.read_text(encoding="utf-8")) if cf.exists() else {}
+    for p in found:
+        if real_point(p.get("lat"), p.get("lng")) or not p.get("address"): continue
+        q = f"{re.sub(r'[(].*?[)]', '', p['address']).strip()}, {p.get('city') or p.get('area')}"
+        if q not in cache:
+            url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
+                {"q": q, "format": "jsonv2", "limit": 1, "countrycodes": "ru", "viewbox": BOX, "bounded": 1})
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
+                    hit = (json.load(r) or [None])[0]
+                cache[q] = [float(hit["lat"]), float(hit["lon"])] if hit and hit.get("addresstype") in (
+                    "building", "amenity", "house", "leisure", "shop", "tourism", "office", "place") else None
+            except Exception as e:   # 429 и прочее — не обходим: без точки, следующий запуск спросит снова
+                print(f"  {q}: {e}", file=sys.stderr); continue
+            cf.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+            time.sleep(1.1)
+        if cache.get(q): p["lat"], p["lng"] = cache[q]
+
+
 def plan(run, regions, per=8):
     areas = [(r, a) for r in regions for a in AREAS[r]]
     (run / "sweep").mkdir(parents=True, exist_ok=True)
@@ -61,6 +88,7 @@ def merge(run):
     found = []
     for f in sorted((run / "sweep").glob("out_*.json")):
         found += [p for p in json.loads(f.read_text(encoding="utf-8")) if p.get("name")]
+    geocode(run, found)
     league = [b for b in league_baths() if b.get("status") != "rejected"]
     rf = run / "radar_now.json"
     radar = json.loads(rf.read_text(encoding="utf-8")) if rf.exists() else []
