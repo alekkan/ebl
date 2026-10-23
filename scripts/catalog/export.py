@@ -4,6 +4,8 @@
   python3 scripts/catalog/export.py scripts/catalog/runs/2026-10-19                          # общественные
   python3 scripts/catalog/export.py scripts/catalog/runs/2026-10-20-types --types spa,private,none   # обратный ход (20.10):
                                                        # среди необщественных и без типа ищем общественные
+  python3 scripts/catalog/export.py scripts/catalog/runs/2026-10-24-ru --approx ru        # 24.10: без точной точки — Россия
+  python3 scripts/catalog/export.py scripts/catalog/runs/2026-10-24-abroad --approx abroad   # и заграница; частные не берём
 
 Берёт с боя (supabase db query --linked, только чтение): баня, регион и страна Комиссии (опора поиска — почти всегда
 верные), текущая точка и её точность, сколько походов (2026 и всего), подсказки Радара (если место уже найдено там:
@@ -12,11 +14,15 @@
 import argparse, json, re, subprocess, pathlib
 
 ap = argparse.ArgumentParser(); ap.add_argument("run"); ap.add_argument("--types", default="public")
+ap.add_argument("--approx", choices=["ru", "abroad"], help="все бани без точной точки, кроме частных (чья-то дача — точку не ищем)")
 a = ap.parse_args(); run = pathlib.Path(a.run); run.mkdir(parents=True, exist_ok=True)
 kinds = [t for t in a.types.split(",") if t in ("public", "spa", "private")]
 conds = [f"b.type in ({', '.join(repr(t) for t in kinds)})"] if kinds else []
 if "none" in a.types.split(","): conds.append("b.type is null or b.type = 'unknown'")   # тип не указан
 where = " or ".join(conds) or "false"
+if a.approx:
+    where = ("coalesce(b.precision, '') <> 'exact' and coalesce(b.type, '') <> 'private' and b.name !~* '^частн' and "
+             + ("b.country = 'Россия'" if a.approx == "ru" else "coalesce(b.country, '') <> 'Россия'"))
 SQL = """
 select json_agg(x order by x.n26 desc, x.n_all desc, x.id) from (
   select b.id, b.name, coalesce(b.type, 'unknown') as type, b.region, b.country, b.lat, b.lng, b.precision,
