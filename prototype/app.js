@@ -2358,8 +2358,16 @@
         <div class="seg seg-sm" role="group" aria-label="Тип бани">${RADAR_TYPES.map(([t, l]) => `<button type="button" data-type="${t}" aria-pressed="${t === def}">${l}</button>`).join("")}</div>
         <button type="button" class="btn solid sm" data-radar="add-go" data-id="${p.id}">Завести</button><button type="button" class="linkbtn" data-radar="cancel">Отмена</button></div>`;
     }
+    // «Это наша»: Комиссия сама выбирает баню лиги, когда название не совпало («Лотос» — это «Тула, Баня 4», 24.10)
+    if (radarAsk?.id === p.id && radarAsk.act === "pick") {
+      return `<div class="radar-ask radar-pick"><span>Какая это баня лиги?</span>
+        <input class="inp sm" data-radarpick="${p.id}" placeholder="Название бани лиги" aria-label="Баня лиги" value="${esc(radarAsk.q || "")}">
+        <div class="radar-sug" data-radarsug="${p.id}">${radarPickList(p, radarAsk.q || "")}</div>
+        <button type="button" class="linkbtn" data-radar="cancel">Отмена</button></div>`;
+    }
     if (radarAsk?.id === p.id && radarAsk.act === "match") {
-      return `<div class="radar-ask"><span>Перенести точку «${esc(hint.name)}» сюда${p.address ? ` — ${esc(p.address)}` : ""}?</span>
+      const tb = byId.get(radarAsk.bath || p.league_hint) || hint;
+      return `<div class="radar-ask"><span>Перенести точку «${esc(tb.name)}» сюда${p.address ? ` — ${esc(p.address)}` : ""}?</span>
         <button type="button" class="btn solid sm" data-radar="match-go" data-id="${p.id}">Перенести</button><button type="button" class="linkbtn" data-radar="cancel">Отмена</button></div>`;
     }
     if (radarAsk?.id === p.id && radarAsk.act === "hide") {
@@ -2369,7 +2377,15 @@
     const parts = g === "ours" && hint
       ? [`<button type="button" class="btn solid sm" data-radar="match" data-id="${p.id}">Перенести точку «${esc(hint.name)}» сюда</button>`, `<button type="button" class="btn sm" data-radar="add" data-id="${p.id}">Это другая — завести</button>`]
       : [add(g === "new")];
-    return parts.join("") + `<button type="button" class="linkbtn" data-radar="hide" data-id="${p.id}">Скрыть</button>`;
+    return parts.join("") + `<button type="button" class="linkbtn" data-radar="pick" data-id="${p.id}">Это наша баня</button><button type="button" class="linkbtn" data-radar="hide" data-id="${p.id}">Скрыть</button>`;
+  }
+  // бани лиги для «Это наша»: по названию, а без запроса — ближайшие к месту (у Радара точка почти всегда есть)
+  function radarPickList(p, q) {
+    q = lowerE(q.trim());
+    const d = (b) => (b.ll && p.lat != null ? distKm(b.ll, [p.lat, p.lng]) : 1e9);
+    const list = baths.filter((b) => !b.isNew && (q ? b.search.includes(q) : d(b) < 30)).sort((a, b) => d(a) - d(b) || b.nAll - a.nAll).slice(0, 6);
+    return list.length ? list.map((b) => `<button type="button" data-radar="pick-bath" data-id="${p.id}" data-bath="${b.id}"><span>${esc(b.name)}</span><small>${d(b) < 1e9 ? fmtKm(d(b)) : esc(b.region || "")}</small></button>`).join("")
+      : `<span class="hint">${q ? "Не нашлось — попробуй другое слово" : "Рядом бань лиги нет — начни вводить название"}</span>`;
   }
   function radarCard(p) {
     const g = radarGroup(p), [verdict, tone] = radarVerdict(p), facts = radarFacts(p), open = radarOpen.has(p.id);
@@ -2492,6 +2508,12 @@
     if (!f) renderRadar();
   });
   if (store.get("radarMapFolded", false) && innerWidth <= 1000) { $("#radarSide").classList.add("folded"); $("#radarMapToggle").textContent = "Показать карту"; }
+  $("#radarList").addEventListener("input", (e) => {
+    const inp = e.target.closest("[data-radarpick]"); if (!inp || !radarAsk) return;
+    radarAsk.q = inp.value;
+    const p = radar.find((x) => x.id === Number(inp.dataset.radarpick));
+    $(`[data-radarsug="${p.id}"]`).innerHTML = radarPickList(p, inp.value);   // только подсказки: поле не теряет фокус
+  });
   $("#radarList").addEventListener("mouseover", (e) => { const c = e.target.closest(".radar-card"); if (c) radarHover(Number(c.dataset.id), true); });
   $("#radarList").addEventListener("mouseout", (e) => { const c = e.target.closest(".radar-card"); if (c && !c.contains(e.relatedTarget)) radarHover(Number(c.dataset.id), false); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && radarAsk) { radarAsk = null; renderRadar(); } });
@@ -2525,7 +2547,12 @@
     }
     if (act === "more") { radarOpen.has(p.id) ? radarOpen.delete(p.id) : radarOpen.add(p.id); return renderRadar(); }
     if (act === "ourbath") { const id = p.bath_id || p.league_hint; if (byId.has(id)) { show("map"); openBath(id, true); } return; }
-    if (act === "add" || act === "match" || act === "hide") { radarAsk = { id: p.id, act }; renderRadar(); return; }
+    if (act === "add" || act === "match" || act === "hide" || act === "pick") {
+      radarAsk = { id: p.id, act }; renderRadar();
+      if (act === "pick") $(`[data-radarpick="${p.id}"]`)?.focus();
+      return;
+    }
+    if (act === "pick-bath") { radarAsk = { id: p.id, act: "match", bath: Number(b.dataset.bath) }; renderRadar(); return; }
     $$("button", b.closest(".radar-acts")).forEach((x) => (x.disabled = true));
     try {
       if (act === "add-go") {
@@ -2534,8 +2561,9 @@
         radarAsk = null; renderRadar();
         refreshData().then(() => { renderRadar(); radarToast(`«${p.name}» в лиге`, "Показать на карте", () => { show("map"); openBath(id, true); }); }).catch(() => {});
       } else if (act === "match-go") {
-        if (p.lat != null) await D.setBathLocation(p.league_hint, `${p.lat}, ${p.lng}`);
-        await radarDo(p, "match", { bath: p.league_hint });
+        const bath = radarAsk?.bath || p.league_hint;
+        if (p.lat != null) await D.setBathLocation(bath, `${p.lat}, ${p.lng}`);
+        await radarDo(p, "match", { bath });
         radarAsk = null; renderRadar();
         toast(p.lat != null ? "Точка перенесена" : "Привязано — точку поправь в карточке бани");
         refreshData().then(renderRadar).catch(() => {});

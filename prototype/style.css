@@ -1168,3 +1168,9 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   .dir-table .num::after { content: attr(data-label); display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); }
   .dir-table .dir-who { grid-column: 1 / -1; white-space: normal; }
 }
+.radar-pick { flex-wrap: wrap; }
+.radar-pick .inp { flex: 1 1 220px; min-width: 0; }
+.radar-sug { display: grid; gap: 2px; flex: 1 1 100%; }
+.radar-sug button { display: flex; justify-content: space-between; gap: 12px; padding: 6px 8px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 14px; }
+@media (hover: hover) { .radar-sug button:hover { background: var(--panel); } }
+.radar-sug small { color: var(--ink-3); flex: none; }
