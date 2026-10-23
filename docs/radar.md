@@ -70,6 +70,12 @@ python3 scripts/radar/batches.py $R --prev $P --max 190
    python3 scripts/radar/sweep_2gis.py $R --max-requests 300          # → $R/sweep/out_2gis.json
    python3 scripts/radar/sweep.py merge $R                            # те же ключи 2gis:<id>, что у прочёса агентами
    ```
+1г. **Города России через 2ГИС** (24.10): `--cities` — 18 городов лиги кругами (`CITIES`), `--regions` — все 154 «города»
+   2ГИС из Regions API (`region/list`, с пригородами; пачка — `dgis_regions.json`), запрос по `region_id`, больше 50 мест —
+   круги по рамке города. 18 городов — 384 бани за 53 запроса, остальные 135 — 1071 баня за 189 запросов.
+   ```bash
+   python3 scripts/radar/sweep_2gis.py $R --regions dgis_regions.json --skip "Москва,Московская область,…" --max-requests 500
+   ```
 2. **Пачки** (`batches.py`): по ~20 мест, вслепую, сначала похожие на общественные; уже разобранное прошлым прогоном
    (`--prev`, не unknown) пропускается. **Лимит — 200 веб-поисков за ход на всех агентов**, поэтому `--max 190`:
    остальное — следующим ходом тем же скриптом (он учтёт уже готовое в `$R/out`).
