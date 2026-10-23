@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
-"""Страна и регион по точной точке — разовая сверка уже стоящих бань (21.10, решение Лехи: Москва по точке — «Москва»,
-область — «Московская обл»). Новые точки определяет сам сервер (`placePatch`); старые до этого жили с регионом из таблицы.
+"""Страна и регион по точной точке (21.10, решение Лехи: Москва по точке — «Москва», область — «Московская обл») — с Мака.
+Новые точки определяет сам сервер (`placePatch`, очередь `ebl-fill-places`), но геокодер OpenStreetMap часто отказывает
+облачным адресам, и очередь стоит (23.10: 154 бани после Сверки). Тогда — этим скриптом по очереди:
+
+  supabase db query --linked -o json "select id, name, lat, lng, country, region from bath_place_due order by id" > /tmp/exact.json
+
+Первый раз (21.10) — по всем точным (выгрузка ниже).
 
   supabase db query --linked -o json "select id, name, lat, lng, country, region from baths
     where status <> 'rejected' and precision = 'exact' and lat is not null order by id" > /tmp/exact.json
@@ -81,7 +86,7 @@ def main():
         time.sleep(1.1)
     cache_f.write_text(json.dumps(cache, ensure_ascii=False))
 
-    diff, sql, missing = [], ["begin;"], 0
+    diff, same, sql, missing = [], [], ["begin;"], 0
     for b in baths:
         raw = cache.get(f"{b['lat']:.6f},{b['lng']:.6f}")
         if not raw or not raw[0]:
@@ -90,13 +95,23 @@ def main():
         c, r = match_place(raw[0], raw[1], known)
         if r is None and c == b["country"]:
             r = b["region"]
+        # точку или регион с тех пор поменяли — строка не сработает, баню разберёт очередь ebl-fill-places
+        # выгрузка CLI режет координаты до 15 знаков — сравниваем с допуском (~1 см), а не на равенство (23.10: 12 строк не сработали)
+        same_point = f"abs(lat - {b['lat']!r}) < 1e-7 and abs(lng - {b['lng']!r}) < 1e-7"
         if (c, r) != (b["country"], b["region"]):
             diff.append((b, c, r))
             sql.append(f"update public.baths set country = {lit(c)}, region = {lit(r)}, place_lat = lat, place_lng = lng "
-                       f"where id = {b['id']} and country is not distinct from {lit(b['country'])} and region is not distinct from {lit(b['region'])};")
+                       f"where id = {b['id']} and {same_point} and country is not distinct from {lit(b['country'])} and region is not distinct from {lit(b['region'])};")
+        else:
+            same.append(b)   # совпало — отмечаем, что регион к этой точке проверен: из очереди геокодера уходит
+            sql.append(f"update public.baths set place_lat = lat, place_lng = lng where id = {b['id']} and {same_point} "
+                       f"and country is not distinct from {lit(b['country'])} and region is not distinct from {lit(b['region'])};")
+    ids = [b["id"] for b in baths if cache.get(f"{b['lat']:.6f},{b['lng']:.6f}", [None])[0]]
+    if ids:
+        sql.append(f"delete from public.bath_place_tries where bath_id in ({', '.join(map(str, ids))});")
     sql.append("commit;")
     diff.sort(key=lambda x: (x[0]["country"] or "", x[0]["region"] or "", x[0]["name"]))
-    md = [f"# Регион по точке: {len(diff)} из {len(baths)} бань с точной точкой поменяются (геокодер не ответил — {missing})", "",
+    md = [f"# Регион по точке: {len(diff)} из {len(baths)} бань с точной точкой поменяются, у {len(same)} совпал (геокодер не ответил — {missing})", "",
           "| id | баня | сейчас | по точке |", "|---|---|---|---|"]
     md += [f"| {b['id']} | {b['name']} | {', '.join(x for x in (b['region'], b['country']) if x) or '—'} | {', '.join(x for x in (r, c) if x)} |" for b, c, r in diff]
     (out / "diff.md").write_text("\n".join(md) + "\n", encoding="utf-8")
