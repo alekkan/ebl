@@ -40,11 +40,11 @@ def key():
     return k
 
 
-def page(k, lat, lng, n, radius):
+def page(k, lat, lng, n, radius, region_id=None):
     # «общественная баня» 2ГИС понимает как свой фильтр: в круге у Назарьево 78 мест вместо 537 по «баня», и Назарьевские
     # первыми; ближние — сначала (sort=distance), иначе выдача по популярности тянет сауны со всей Москвы
-    q = urllib.parse.urlencode({"q": "общественная баня", "type": "branch", "point": f"{lng},{lat}", "radius": int(radius), "sort": "distance",
-                                "page": n, "page_size": PAGE, "fields": FIELDS, "key": k})
+    where = {"region_id": region_id} if region_id else {"point": f"{lng},{lat}", "radius": int(radius), "sort": "distance"}
+    q = urllib.parse.urlencode({"q": "общественная баня", "type": "branch", **where, "page": n, "page_size": PAGE, "fields": FIELDS, "key": k})
     with urllib.request.urlopen(urllib.request.Request(f"{API}?{q}", headers={"User-Agent": "ebl.su-radar/1.0"}), timeout=30) as r:
         d = json.load(r)
     code = d.get("meta", {}).get("code")
@@ -65,6 +65,8 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("run"); ap.add_argument("--max-requests", type=int, default=300)
     ap.add_argument("--only", help="одна точка «шир,долг» — проба")
     ap.add_argument("--cities", help="города из CITIES через запятую или all — вместо сетки Москвы и области")
+    ap.add_argument("--regions", help="файл регионов 2ГИС (region/list: id, name, bounds) — весь город целиком, 24.10")
+    ap.add_argument("--skip", default="", help="регионы 2ГИС, которые не берём, через запятую")
     a = ap.parse_args()
     run, k = pathlib.Path(a.run), key()
     (run / "sweep").mkdir(parents=True, exist_ok=True)
@@ -100,7 +102,23 @@ def main():
             items, _ = page(k, lat, lng, n, r); used += 1; take(items, creg); time.sleep(0.15)
         of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    if a.cities:
+    if a.regions:
+        skip = {x.strip() for x in a.skip.split(",") if x.strip()}
+        for r in json.loads(pathlib.Path(a.regions).read_text(encoding="utf-8")):
+            if r["name"] in skip or used >= a.max_requests: continue
+            items, total = page(k, 0, 0, 1, 0, r["id"]); used += 1; take(items, r["name"])
+            if total > PAGE * PAGES:   # больше 50 — круги по рамке города
+                xs = [float(v) for v in re.findall(r"-?\d+\.\d+", r.get("bounds") or "")]
+                lng0, lat0 = min(xs[0::2]), min(xs[1::2]); lng1, lat1 = max(xs[0::2]), max(xs[1::2])
+                half = ((lat1 - lat0) * 111000 + (lng1 - lng0) * 111000 * 0.56) / 2
+                circle((lat0 + lat1) / 2, (lng0 + lng1) / 2, min(50000, half), r["name"])
+            else:
+                for n in range(2, -(-total // PAGE) + 1):
+                    items, _ = page(k, 0, 0, n, 0, r["id"]); used += 1; take(items, r["name"]); time.sleep(0.15)
+            print(f"  {r['name']}: в городе {total}, всего бань {len(out)}, запросов {used}", file=sys.stderr)
+            of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+        grid = []
+    elif a.cities:
         names = list(CITIES) if a.cities == "all" else [c.strip() for c in a.cities.split(",")]
         grid = [(CITIES[c][0], CITIES[c][1], CITIES[c][2], CITIES[c][3]) for c in names]
     else:
