@@ -2274,7 +2274,9 @@
   function radarBase(p) {                       // группа по смыслу, без учёта решения
     const x = p.public_index ?? 0;
     if (p.kind === "closed" || p.kind === "other") return "rest";
-    if (p.league_hint && byId.has(p.league_hint) && (p.kind === "public" || x >= 60)) return "ours";
+    // «Наши» — только к бане лиги с примерной точкой: у точной «перенести точку» не нужно (та же — radarKnown, другая — новая)
+    const hb = p.league_hint && byId.get(p.league_hint);
+    if (hb && hb.precision !== "exact" && (p.kind === "public" || x >= 60)) return "ours";
     if (p.kind === "public" && x >= 70) return "new";
     if ((p.kind === "public" && x >= 40) || (p.ticket_per_person && p.kind !== "private" && !AQUA_RX.test(p.name + " " + (p.note || "")))) return "review";
     if (p.kind === "unknown" && x >= 40) return "search";
@@ -2291,10 +2293,17 @@
       && Math.abs(b.lat - p.lat) < 0.01 && distKm([b.lat, b.lng], [p.lat, p.lng]) < RADAR_NEAR_KM) || null);
     return radarNearMemo.at.get(p.id);
   }
-  const radarGroup = (p) => (p.status !== "new" ? "done" : radarNear(p) ? "known" : radarBase(p));
+  // подсказка «похоже на нашу», а у нашей бани уже точная точка: место без точки или ближе 1 км — это она, решать нечего
+  // (24.10, Леха: «Сандуновские» с «Сандуны вр»). Дальше 1 км — другая баня: идёт как новая
+  function radarKnown(p) {
+    const hb = p.league_hint && byId.get(p.league_hint);
+    if (!hb || hb.precision !== "exact" || hb.lat == null) return false;
+    return p.lat == null || distKm([hb.lat, hb.lng], [p.lat, p.lng]) < 1;
+  }
+  const radarGroup = (p) => (p.status !== "new" ? "done" : radarNear(p) || radarKnown(p) ? "known" : radarBase(p));
   const RADAR_TABS = [
     ["new", "Новые", "Похоже на общественные бани, которых нет в лиге. Проверь по ссылкам и заводи."],
-    ["ours", "Наши", "Название совпало с нашей баней, а наша точка неточная или далеко. Если это она — перенеси точку сюда."],
+    ["ours", "Наши", "Название совпало с нашей баней, а у нашей точка примерная. Если это она — перенеси точку сюда."],
     ["review", "Спорные", "Вход по билету есть, но на грани хуитнеса или данных мало — реши, заводить ли и как."],
     ["search", "Без данных", "Похоже на баню, но подробностей агенты не нашли. Следующий прогон поищет ещё — или проверь сам по ссылкам."],
     ["rest", "Прочее", "Аренда, сауны, спа и закрытые. Обычно делать ничего не нужно."],
@@ -2443,12 +2452,12 @@
     if (!radarTab || !RADAR_TABS.some(([t]) => t === radarTab)) radarTab = ["new", "ours", "review", "search"].find((t) => by[t]?.length) || "new";
     $("#radarTabs").innerHTML = RADAR_TABS.map(([t, l]) => `<button type="button" role="tab" data-tab="${t}" aria-pressed="${t === radarTab}">${l}<span class="n">${by[t]?.length || 0}</span></button>`).join("");
     // прогресс — по тем, где нужно решение: новые, наши, спорные
-    const act = radar.filter((p) => ["new", "ours", "review"].includes(radarBase(p)) && (p.status !== "new" || !radarNear(p)));
+    const act = radar.filter((p) => ["new", "ours", "review"].includes(radarBase(p)) && (p.status !== "new" || !radarNear(p) && !radarKnown(p)));
     const known = (by.known || []).length;
     const doneN = act.filter((p) => p.status !== "new").length, week = radar.filter((p) => p.status === "new" && Date.now() - Date.parse(p.first_seen) < 7 * 864e5).length;
     $("#radarProgress").hidden = !act.length;
     $("#radarProgress").innerHTML = `<div class="bar"><i style="width:${act.length ? Math.round(doneN / act.length * 100) : 0}%"></i></div>
-      <span>Разобрано <b>${doneN}</b> из ${act.length}${week && week < radar.length ? ` · новых за неделю: ${week}` : ""}${known ? ` · не показываем ${known} ${plural(known, "место", "места", "мест")} ближе 150 м к баням лиги` : ""}</span>`;
+      <span>Разобрано <b>${doneN}</b> из ${act.length}${week && week < radar.length ? ` · новых за неделю: ${week}` : ""}${known ? ` · не показываем ${known} ${plural(known, "место", "места", "мест")}: это бани лиги с точной точкой` : ""}</span>`;
     $("#radarN").textContent = act.length - doneN ? ` · ${act.length - doneN}` : "";
     $("#radarTabNote").textContent = RADAR_TABS.find(([t]) => t === radarTab)[2];
     const rows = (by[radarTab] || []).sort((a, b) => (b.public_index ?? -1) - (a.public_index ?? -1));

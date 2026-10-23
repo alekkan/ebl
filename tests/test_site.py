@@ -709,6 +709,9 @@ with sync_playwright() as pw:
         # Радар (16.10): места из прогона агентов, решает Комиссия; участнику и гостю его нет
         sql("delete from radar_places where key like 'test:%'")
         hint = sql("select id from baths where name = 'Василевские' limit 1")
+        # «Наши» — к бане лиги с примерной точкой (24.10): на время проверки Радара Василевские — «по городу»
+        hint_prec = sql(f"select coalesce(precision, 'null') from baths where id = {hint}")
+        sql(f"update baths set precision = 'city' where id = {hint}")
         sql(f"""insert into radar_places (key, name, region, city, address, lat, lng, kind, public_index, note, league_hint, website) values
               ('test:new', 'Тестовые общественные бани', 'Московская обл', 'Тестово', 'ул. Пара, 1', 55.9, 37.9, 'public', 93, 'Билет на сеанс, мужские и женские дни', null, 'https://example.org'),
               ('test:ours', 'Василевские бани', 'Москва', 'Москва', 'ул. Пара, 2', 55.75, 37.6, 'public', 90, 'Похоже на нашу', {hint}, null),
@@ -717,6 +720,9 @@ with sync_playwright() as pw:
         near_b = sql("select lat + 0.0005 || ', ' || lng from baths where precision = 'exact' and status <> 'rejected' and lat is not null "
                      "and lat not between 55.74 and 55.91 order by id limit 1")
         sql(f"insert into radar_places (key, name, region, city, lat, lng, kind, public_index) values ('test:near', 'Баня у нашей точки', 'Москва', 'Москва', {near_b}, 'public', 95)")
+        # подсказка на баню с точной точкой, у места точки нет — это она же (24.10, «Сандуновские» → «Сандуны вр»): не показываем
+        exact_b = sql("select id from baths where precision = 'exact' and status <> 'rejected' and lat is not null order by id limit 1")
+        sql(f"insert into radar_places (key, name, region, city, kind, public_index, league_hint) values ('test:known', 'Наша же баня без точки', 'Москва', 'Москва', 'public', 97, {exact_b})")
         s = Site(browser, url, sess=vitek, name="commission-radar")
         s.view("dir"); s.page.click('#dirMode [data-mode="radar"]')
         s.page.wait_for_selector("#radarList .radar-card", timeout=8000)
@@ -724,8 +730,8 @@ with sync_playwright() as pw:
         check("Радар у Комиссии: вкладки по решению со счётчиками, открыты «Новые», прогресс разбора",
               tabs() == {"new": 1, "ours": 1, "review": 0, "search": 0, "rest": 1, "done": 0}
               and s.js("() => document.querySelector('#radarTabs [aria-pressed=\"true\"]').dataset.tab === 'new' && /Разобрано 0 из 2/.test(document.getElementById('radarProgress').innerText)"), tabs())
-        check("место ближе 150 м к точной бане лиги не показываем — только строкой в прогрессе",
-              s.js("() => !/Баня у нашей точки/.test(document.getElementById('radarList').innerText) && /не показываем 1 место ближе 150 м/.test(document.getElementById('radarProgress').innerText)"),
+        check("место ближе 150 м к точной бане лиги и место без точки с подсказкой на точную — не показываем, только строкой в прогрессе",
+              s.js("() => !/Баня у нашей точки|Наша же баня без точки/.test(document.getElementById('radarList').innerText) && /не показываем 2 места: это бани лиги с точной точкой/.test(document.getElementById('radarProgress').innerText)"),
               s.js("() => document.getElementById('radarProgress').innerText"))
         check("карточка: вердикт словами и факты, ссылки на сайт, Яндекс Карты и 2ГИС, главная кнопка «Завести в лигу»",
               s.js("""() => { const c = document.querySelector('#radarList .radar-card'); return /точно общественная · 93/.test(c.innerText)
@@ -760,6 +766,7 @@ with sync_playwright() as pw:
         s.no_clip("Радар на телефоне")
         s.close()
         sql("delete from radar_places where key like 'test:%'")
+        sql(f"update baths set precision = {'null' if hint_prec == 'null' else repr(hint_prec)} where id = {hint}")
         # Сверка каталога (19.10): что агенты нашли по баням лиги; решает Комиссия — по одной или уверенные пачкой
         sql("delete from catalog_proposals where run = 'test'")
         cb_id, cb_lat, cb_lng, cb_prec = sql("select id || '|' || coalesce(lat::text, '') || '|' || coalesce(lng::text, '') || '|' || coalesce(precision, '') from baths where name = 'Василевские' limit 1").split("|")
