@@ -93,6 +93,7 @@ def merge(run):
     rf = run / "radar_now.json"
     radar = json.loads(rf.read_text(encoding="utf-8")) if rf.exists() else []
     radar = radar["rows"] if isinstance(radar, dict) else radar
+    radar_keys = {r["key"] for r in radar}   # та же карточка справочника уже в Радаре (прочёс агентами и API дают одни ключи)
     cands, skip = [], {"дубль": 0, "уже в лиге": 0, "уже в Радаре": 0}
     for p in found:
         lat, lng = p.get("lat"), p.get("lng")
@@ -106,7 +107,7 @@ def merge(run):
             skip["дубль"] += 1; continue
         sure, hint = league_match(p["name"], lat, lng, league, p.get("region"))
         if sure: skip["уже в лиге"] += 1; continue
-        if any(pt and r.get("lat") and same_name(p["name"], r["name"]) and km(pt, (r["lat"], r["lng"])) < 1 for r in radar):
+        if key in radar_keys or any(pt and r.get("lat") and same_name(p["name"], r["name"]) and km(pt, (r["lat"], r["lng"])) < 1 for r in radar):
             skip["уже в Радаре"] += 1; continue
         cands.append({"key": key, "name": p["name"], "region": p.get("region"), "lat": lat if pt else None, "lng": lng if pt else None,
                       "addr": addr, "map_url": p.get("map_url"),
