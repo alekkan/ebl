@@ -738,6 +738,17 @@ with sync_playwright() as pw:
                 && c.querySelectorAll('.radar-links a').length === 3 && !!c.querySelector('[data-radar="add"].solid'); }"""))
         check("на карте рядом со списком — точки этой вкладки", s.js("() => document.querySelectorAll('#radarmap path.rd').length === 1"))
         rid = sql("select id from radar_places where key = 'test:new'")
+        # «Это наша баня» (24.10): название не совпало («Лотос» = «Тула, Баня 4») — Комиссия сама выбирает баню лиги
+        card = f'#radarList .radar-card[data-id="{rid}"]'
+        s.page.click(f'{card} [data-radar="pick"]')
+        s.page.fill(f'{card} [data-radarpick]', "Василевск"); s.page.wait_for_timeout(300)
+        check("«Это наша баня» — поиск бани лиги по названию прямо в карточке",
+              s.js(f"() => [...document.querySelectorAll('{card} [data-radar=\"pick-bath\"]')].some((b) => /Василевские/.test(b.innerText))"))
+        s.page.click(f'{card} [data-radar="pick-bath"][data-bath="{hint}"]')
+        check("выбрал баню — строка подтверждения «Перенести точку „Василевские“ сюда?», без «Перенести» ничего не меняется",
+              s.js(f"() => /Перенести точку «Василевские» сюда/.test(document.querySelector('{card} .radar-ask')?.innerText || '')")
+              and sql(f"select status from radar_places where id = {rid}") == "new")
+        s.page.click(f'{card} [data-radar="cancel"]'); s.page.wait_for_timeout(200)
         s.page.click(f'#radarList .radar-card[data-id="{rid}"] [data-radar="hide"]')
         s.page.click(f'#radarList .radar-card[data-id="{rid}"] [data-radar="hide-go"][data-reason="rental"]'); s.page.wait_for_timeout(1200)
         check("«Скрыть» — причина одним нажатием, место в «Решено», внизу «Отменить»",
