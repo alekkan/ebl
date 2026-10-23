@@ -25,7 +25,7 @@ for f in run.glob("out/batch_*.json"):
     while (run / "out" / f"w{n}_{f.name}").exists(): n += 1
     f.rename(run / "out" / f"w{n}_{f.name}")
 for f in run.glob("out/*.json"):   # уже разобранное в этом прогоне (прошлым ходом)
-    done |= {r.get("key") for r in json.loads(f.read_text(encoding="utf-8")) if r.get("kind") != "unknown"}
+    done |= {r.get("key") for r in json.loads(f.read_text(encoding="utf-8"))}   # и «нужен поиск»: в этом прогоне уже искали
 todo = [c for c in cands if c["key"] not in done]
 # сначала похожее на общественную: «бани», «городская», public_bath, рубрика справочника
 prio = lambda c: (c.get("tag") == "public_bath") * 3 + ("бани" in c["name"].lower() or "городск" in c["name"].lower()) * 2 + bool(c.get("rubric_hint"))

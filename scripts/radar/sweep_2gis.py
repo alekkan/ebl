@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--cities", help="города из CITIES через запятую или all — вместо сетки Москвы и области")
     ap.add_argument("--regions", help="файл регионов 2ГИС (region/list: id, name, bounds) — весь город целиком, 24.10")
     ap.add_argument("--skip", default="", help="регионы 2ГИС, которые не берём, через запятую")
+    ap.add_argument("--grid", help="регионы 2ГИС через запятую — сеткой кругов по 35 км по рамке (регионы-области: край, Ленобласть, Крым)")
     a = ap.parse_args()
     run, k = pathlib.Path(a.run), key()
     (run / "sweep").mkdir(parents=True, exist_ok=True)
@@ -102,7 +103,23 @@ def main():
             items, _ = page(k, lat, lng, n, r); used += 1; take(items, creg); time.sleep(0.15)
         of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    if a.regions:
+    if a.grid:   # 24.10: в регионе-области больше 50 бань — один круг у центра терял районные города
+        names = {x.strip() for x in a.grid.split(",")}
+        for r in json.loads(pathlib.Path(a.regions).read_text(encoding="utf-8")):
+            if r["name"] not in names: continue
+            xs = [float(v) for v in re.findall(r"-?\d+\.\d+", r.get("bounds") or "")]
+            lng0, lat0, lng1, lat1 = min(xs[0::2]), min(xs[1::2]), max(xs[0::2]), max(xs[1::2])
+            dlat, dlng = 50 / 111, 50 / (111 * 0.56)
+            lat = lat0 + dlat / 2
+            while lat < lat1 and used < a.max_requests:
+                lng = lng0 + dlng / 2
+                while lng < lng1 and used < a.max_requests:
+                    circle(lat, lng, 35000, r["name"]); lng += dlng
+                lat += dlat
+            print(f"  {r['name']}: всего бань {len(out)}, запросов {used}", file=sys.stderr)
+            of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+        grid = []
+    elif a.regions:
         skip = {x.strip() for x in a.skip.split(",") if x.strip()}
         for r in json.loads(pathlib.Path(a.regions).read_text(encoding="utf-8")):
             if r["name"] in skip or used >= a.max_requests: continue
