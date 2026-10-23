@@ -55,6 +55,9 @@ def league_match(name, lat, lng, league, region=None):
     получали подсказку «Алтай, Сандуны»). Хуитнес и термы лиги с общественной не склеиваем."""
     pt = (lat, lng) if real_point(lat, lng) else None
     dist = lambda b: km(pt, (b["lat"], b["lng"])) if pt and b.get("lat") is not None else 9999
+    # ближе 150 м к точной точке бани лиги — это она, как бы ни называлась (23.10; так же скрывает сайт — radarNear)
+    same_spot = min((b for b in league if b.get("precision") == "exact" and dist(b) < 0.15), key=dist, default=None)
+    if same_spot: return same_spot, None
     named = []
     for b in league:
         if b.get("type") == "spa" or AQUA.search(b["name"]) or not same_name(name, b["name"]):
