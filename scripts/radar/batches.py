@@ -19,6 +19,11 @@ for f in sorted(run.glob("candidates*.json")):
 done = set()
 if a.prev:
     done = {p["key"] for p in json.load(open(a.prev, encoding="utf-8")) if p.get("kind") and p["kind"] != "unknown"}
+# ответы прошлых ходов — в out/ под своими именами: новые пачки снова batch_1…, и агент перезаписал бы чужой ответ (24.10)
+for f in run.glob("out/batch_*.json"):
+    n = 1
+    while (run / "out" / f"w{n}_{f.name}").exists(): n += 1
+    f.rename(run / "out" / f"w{n}_{f.name}")
 for f in run.glob("out/*.json"):   # уже разобранное в этом прогоне (прошлым ходом)
     done |= {r.get("key") for r in json.loads(f.read_text(encoding="utf-8")) if r.get("kind") != "unknown"}
 todo = [c for c in cands if c["key"] not in done]
