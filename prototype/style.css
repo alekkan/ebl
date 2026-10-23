@@ -809,11 +809,18 @@ tr.below { color: var(--ink-2); }
 .p-head .sub b { color: var(--ember); font-family: var(--display); }
 .p-body { padding: 8px 28px 28px; display: grid; gap: 24px; }
 .stats.four { grid-template-columns: repeat(4, 1fr); }
-.bars { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
-.bars div { flex: 1; background: var(--oak); border-radius: 3px 3px 1px 1px; min-height: 2px; transition: background .15s; }
+.bars-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.bars-head h3 { margin-bottom: 0; }
+.bars-read { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bars { position: relative; display: flex; align-items: flex-end; gap: 3px; height: 96px; margin-top: 12px; padding-right: 22px; cursor: default; }
+.bars div { flex: 1; background: var(--oak); border-radius: 3px 3px 1px 1px; min-height: 2px; transition: background .15s, opacity .15s; }
 .bars div.zero { background: var(--line); }
-@media (hover: hover) { .bars div:hover { background: var(--ember); } }
-.axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+.bars div.on { background: var(--ember); }
+.bars:has(div.on) div:not(.on) { opacity: .45; }
+/* линия рекорда: столбик до неё — максимум сезона, подпись — сколько это бань */
+.bars-max { position: absolute; left: 0; right: 0; top: 0; border-top: 1px dashed var(--line); pointer-events: none; }
+.bars-max span { position: absolute; right: 0; top: -6px; font: 600 11px/1 var(--display); color: var(--ink-3); }
+.axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; padding-right: 22px; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .blist { display: grid; max-height: 260px; overflow: auto; padding-right: 8px; }
 .blist button { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font-size: 14px; }

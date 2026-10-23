@@ -222,6 +222,16 @@ def all_views(s, label, mobile=False):
     s.page.click('#tMode [data-m="season"]')
     s.page.click("#standings tbody tr")
     check(f"{label}: карточка участника открылась", s.js("() => !document.getElementById('playerModal').hidden"))
+    # бани по неделям (24.10): над графиком итог и рекорд; нажал на столбик — его неделя и сколько бань, ещё раз — снова итог
+    if s.js("() => !!document.querySelector('#pBars [data-w]:not(.zero)')"):
+        read = lambda: s.js("() => document.getElementById('pBarsRead').innerText")
+        summary = read()
+        if mobile:
+            s.page.tap("#pBars [data-w]:not(.zero)"); picked = read(); s.page.tap("#pBars [data-w].on")
+        else:
+            s.page.hover("#pBars [data-w]:not(.zero)"); picked = read(); s.page.mouse.move(2, 2)
+        check(f"{label}: график недель — итог, по нажатию неделя с числом бань, повторно — снова итог",
+              "рекорд" in summary and picked.startswith("W") and re.search(r"\d+ бан", picked) and read() == summary, (summary, picked, read()))
     s.js("() => (document.getElementById('playerModal').hidden = true)")
     s.view("map")
     s.page.click("#list .item[data-id]")

@@ -1219,6 +1219,10 @@
     const empty = !s.baths;
     const types = mine.reduce((a, b) => ((a[b.t] = (a[b.t] || 0) + b.v26[name]), a), {});
     const best = Math.max(...weeks.map((w) => s.weekBaths[w] ?? 0));
+    // строка над графиком (24.10, Леха: «непонятно, сколько бань»): итог, а на наведённом или нажатом столбике — его неделя
+    const bestW = weeks.find((w) => (s.weekBaths[w] ?? 0) === best);
+    const avgW = (s.baths / Math.max(1, curWeek)).toFixed(1).replace(".", ",");
+    const barsSummary = best ? `в среднем ${avgW} за неделю · рекорд ${best} — W${bestW}` : "";
     // сверху — свежие походы с портала (по дате), ниже — бани из таблицы Комиссии (там дат нет); гостю журнал не виден
     const guest = D.live && !member;
     const jr = guest ? new Map() : journalOf(name);
@@ -1245,8 +1249,10 @@
           <div><b>${s.long}</b><span>долгих</span></div><div><b>${s.k}</b><span>за компанию</span></div>
         </div>
         <section>
-          <h3>Бань по неделям</h3>
-          <div class="bars">${weeks.map((w) => { const v = s.weekBaths[w] ?? 0; return `<div class="${v ? "" : "zero"}" style="height:${Math.max(2, (v / maxB) * 100)}%" title="W${w}: ${v} ${plural(v, "баня", "бани", "бань")}, ${fmt(s.weekPts[w] ?? 0)} за место"></div>`; }).join("")}</div>
+          <div class="bars-head"><h3>Бань по неделям</h3><span class="bars-read" id="pBarsRead" aria-live="polite">${barsSummary}</span></div>
+          <div class="bars" id="pBars" role="img" aria-label="Бань по неделям: ${barsSummary}">
+            <i class="bars-max" aria-hidden="true"><span>${maxB}</span></i>
+            ${weeks.map((w) => { const v = s.weekBaths[w] ?? 0; return `<div class="${v ? "" : "zero"}" data-w="${w}" style="height:${Math.max(2, (v / maxB) * 100)}%"></div>`; }).join("")}</div>
           <div class="axis"><span>W1</span><span>W${Math.round(curWeek / 2)}</span><span>W${curWeek}</span></div>
         </section>
         <div class="cols2">
@@ -1265,6 +1271,20 @@
     $("#playerModal").hidden = false;
     $$("#playerBody [data-bath]").forEach((x) => (x.onclick = () => { $("#playerModal").hidden = true; show("map"); openBath(+x.dataset.bath, true); }));
     if ($("#pOnMap")) $("#pOnMap").onclick = () => { $("#playerModal").hidden = true; playerOnMap(name); };
+    const bars = $("#pBars");
+    if (bars) {
+      const read = $("#pBarsRead");
+      const pick = (el) => {
+        $$("#pBars [data-w]").forEach((x) => x.classList.toggle("on", x === el));
+        if (!el) return (read.textContent = barsSummary);
+        const w = +el.dataset.w, v = s.weekBaths[w] ?? 0, pts = s.weekPts[w];
+        read.textContent = `W${w} · ${weekRange(w)} · ${v ? `${v} ${plural(v, "баня", "бани", "бань")}` : "без бань"}${pts ? ` · ${fmt(pts)} за место` : ""}`;
+      };
+      bars.addEventListener("pointerover", (e) => e.pointerType === "mouse" && pick(e.target.closest("[data-w]")));
+      bars.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && pick(null));
+      // телефон: нажал — неделя, ещё раз — итог; мышью неделя уже показана наведением
+      bars.addEventListener("click", (e) => { if (e.pointerType === "mouse") return; const el = e.target.closest("[data-w]"); pick(el && !el.classList.contains("on") ? el : null); });
+    }
   }
   // бани участника на карте (карточка участника, профиль): остальные фильтры сбрасываем, иначе можно увидеть «Ничего не нашлось»
   function playerOnMap(name) {
