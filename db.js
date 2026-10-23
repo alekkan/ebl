@@ -1,0 +1,426 @@
+/* Слой данных ЕБЛ. Боевой режим — Supabase (config.js задаёт адрес и публичный ключ),
+   иначе витрина: выгрузка таблицы из data/*.json, походы и отзывы — в localStorage браузера. */
+window.EBLData = (() => {
+  const cfg = window.EBL_CONFIG || {};
+  const configured = !!(cfg.supabaseUrl && cfg.supabaseKey);
+  // адрес задан, а библиотека с CDN не загрузилась — это поломка, а не витрина: не показываем старые данные как живые
+  const broken = configured && !window.supabase;
+  const live = configured && !broken;
+  // Два пути к базе. Основной — шлюз в Яндексе (supabaseUrl): Supabase за Cloudflare, а его в России режут провайдеры.
+  // Запасной — напрямую (directUrl): у части VPN до *.yandexcloud.net не достучаться (28.09).
+  // Отдельной проверки шлюза перед загрузкой нет — это был лишний круг до первых данных, заставка висела дольше (15.10):
+  // идём сразу в шлюз, а если до него не достучаться (сетевая ошибка или 6 с без ответа) — насовсем переходим напрямую
+  // и повторяем запрос там. Ответ с ошибкой — не повод уходить: 503 значит, что Supabase не ответил самому шлюзу в плохую
+  // минуту, а путь к Яндексу есть; напрямую без VPN режутся большие ответы — сайт так и висел на заставке (08.10).
+  // 503 клиент Supabase повторяет сам. По скорости не выбираем: без VPN маленький запрос напрямую проходит, большие — нет.
+  let base = cfg.supabaseUrl;
+  async function viaBest(input, init = {}) {
+    const url = String(input);
+    const direct = (u) => u.replace(cfg.supabaseUrl, cfg.directUrl);
+    if (!url.startsWith(cfg.supabaseUrl)) return fetch(input, init);
+    if (cfg.directUrl && base === cfg.directUrl) return fetch(direct(url), init);
+    try {
+      return await hedged(url, init, cfg.directUrl ? 6000 : 0);   // 6 с — до ответа шлюза, само тело качается сколько нужно
+    } catch (e) {
+      if (init.signal?.aborted || !cfg.directUrl) throw e;   // отменил сам вызывающий — путь тут ни при чём
+      base = cfg.directUrl;
+      return fetch(direct(url), init);
+    }
+  }
+  // Шлюз обычно отвечает за 0,3–0,5 с, но примерно каждый десятый запрос застревает на 1–4 с — и с узлов в России, и с
+  // компьютера владельца (16.10). Чтение не ответило за 0,8 с (обычные ответы из России — до 0,6) — шлём такой же запрос ещё раз и берём ответ, который придёт
+  // первым, второй отменяем. Только GET: его можно повторить без вреда. Обновление ключа входа не повторяем — второй
+  // запрос со старым ключом Supabase может счесть кражей ключа и выйти из аккаунта.
+  const HEDGE_MS = 800;
+  function hedged(url, init, giveUpMs) {
+    return new Promise((resolve, reject) => {
+      const ctls = [];
+      let done = false, pending = 0, hedge = null, stop = null;
+      const finish = (fn, v, keep) => {
+        if (done) return;
+        done = true;
+        clearTimeout(hedge); clearTimeout(stop);
+        ctls.forEach((c) => c !== keep && c.abort());
+        fn(v);
+      };
+      const launch = () => {
+        const ctl = new AbortController();
+        ctls.push(ctl); pending++;
+        fetch(url, { ...init, signal: ctl.signal }).then((r) => finish(resolve, r, ctl), (e) => { if (--pending === 0) finish(reject, e); });
+      };
+      // вызывающий отменил — отменяем всё, в том числе уже ответивший (его тело ещё качается)
+      init.signal?.addEventListener?.("abort", () => { ctls.forEach((c) => c.abort()); finish(reject, new DOMException("Отменено", "AbortError")); });
+      if (init.signal?.aborted) return finish(reject, new DOMException("Отменено", "AbortError"));
+      launch();
+      if (/^(GET|HEAD)$/i.test(init.method || "GET")) hedge = setTimeout(() => done || launch(), HEDGE_MS);
+      if (giveUpMs) stop = setTimeout(() => finish(reject, new Error("шлюз не ответил")), giveUpMs);
+    });
+  }
+  const sb = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey,
+    { ...(cfg.authKey ? { auth: { storageKey: cfg.authKey } } : {}), global: { fetch: viaBest } }) : null;
+  // Общее для всех (бани, таблица, отзывы, цены) — отдельным клиентом без входа. Клиент со входом каждый свой запрос
+  // пускает только после проверки сессии, а ключ входа живёт час: зашёл позже — сначала круг через шлюз на его обновление,
+  // и только потом бани и таблица (15.10). Этим данным вход не нужен — права у гостя те же.
+  const pub = live ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey,
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "ebl-public" }, global: { fetch: viaBest } }) : null;
+  // фото участников лежат в Storage Supabase: ссылки на *.supabase.co ведём тем же путём, что и API
+  const viaApi = (u) => (u && base ? u.replace(/^https:\/\/[a-z0-9]+\.supabase\.co(?=\/storage\/)/, base) : u);
+  const YEARS_HIST = [2023, 2024, 2025];
+  const LINE_LABEL = { visit: "Поход в баню", public: "Общественная", company: "Компания", unique: "Уникальная",
+    ultra: "Ультрауникальная", region: "Новый регион", country: "Новая страна", long: "Долгий поход" };
+
+  const store = {
+    get(k, d) { try { return JSON.parse(localStorage.getItem("ebl:" + k)) ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("ebl:" + k, JSON.stringify(v)); } catch {} },
+  };
+  // «2026-09-26T11:42» по Москве
+  const mskLocal = (iso) => new Date(new Date(iso).getTime() + 3 * 3600e3).toISOString().slice(0, 16);
+  const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+  // PostgREST отдаёт не больше 1000 строк (24.10: в Сверке 1322 предложения, сайт видел 1000) — читаем страницами
+  async function pagedAll(make) {
+    const out = [];
+    for (let i = 0; ; i += 1000) {
+      const rows = check(await make().range(i, i + 999));
+      out.push(...rows);
+      if (rows.length < 1000) return out;
+    }
+  }
+
+  // ---------- витрина ----------
+  async function loadStatic() {
+    const get = (f) => fetch("data/" + f, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const [baths, standings, coords] = await Promise.all([get("baths.json"), get("standings.json"), get("coords.json")]);
+    for (const b of baths) {
+      const c = coords?.[b.id];
+      if (c) [b.lat, b.lng, b.precision] = c;
+    }
+    const newBaths = store.get("newBaths", []);
+    return {
+      baths: [...baths, ...newBaths], standings, reviews: store.get("reviews", {}), prices: store.get("prices", {}), beerPrices: store.get("beerPrices", {}), visits: store.get("visits", []),
+      players: standings.map((s) => s.name), me: null,
+      commission: ["Витёк", "Леха"],   // в витрине — как в scripts/seed.py
+    };
+  }
+
+  // ---------- боевой режим ----------
+  async function whoami() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return null;
+    const acc = check(await sb.from("player_accounts").select("id, player_id, claimed_nick, tg_username, players(nick, is_commission)").eq("auth_user", session.user.id).maybeSingle());
+    if (!acc) return { accountId: null, nick: null };
+    return { accountId: acc.id, playerId: acc.player_id, nick: acc.players?.nick ?? null, isCommission: !!acc.players?.is_commission,
+      claimedNick: acc.claimed_nick, tgUsername: acc.tg_username };
+  }
+
+  // журнал (последние 300 походов) — сразу с очками: одним запросом и параллельно со всем остальным, а не после
+  // (раньше — два запроса подряд в конце загрузки). Гостю журнал закрыт — и не спрашиваем.
+  async function journal() {
+    if (sessionUser() === "guest") return [];
+    return check(await sb.from("visits")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, visit_players(player_id, duration_min), visit_points(nick, total, lines)")
+      .order("posted_at", { ascending: false }).limit(300));
+  }
+  function loadVisits(rows, playersById) {
+    const ptsBy = {};
+    for (const v of rows) for (const p of v.visit_points ?? []) (ptsBy[v.id] ||= {})[p.nick] = p;
+    return rows.map((v) => {
+      const author = playersById[v.created_by];
+      const vp = v.visit_players.map((x) => ({ ...x, nick: playersById[x.player_id] }));
+      const p = ptsBy[v.id]?.[author];
+      return {
+        id: v.id, bathId: v.bath_id, player: author, companions: vp.filter((x) => x.nick !== author).map((x) => x.nick),
+        date: mskLocal(v.entered_at), posted: mskLocal(v.posted_at), dur: v.duration_min, status: v.status, reason: v.reject_reason,
+        total: p ? +p.total : null, lines: p ? p.lines.map(([k, n]) => [LINE_LABEL[k] || k, n]) : [], tgLink: v.tg_link,
+        enteredBy: v.entered_by ? playersById[v.entered_by] : null,   // Комиссия внесла поход за участника
+        // когда и кто решил (18.10: «Комиссия засчитала…» при заходе) и очки каждого из компании
+        decidedAt: v.moderated_at ? Date.parse(v.moderated_at) : null, decidedBy: v.moderated_by || null,
+        pts: Object.fromEntries(Object.entries(ptsBy[v.id] || {}).map(([nick, x]) => [nick, +x.total])),
+        // своя длительность участника, если не как у похода (18.10): { ник: минуты }
+        durs: Object.fromEntries(vp.filter((x) => x.duration_min != null && x.nick).map((x) => [x.nick, x.duration_min])),
+      };
+    });
+  }
+
+  // первый раз — ответ раннего запроса из index.html (EBL_BOOT): он ушёл, пока качались скрипты (16.10). Шлюз недоступен
+  // (сетевая ошибка или 6 с без ответа) — сразу запасной путь напрямую, без второго ожидания в 6 с; ошибка ответа (503) —
+  // обычный запрос через шлюз (клиент Supabase сам повторит). Обновления после действий — всегда обычным запросом.
+  async function bootPublic() {
+    const early = window.EBL_BOOT; window.EBL_BOOT = null;
+    const r = early ? await early : null;
+    if (r?.data) return r.data;
+    if (r?.fail === "net" && cfg.directUrl) base = cfg.directUrl;
+    return pub.rpc("boot_public", {}, { get: true }).then(check);
+  }
+
+  async function loadLive() {
+    // всё общее — одним запросом (rpc boot_public, 16.10): было семь, и заставка ждала самый медленный, а через шлюз
+    // примерно каждый десятый застревает на секунды. GET, а не POST — такой клиент Supabase сам повторит при 503,
+    // а viaBest продублирует, если шлюз задумается
+    const [common, me, rows] = await Promise.all([bootPublic(), whoami(), journal()]);
+    const { baths, standings, reviews, prices, beer: beerPrices, players } = common;
+    const counts = common.counts.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }));
+    const byId = new Map(baths.map((b) => [b.id, Object.assign(b, { v26: {}, hist: {}, histBy: {}, isNew: b.status === "pending" })]));
+    for (const c of counts) {
+      const b = byId.get(c.bath_id); if (!b) continue;
+      if (c.year === 2026) b.v26[c.nick] = (b.v26[c.nick] || 0) + c.n;
+      else if (YEARS_HIST.includes(c.year)) {
+        b.hist[c.year] = (b.hist[c.year] || 0) + c.n;
+        (b.histBy[c.year] ||= {})[c.nick] = (b.histBy[c.year][c.nick] || 0) + c.n;
+      }
+    }
+    const rv = {};
+    for (const r of reviews.sort((a, b) => b.created_at.localeCompare(a.created_at))) {
+      (rv[r.bath_id] ||= []).push({ id: r.id, author: r.players?.nick ?? "участник", rate: r.rating, text: r.text, at: r.created_at, mine: r.player_id === me?.playerId });
+    }
+    const pr = {};
+    for (const p of prices) (pr[p.bath_id] ||= []).push(p);   // price_date по возрастанию — свежая в конце
+    const bpr = {};
+    for (const p of beerPrices) (bpr[p.bath_id] ||= []).push(p);
+    const playersById = Object.fromEntries(players.map((p) => [p.id, p.nick]));
+    const visits = me?.playerId ? loadVisits(rows, playersById) : [];
+    return {
+      baths,
+      standings: standings.map((s) => ({ name: s.nick, total: +s.total, baths: s.baths, u: s.u, uu: s.uu, long: s.long, k: s.k, pub: s.pub, reg: s.reg,
+        weekPts: s.week_pts, weekBaths: s.week_baths, updatedAt: s.updated_at })),
+      reviews: rv, prices: pr, beerPrices: bpr, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
+      commission: players.filter((p) => p.is_commission).map((p) => p.nick),
+      photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, viaApi(p.photo_url)])),
+    };
+  }
+
+  // кто вошёл (без сети — из сохранённой сессии): гостю журнал не запрашиваем
+  const authKey = () => cfg.authKey || `sb-${new URL(cfg.supabaseUrl).hostname.split(".")[0]}-auth-token`;
+  const sessionUser = () => { try { return JSON.parse(localStorage.getItem(authKey()))?.user?.id || "guest"; } catch { return "guest"; } };
+
+  let cache = null;
+  async function tgLogin(query, payload) {
+    const r = await viaBest(cfg.supabaseUrl + "/functions/v1/tg-login" + query, {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey }, body: JSON.stringify(payload),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(body.error || "Не получилось войти"), { status: r.status });
+    return body;
+  }
+
+  const api = {
+    live, sb, LINE_LABEL,
+    async load() { cache = live ? await loadLive() : await loadStatic(); return cache; },
+
+    // вход: данные Telegram Login Widget → edge-функция → сессия Supabase
+    async login(tgUser) {
+      const body = await tgLogin("", tgUser);
+      check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
+      return body;
+    },
+    // вход кодом из бота (16.10): код и секрет опроса; сам код человек подтверждает в боте
+    loginCode: () => tgLogin("?code=new", {}),
+    // null — в боте ещё не подтвердили; ошибка со status: 410 — код устарел, 403 — «Нет» в боте
+    async loginPoll(code, secret) {
+      const body = await tgLogin("?code=poll", { code, secret });
+      if (body.pending) return null;
+      check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
+      return body;
+    },
+    async logout() { await sb.auth.signOut(); },
+    async claim(nick) { check(await sb.rpc("claim_nick", { p_nick: nick })); },
+
+    // отзывов у участника может быть несколько — каждый новый добавляется, старые остаются (27.09)
+    async submitReview(bathId, me, rate, text) {
+      if (!live) {
+        const rec = { id: Date.now(), author: me, rate, text, at: new Date().toISOString(), mine: true };
+        cache.reviews[bathId] = [rec, ...(cache.reviews[bathId] || [])];
+        store.set("reviews", cache.reviews); return rec.id;
+      }
+      return check(await sb.from("reviews").insert({ bath_id: bathId, player_id: cache.me.playerId, rating: rate, text }).select("id").single()).id;
+    },
+    async deleteReview(bathId, reviewId) {
+      if (!live) { cache.reviews[bathId] = (cache.reviews[bathId] || []).filter((r) => r.id !== reviewId); store.set("reviews", cache.reviews); return; }
+      const rows = check(await sb.from("reviews").delete().eq("id", reviewId).select("id"));
+      if (!rows?.length) throw new Error("не удалось — это чужой отзыв");
+    },
+
+    // если цена не изменилась с прошлой записи (та же валюта и время) — сервер новую строку не пишет и возвращает null
+    async submitBathPrice(bathId, price, currency, durationMin, isWeekend, beforeTime) {
+      if (!live) {
+        const last = (cache.prices[bathId] || [])[cache.prices[bathId]?.length - 1];
+        const curr = (currency || "RUB").toUpperCase();
+        if (last && last.currency === curr && (last.duration_min || null) === (durationMin || null)
+          && (last.is_weekend ?? null) === (isWeekend ?? null) && (last.before_time || null) === (beforeTime || null) && +last.price === +price) return null;
+        const rec = { id: Date.now(), bath_id: bathId, price, currency: curr, duration_min: durationMin || null,
+          is_weekend: isWeekend ?? null, before_time: beforeTime || null, price_date: new Date().toISOString().slice(0, 10) };
+        cache.prices[bathId] = [...(cache.prices[bathId] || []), rec];
+        store.set("prices", cache.prices); return rec.id;
+      }
+      return check(await sb.rpc("submit_bath_price", { p_bath_id: bathId, p_price: price, p_currency: currency || null, p_duration_min: durationMin || null,
+        p_is_weekend: isWeekend ?? null, p_before_time: beforeTime || null }));
+    },
+
+    // цена пива — проще: только цена и валюта, без времени и будни/выходной
+    async submitBeerPrice(bathId, price, currency) {
+      if (!live) {
+        const last = (cache.beerPrices[bathId] || [])[cache.beerPrices[bathId]?.length - 1];
+        const curr = (currency || "RUB").toUpperCase();
+        if (last && last.currency === curr && +last.price === +price) return null;
+        const rec = { id: Date.now(), bath_id: bathId, price, currency: curr, price_date: new Date().toISOString().slice(0, 10) };
+        cache.beerPrices[bathId] = [...(cache.beerPrices[bathId] || []), rec];
+        store.set("beerPrices", cache.beerPrices); return rec.id;
+      }
+      return check(await sb.rpc("submit_beer_price", { p_bath_id: bathId, p_price: price, p_currency: currency || null }));
+    },
+
+    // поход: v = { bathId | newBath, bathType (тип не размеченной бани со слов автора), date (МСК), dur, companions, lines, total, player, week }
+    async submitVisit(v) {
+      if (!live) {
+        if (v.newBath) {
+          const nb = { id: 100000 + store.get("newBaths", []).length + 1, ...v.newBath, v26: {}, hist: {}, isNew: true };
+          store.set("newBaths", [...store.get("newBaths", []), nb]); v.bathId = nb.id; v.createdBath = nb;
+        }
+        const rec = { id: Date.now(), player: v.player, companions: v.companions, bathId: v.bathId, date: v.date, week: v.week, dur: v.dur, durs: v.durs || {},
+          lines: v.lines, total: v.total, status: "pending", at: Date.now() };
+        cache.visits.unshift(rec); store.set("visits", cache.visits);
+        return rec;
+      }
+      // одной транзакцией: новая баня, тип, поход и компания — либо всё, либо ничего (и без дублей при повторе)
+      const res = check(await sb.rpc("submit_visit", {
+        p_bath_id: v.newBath ? null : v.bathId, p_new_bath: v.newBath || null, p_bath_type: v.bathType || null,
+        p_entered_at: v.date + ":00+03:00", p_duration_min: v.dur,
+        p_companions: v.companions.map((nick) => cache.playerIds[nick]).filter(Boolean),
+        // за другого участника — только Комиссия (проверяет база); за себя — не передаём
+        p_player: v.player && v.player !== cache.me.nick ? cache.playerIds[v.player] : null,
+        // своя длительность попутчиков — только у тех, у кого не как у похода
+        p_durations: v.durs && Object.keys(v.durs).length ? Object.fromEntries(Object.entries(v.durs).map(([nick, m]) => [cache.playerIds[nick], m])) : null,
+      }));
+      if (v.newBath) v.createdBath = { ...v.newBath, id: res.bath_id, status: "pending", created_by: cache.me.playerId, v26: {}, hist: {}, histBy: {}, isNew: true };
+      v.bathId = res.bath_id;
+      return { id: res.visit_id };
+    },
+
+    async moderate(visitId, status, reason) {
+      if (!live) {
+        const v = cache.visits.find((x) => x.id === visitId); v.status = status; store.set("visits", cache.visits); return;
+      }
+      // только если заявка ещё ждёт: её могли уже решить кнопками в Telegram или другой член Комиссии
+      const rows = check(await sb.from("visits").update({ status, moderated_by: cache.me.playerId, moderated_at: new Date().toISOString(), reject_reason: reason || null })
+        .eq("id", visitId).eq("status", "pending").select("id"));
+      if (!rows.length) throw new Error("эту заявку уже решили — обнови страницу");
+    },
+    // Комиссия правит заявку: поля похода, состав компании people = [ник, …] (вместе с автором) и своя длительность
+    // участников durs = { ник: минуты } — только у тех, у кого не как у похода (остальным — пусто)
+    async updateVisit(visitId, patch, people, durs = {}) {
+      if (!live) {
+        const v = cache.visits.find((x) => x.id === visitId);
+        Object.assign(v, { bathId: patch.bath_id, date: patch.entered_at.slice(0, 16), dur: patch.duration_min, status: patch.status,
+          companions: people.filter((n) => n !== v.player), durs });
+        store.set("visits", cache.visits); return;
+      }
+      check(await sb.from("visits").update(patch).eq("id", visitId));
+      const rows = check(await sb.from("visit_players").select("player_id, duration_min").eq("visit_id", visitId));
+      const have = new Map(rows.map((c) => [c.player_id, c.duration_min]));
+      const want = new Map(people.map((n) => [cache.playerIds[n], durs[n] ?? null]));
+      const gone = [...have.keys()].filter((id) => !want.has(id));
+      if (gone.length) check(await sb.from("visit_players").delete().eq("visit_id", visitId).in("player_id", gone));
+      const fresh = [...want].filter(([id]) => !have.has(id)).map(([id, m]) => ({ visit_id: visitId, player_id: id, duration_min: m }));
+      if (fresh.length) check(await sb.from("visit_players").insert(fresh));
+      for (const [id, m] of want) {
+        if (have.has(id) && have.get(id) !== m) check(await sb.from("visit_players").update({ duration_min: m }).eq("visit_id", visitId).eq("player_id", id));
+      }
+    },
+    async recompute() {
+      if (!live) return;
+      const r = await viaBest(cfg.supabaseUrl + "/functions/v1/recompute", { method: "POST", headers: { apikey: cfg.supabaseKey } });
+      if (!r.ok) throw new Error("Таблица не пересчиталась");
+    },
+
+    // Комиссия: заявки «это я» и новые бани
+    async pendingAccounts() {
+      if (!live) return [];
+      return check(await sb.from("player_accounts").select("id, tg_username, tg_name, claimed_nick").is("player_id", null).not("claimed_nick", "is", null));
+    },
+    async linkAccount(accountId, nick) {
+      check(await sb.from("player_accounts").update({ player_id: cache.playerIds[nick], claimed_nick: null }).eq("id", accountId));
+    },
+    // фото походов в эту баню (docs/photos.md) — по запросу, когда открыли карточку: на загрузке сайта лишних запросов не надо.
+    // Видят только участники (RLS), файлы — в бакете Яндекса по случайному ключу. Свежие походы — первыми, внутри похода — по порядку.
+    async bathPhotos(bathId) {
+      if (!live || !cfg.photosUrl || !cache?.me?.playerId) return [];
+      const rows = check(await sb.from("visit_photos").select("id, key, w, h, visit_id, visits!inner(bath_id, entered_at)")
+        .eq("visits.bath_id", bathId).order("id").limit(300));
+      return rows.map((p) => ({ id: p.id, visitId: p.visit_id, date: mskLocal(p.visits.entered_at), w: p.w, h: p.h,
+        src: `${cfg.photosUrl}/${p.key}.jpg`, thumb: `${cfg.photosUrl}/${p.key}_s.jpg` }))
+        .sort((a, b) => b.date.localeCompare(a.date) || a.id - b.id);
+    },
+    // загрузка с сайта: функция photos выдаёт места под фото и одноразовые ссылки, файлы браузер кладёт прямо в бакет Яндекса
+    // (через Cloudflare тяжёлое не гоняем), потом просит показать. Фото, которое не легло, пропускаем — остальные грузим.
+    // items: [{ big: {blob, w, h}, small: {blob} }]; возвращает, сколько фото показалось
+    async uploadPhotos(visitId, items, progress) {
+      const { data: { session } } = await sb.auth.getSession();
+      const call = async (what, body) => {
+        const r = await viaBest(cfg.supabaseUrl + "/functions/v1/photos?" + what, {
+          method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: "Bearer " + (session?.access_token ?? "") },
+          body: JSON.stringify(body),
+        });
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(res.error || "Фото не загрузились");
+        return res;
+      };
+      const { photos, cache: cacheControl } = await call("upload", { visit_id: visitId, files: items.map((x) => ({ w: x.big.w, h: x.big.h })) });
+      const put = async (url, blob) => {
+        const r = await fetch(url, { method: "PUT", body: blob, headers: { "Content-Type": "image/jpeg", "Cache-Control": cacheControl } });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+      };
+      const done = [];
+      for (const [i, p] of photos.entries()) {
+        try { await put(p.put, items[i].big.blob); await put(p.put_s, items[i].small.blob); done.push(p.id); } catch { /* это фото не легло */ }
+        progress?.(i + 1);
+      }
+      return done.length ? (await call("done", { ids: done })).ready.length : 0;
+    },
+    // точка бани по ссылке на карту или координатам — разбирает edge-функция (короткие ссылки раскрываются там)
+    async findLocation(input) {
+      if (!live) throw new Error("Поиск по ссылке и адресу работает на боевом сайте — поставь точку кликом по карте");
+      return api.setBathLocation(null, input);
+    },
+    async setBathLocation(bathId, input) {
+      const { data: { session } } = await sb.auth.getSession();
+      const r = await viaBest(cfg.supabaseUrl + "/functions/v1/bath-location", {
+        method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: "Bearer " + (session?.access_token ?? "") },
+        body: JSON.stringify({ bath_id: bathId, input }),
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Точка не сохранилась");
+      return body;
+    },
+    async moderateBath(bathId, patch) { check(await sb.from("baths").update(patch).eq("id", bathId)); },
+    // Радар (16.10) — только Комиссии: места из еженедельного прогона агентов и её решения по ним
+    async radar() {
+      if (!live) return [];
+      return pagedAll(() => sb.from("radar_places").select("*").order("public_index", { ascending: false, nullsFirst: false }).order("id"));
+    },
+    // action: add (type — public / spa / private), match (bath — баня лиги), hide (reason), reopen
+    async radarDecide(id, action, { bath = null, type = "public", reason = null } = {}) {
+      return check(await sb.rpc("radar_decide", { p_id: id, p_action: action, p_bath: bath, p_type: type, p_reason: reason }));
+    },
+    // факты о бане из сверки каталога, которые приняла Комиссия (19.10): адрес, часы, дни, цена, ссылки — всем, по одной бане
+    async bathFacts(bathId) {
+      if (!live) return null;
+      return check(await sb.rpc("bath_facts", { p_bath: bathId }));
+    },
+    // Сверка каталога (19.10) — только Комиссии: что агенты нашли по баням лиги (точка, адрес, ссылки, факты) и её решения
+    async catalog() {
+      if (!live) return [];
+      return pagedAll(() => sb.from("catalog_proposals").select("*").order("match", { ascending: false }).order("id"));
+    },
+    // action: accept (точка — найденная), keep (точку не трогаем), reject (reason), reopen; ids — одна или пачка
+    async catalogDecide(ids, action, reason = null) {
+      return check(await sb.rpc("catalog_decide", { p_ids: ids, p_action: action, p_reason: reason }));
+    },
+    // Комиссия: баня оказалась дублем — походы переезжают в оригинал, дубль отклоняется
+    async mergeBath(dupId, origId) {
+      check(await sb.from("visits").update({ bath_id: origId }).eq("bath_id", dupId));
+      check(await sb.from("baths").update({ status: "rejected" }).eq("id", dupId));
+    },
+    store,
+    broken,
+  };
+  return api;
+})();
