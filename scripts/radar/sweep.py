@@ -105,7 +105,7 @@ def merge(run):
         if dup:   # вторая карточка того же места — добавим ссылку, если её не было
             dup["map_url_2"] = dup.get("map_url_2") or (p.get("map_url") if p.get("map_url") != dup.get("map_url") else None)
             skip["дубль"] += 1; continue
-        sure, hint = league_match(p["name"], lat, lng, league, p.get("region"))
+        sure, hint = league_match(p["name"], lat, lng, league, p.get("region"), addr)
         if sure: skip["уже в лиге"] += 1; continue
         if key in radar_keys or any(pt and r.get("lat") and same_name(p["name"], r["name"]) and km(pt, (r["lat"], r["lng"])) < 1 for r in radar):
             skip["уже в Радаре"] += 1; continue
@@ -116,6 +116,23 @@ def merge(run):
     print(f"из справочников: {len(found)}, новых кандидатов {len(cands)}, отсеяно {skip}")
 
 
+def rehint(path):
+    """подсказки «это наша?» для мест, что уже в Радаре и ждут решения, — по нынешним правилам league_match. Выгрузка:
+    supabase db query --linked -o json "select id, name, region, city, address, lat, lng from radar_places
+      where status = 'new' and league_hint is null" > /tmp/radar_new.json
+    печатает SQL (на бой — с согласия владельца)"""
+    rows = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    rows = rows["rows"] if isinstance(rows, dict) else rows
+    league = [b for b in league_baths() if b.get("status") != "rejected"]
+    out = []
+    for r in rows:
+        sure, hint = league_match(r["name"], r.get("lat"), r.get("lng"), league, r.get("region"), " ".join(filter(None, [r.get("city"), r.get("address")])))
+        b = sure or hint
+        if b: out.append(f"update public.radar_places set league_hint = {int(b['id'])} where id = {int(r['id'])} and league_hint is null;  -- {r['name']} → {b['name']}")
+    print("begin;\n" + "\n".join(out) + "\ncommit;")
+    print(f"-- подсказок: {len(out)} из {len(rows)}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     cmd, run = sys.argv[1], pathlib.Path(sys.argv[2])
-    plan(run, sys.argv[3:]) if cmd == "plan" else merge(run)
+    {"plan": lambda: plan(run, sys.argv[3:]), "merge": lambda: merge(run), "rehint": lambda: rehint(run)}[cmd]()
