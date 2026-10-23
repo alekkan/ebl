@@ -23,3 +23,7 @@ allowed_domains ["yandex.ru", "2gis.ru", "zoon.ru", "yell.ru"], запрос «<
  "ticket_per_person": true/false/null, "rental_whole_room": true/false/null, "has_rooms_or_vip": true/false/null,
  "price_example": "...|null", "evidence": [{"quote": "...", "url": "..."}], "confidence": "high|medium|low", "note": "почему так, одной фразой"}
 Перезаписывай файл каждые 5 записей. В конце — одна строка: сколько разобрано, сколько WebSearch потрачено, сколько public.
+
+ЛИЧНЫЕ ДАННЫЕ: ни в один запрос (User-Agent, параметры, тексты) не подставляй почту, имя или другие данные владельца
+и участников — для геокодера OSM хватит User-Agent «ebl.su-agent/1.0 (+https://ebl.su)». Геокодер OSM — не чаще раза в секунду
+на всех; 429 — не обходи, оставь точку пустой и адрес в address: её добьёт скрипт.
