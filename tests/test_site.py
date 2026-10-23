@@ -848,8 +848,15 @@ with sync_playwright() as pw:
         s.no_clip("Сверка у Комиссии")
         s.clean("Сверка")
         s.close()
+        # больше 1000 предложений (24.10: сайт видел 1000 из 1322 — предел PostgREST) — сайт читает страницами
+        sql("insert into catalog_proposals (run, bath_id, match, place_status, status) select 'test', id, 50, 'unknown', 'accepted' "
+            "from baths where id not in (select bath_id from catalog_proposals where run = 'test') order by id limit 1001")
+        cat_total = sql("select count(*) from catalog_proposals")
         s = Site(browser, url, sess=vitek, mobile=True, name="commission-catalog-phone")
         s.view("dir"); s.page.click('#dirMode [data-mode="catalog"]')
+        s.page.wait_for_selector("#catProgress span", timeout=8000)
+        check("Сверка видит все предложения, а не первые 1000", s.js(f"() => / из {cat_total}$/.test(document.querySelector('#catProgress span').innerText)"),
+              (cat_total, s.js("() => document.querySelector('#catProgress span').innerText")))
         s.page.click('#catTabs [data-tab="done"]'); s.page.wait_for_selector("#catList .radar-card", timeout=8000)   # тестовые уже решены
         s.no_clip("Сверка на телефоне")
         s.close()
