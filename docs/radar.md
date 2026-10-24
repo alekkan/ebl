@@ -79,6 +79,15 @@ python3 scripts/radar/batches.py $R --prev $P --max 190
    ```bash
    python3 scripts/radar/sweep_2gis.py $R --regions dgis_regions.json --skip "Москва,Московская область,…" --max-requests 500
    ```
+1д. **Малые города и сёла** (25.10): `towns.py` берёт из OSM города, посёлки и сёла от 3000 жителей, выкидывает уже
+   прочёсанное 24.10 и соседей ближе 15 км, крупные — первыми; `--points` — круг 12 км вокруг каждого. Ключей можно
+   несколько (`DGIS_KEY2=…`, `DGIS_KEY3=…`): кончился один — берётся следующий, кончились все — скрипт сохраняет сделанное
+   (`sweep/done_points.json`) и просит новый, повторный запуск продолжит с того же места. Признаки карточки
+   («До 8 человек», «Цена от 500 ₽») идут агентам в `rubric_hint`.
+   ```bash
+   python3 scripts/radar/towns.py $R/p_town.json $R/p_village.json --regions dgis_regions.json > $R/points.json
+   python3 scripts/radar/sweep_2gis.py $R --points $R/points.json --max-requests 5000
+   ```
 2. **Пачки** (`batches.py`): по ~20 мест, вслепую, сначала похожие на общественные; уже разобранное прошлым прогоном
    (`--prev`, не unknown) пропускается. **Лимит — 200 веб-поисков за ход на всех агентов**, поэтому `--max 190`:
    остальное — следующим ходом тем же скриптом (он учтёт уже готовое в `$R/out`).

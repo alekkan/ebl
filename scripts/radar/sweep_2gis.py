@@ -9,10 +9,10 @@
 Ключ — строка DGIS_KEY=… в ~/.config/ebl/keys (или переменная окружения DGIS_KEY): не в git, не в чат, не в логи.
 Условия 2ГИС ограничивают хранение данных справочника — что из ответа идёт на бой, решает владелец (docs/radar.md).
 """
-import argparse, json, os, pathlib, re, sys, time, urllib.parse, urllib.request
+import urllib.error, argparse, json, os, pathlib, re, sys, time, urllib.parse, urllib.request
 
 API = "https://catalog.api.2gis.com/3.0/items"
-FIELDS = "items.point,items.address_name,items.full_address_name,items.rubrics,items.adm_div"
+FIELDS = "items.point,items.address_name,items.full_address_name,items.rubrics,items.adm_div,items.attribute_groups"
 PAGE, PAGES = 10, 5   # демо-ключ: 10 организаций на запрос и 5 страниц — 50 мест на круг (23.10); платный — больше
 BATH = re.compile(r"(бан[яиьн]|банно|парн|терм|хамам|hammam)", re.I)
 # сетка центров: Москва и область, круги по 40 км с перекрытием (рамка 54.2–57.0 с. ш., 35.1–40.3 в. д.)
@@ -31,13 +31,43 @@ CITIES = {
 }
 
 
-def key():
-    k = os.environ.get("DGIS_KEY")
+def keys():
+    """все ключи 2ГИС: DGIS_KEY, DGIS_KEY2, … из ~/.config/ebl/keys (или переменной DGIS_KEY) — по порядку, кончился — следующий"""
     f = pathlib.Path.home() / ".config" / "ebl" / "keys"
-    if not k and f.exists():
-        k = next((l.split("=", 1)[1].strip() for l in f.read_text().splitlines() if l.startswith("DGIS_KEY=")), None)
-    if not k: sys.exit("Нет ключа: строка DGIS_KEY=… в ~/.config/ebl/keys")
-    return k
+    ks = [os.environ["DGIS_KEY"]] if os.environ.get("DGIS_KEY") else []
+    if f.exists():
+        ks += [l.split("=", 1)[1].strip() for l in f.read_text().splitlines() if re.match(r"DGIS_KEY\d*=", l)]
+    ks = [k for i, k in enumerate(ks) if k and k not in ks[:i]]
+    if not ks: sys.exit("Нет ключа: строка DGIS_KEY=… в ~/.config/ebl/keys")
+    return ks
+
+
+def key():
+    return keys()[0]
+
+
+class KeysOut(Exception):
+    """все ключи упёрлись в лимит — сохраняем сделанное и просим новый ключ"""
+
+
+_ki = 0
+
+
+def page_any(ks, lat, lng, n, radius, region_id=None):
+    """page() с текущим ключом; ключ упёрся в лимит (403/429/«limit», «blocked») — следующий"""
+    global _ki
+    tries = 0
+    while _ki < len(ks):
+        try:
+            return page(ks[_ki], lat, lng, n, radius, region_id)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:   # сеть моргнула (25.10 упали на 575-м пункте)
+            tries += 1
+            if tries > 4: raise
+            print(f"  сеть: {e}, повтор через {10 * tries} с", file=sys.stderr); time.sleep(10 * tries)
+        except RuntimeError as e:
+            if not re.search(r"(403|429|limit|лимит|block|блок)", str(e), re.I): raise
+            print(f"  ключ {_ki + 1} кончился: {e}", file=sys.stderr); _ki += 1
+    raise KeysOut()
 
 
 def page(k, lat, lng, n, radius, region_id=None):
@@ -67,9 +97,10 @@ def main():
     ap.add_argument("--cities", help="города из CITIES через запятую или all — вместо сетки Москвы и области")
     ap.add_argument("--regions", help="файл регионов 2ГИС (region/list: id, name, bounds) — весь город целиком, 24.10")
     ap.add_argument("--skip", default="", help="регионы 2ГИС, которые не берём, через запятую")
+    ap.add_argument("--points", help="файл [{id, name, lat, lng}] — населённые пункты, круг 12 км вокруг каждого (25.10)")
     ap.add_argument("--grid", help="регионы 2ГИС через запятую — сеткой кругов по 35 км по рамке (регионы-области: край, Ленобласть, Крым)")
     a = ap.parse_args()
-    run, k = pathlib.Path(a.run), key()
+    run, ks = pathlib.Path(a.run), keys()
     (run / "sweep").mkdir(parents=True, exist_ok=True)
     of = run / "sweep" / "out_2gis.json"
     seen, out, used = set(), [], 0
@@ -84,15 +115,19 @@ def main():
             seen.add(fid)
             p = it.get("point") or {}
             city = next((x.get("name") for x in it.get("adm_div", []) if x.get("type") in ("city", "settlement")), None)
+            # признаки карточки («Общественная баня», «До 10 человек», «Цена от 500 ₽») — подсказка агенту разбора (25.10)
+            attrs = [x.get("name") for g in it.get("attribute_groups", []) for x in g.get("attributes", []) if x.get("name")]
+            attrs = [x for x in attrs if re.search(r"(обществ|человек|цена|парн|веник|купел|бассейн|номер|отделени|женск|мужск)", x, re.I)]
             out.append({"region": reg, "area": city_region or "2gis", "name": it.get("name"), "city": city,
                         "address": it.get("address_name") or it.get("full_address_name"), "lat": p.get("lat"), "lng": p.get("lon"),
-                        "map_url": f"https://2gis.ru/moscow/firm/{fid}", "rubric": ", ".join(rubrics)[:120] or None, "src": "2gis_api"})
+                        "map_url": f"https://2gis.ru/moscow/firm/{fid}", "src": "2gis_api",
+                        "rubric": "; ".join(filter(None, [", ".join(rubrics)[:80], ", ".join(attrs)[:160]])) or None})
 
     def circle(lat, lng, r, creg=None):
         """круг целиком, если в нём до 50 мест; больше — первые 50 ближних и четыре круга поменьше вокруг"""
         nonlocal used
         if used >= a.max_requests: return
-        items, total = page(k, lat, lng, 1, r); used += 1; take(items, creg)
+        items, total = page_any(ks, lat, lng, 1, r); used += 1; take(items, creg)
         if total > PAGE * PAGES and r > 1500:
             dlat, dlng = r / 2 / 111000, r / 2 / (111000 * 0.56)
             for sy in (-1, 1):
@@ -100,9 +135,27 @@ def main():
             return
         for n in range(2, min(PAGES, -(-total // PAGE)) + 1):
             if used >= a.max_requests: return
-            items, _ = page(k, lat, lng, n, r); used += 1; take(items, creg); time.sleep(0.15)
+            items, _ = page_any(ks, lat, lng, n, r); used += 1; take(items, creg); time.sleep(0.15)
         of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
+    if a.points:   # 25.10: города и сёла России из OSM — круг 12 км вокруг каждого; сделанное помним, ключ кончился — продолжим
+        df = run / "sweep" / "done_points.json"
+        done = set(json.loads(df.read_text())) if df.exists() else set()
+        if of.exists(): out.extend(json.loads(of.read_text(encoding="utf-8"))); seen.update(o["map_url"].rsplit("/", 1)[-1] for o in out)
+        pts = json.loads(pathlib.Path(a.points).read_text(encoding="utf-8"))
+        try:
+            for i, t in enumerate(pts):
+                if t["id"] in done or used >= a.max_requests: continue
+                circle(t["lat"], t["lng"], 12000, t.get("region") or t["name"])
+                done.add(t["id"])
+                if len(done) % 25 == 0:
+                    of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8"); df.write_text(json.dumps(sorted(done)))
+                    print(f"  {len(done)}/{len(pts)} пунктов, бань {len(out)}, запросов {used}", file=sys.stderr)
+        except KeysOut:
+            print("КЛЮЧИ 2ГИС КОНЧИЛИСЬ — нужен новый: строка DGIS_KEY2=… (3, 4…) в ~/.config/ebl/keys, потом запусти снова", file=sys.stderr)
+        of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8"); df.write_text(json.dumps(sorted(done)))
+        print(f"2ГИС: пунктов {len(done)}/{len(pts)}, бань {len(out)}, запросов {used}")
+        return
     if a.grid:   # 24.10: в регионе-области больше 50 бань — один круг у центра терял районные города
         names = {x.strip() for x in a.grid.split(",")}
         for r in json.loads(pathlib.Path(a.regions).read_text(encoding="utf-8")):
@@ -123,7 +176,7 @@ def main():
         skip = {x.strip() for x in a.skip.split(",") if x.strip()}
         for r in json.loads(pathlib.Path(a.regions).read_text(encoding="utf-8")):
             if r["name"] in skip or used >= a.max_requests: continue
-            items, total = page(k, 0, 0, 1, 0, r["id"]); used += 1; take(items, r["name"])
+            items, total = page_any(ks, 0, 0, 1, 0, r["id"]); used += 1; take(items, r["name"])
             if total > PAGE * PAGES:   # больше 50 — круги по рамке города
                 xs = [float(v) for v in re.findall(r"-?\d+\.\d+", r.get("bounds") or "")]
                 lng0, lat0 = min(xs[0::2]), min(xs[1::2]); lng1, lat1 = max(xs[0::2]), max(xs[1::2])
@@ -131,7 +184,7 @@ def main():
                 circle((lat0 + lat1) / 2, (lng0 + lng1) / 2, min(50000, half), r["name"])
             else:
                 for n in range(2, -(-total // PAGE) + 1):
-                    items, _ = page(k, 0, 0, n, 0, r["id"]); used += 1; take(items, r["name"]); time.sleep(0.15)
+                    items, _ = page_any(ks, 0, 0, n, 0, r["id"]); used += 1; take(items, r["name"]); time.sleep(0.15)
             print(f"  {r['name']}: в городе {total}, всего бань {len(out)}, запросов {used}", file=sys.stderr)
             of.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
         grid = []
