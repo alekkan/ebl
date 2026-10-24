@@ -2902,14 +2902,16 @@
   });
   $("#catBatch").addEventListener("click", catClick);
 
-  // решения Комиссии с прошлого захода (18.10): «✅ Комиссия засчитала „Василевские“ · +4» — один раз. Отметку, что видел,
-  // браузер помнит у себя (это не данные, а «уже показал»); первый заход — старые решения не вываливаем; свои решения
-  // Комиссии на свои походы не показываем
-  function announceDecisions() {
+  // решения Комиссии с прошлого захода (18.10): «✅ Комиссия засчитала „Василевские“ · +4» — один раз на человека. Отметка
+  // «видел» — в аккаунте (25.10: в браузере каждое устройство показывало заново) и в браузере — на случай, если сервер
+  // не ответил; берём более позднюю. Первый заход — старые решения не вываливаем; свои решения Комиссии не показываем
+  async function announceDecisions() {
     if (!D.live || !me?.nick) return;
     const key = `ebl.seenDecisions.${me.nick}`, nowMs = Date.now();
-    let seen = null;
-    try { seen = Number(localStorage.getItem(key)) || null; localStorage.setItem(key, String(nowMs)); } catch { return; }
+    let local = null, remote = null;
+    try { local = Number(localStorage.getItem(key)) || null; localStorage.setItem(key, String(nowMs)); } catch { /* приватный режим */ }
+    try { remote = await D.decisionsSeen(); D.markDecisionsSeen(nowMs).catch(() => {}); } catch { /* сервер не ответил */ }
+    const seen = Math.max(local || 0, remote || 0) || null;
     if (!seen) return;
     const fresh = visits.filter((v) => (v.player === me.nick || v.companions.includes(me.nick)) && v.status !== "pending"
       && v.decidedAt && v.decidedAt > seen && v.decidedBy !== me.playerId).sort((a, b) => a.decidedAt - b.decidedAt);
