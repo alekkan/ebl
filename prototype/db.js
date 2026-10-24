@@ -222,6 +222,14 @@ window.EBLData = (() => {
       return body;
     },
     async logout() { await sb.auth.signOut(); },
+    // «решения Комиссии уже видел» — отметка в аккаунте, а не в браузере (25.10: телефон, компьютер и браузер Telegram
+    // показывали одно и то же «Комиссия засчитала» каждый своё). Свежая — с сервера, а не из сохранённой сессии
+    async decisionsSeen() {
+      if (!live) return null;
+      const { data } = await sb.auth.getUser();
+      return Number(data?.user?.user_metadata?.seen_decisions) || null;
+    },
+    async markDecisionsSeen(ms) { if (live) check(await sb.auth.updateUser({ data: { seen_decisions: ms } })); },
     async claim(nick) { check(await sb.rpc("claim_nick", { p_nick: nick })); },
 
     // отзывов у участника может быть несколько — каждый новый добавляется, старые остаются (27.09)

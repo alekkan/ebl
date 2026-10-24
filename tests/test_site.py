@@ -1063,6 +1063,11 @@ with sync_playwright() as pw:
         check("…«В ленту» — открыта лента", s.js("() => !document.getElementById('view-feed').hidden"))
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000); s.page.wait_for_timeout(1500)
         check("…и только один раз: после перезагрузки уже не показывается", s.js("() => !/Комиссия (засчитала|решила)/.test(document.querySelector('.toast')?.innerText || '')"))
+        # 25.10: отметка «видел» — в аккаунте: другой браузер (своя память пуста, init ставит «вчера») тоже не показывает
+        check("…отметка «видел» записана в аккаунт", bool(sql(f"select 1 from auth.users u join player_accounts pa on pa.auth_user = u.id where pa.player_id = '{player_id('Шурик')}' and (u.raw_user_meta_data->>'seen_decisions')::bigint > 0 limit 1")))
+        s.page.evaluate("localStorage.removeItem('ebl.seenDecisions.Шурик')")
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000); s.page.wait_for_timeout(1500)
+        check("…и в другом браузере того же человека уже не показывается", s.js("() => !/Комиссия (засчитала|решила)/.test(document.querySelector('.toast')?.innerText || '')"))
         s.close(); sql(f"delete from visits where id = {dv}")
 
         print("Режим витрины (пустой config.js)")
