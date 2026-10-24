@@ -84,6 +84,12 @@ def plan(run, regions, per=8):
     print(f"мест {len(areas)}, пачек {n} — агентов столько же; поисков до {2 * len(areas)}")
 
 
+# Радар — только Россия (решение владельца 24.10): круг 12 км у границы цепляет Казахстан (25.10 — «Абайская область»)
+NOT_RU = re.compile(r"(Абайская|Акмолинская|Актюбинская|Алматинская|Атырауская|Казахстанская|Жамбылская|Жетысуская|Карагандинская|"
+                    r"Костанайская|Кызылординская|Мангистауская|Павлодарская|Туркестанская|Улытауская|аймак|Беларусь|Брестская|"
+                    r"Витебская|Гомельская|Гродненская|Минская|Могилёвская|Абхазия|Южная Осетия)")
+
+
 def merge(run):
     found = []
     for f in sorted((run / "sweep").glob("out_*.json")):
@@ -107,6 +113,7 @@ def merge(run):
         if dup:   # вторая карточка того же места — добавим ссылку, если её не было
             dup["map_url_2"] = dup.get("map_url_2") or (p.get("map_url") if p.get("map_url") != dup.get("map_url") else None)
             skip["дубль"] += 1; continue
+        if NOT_RU.search(p.get("region") or ""): skip["не Россия"] = skip.get("не Россия", 0) + 1; continue
         sure, hint = league_match(p["name"], lat, lng, league, p.get("region"), addr)
         if sure: skip["уже в лиге"] += 1; continue
         if key in radar_keys or any(pt and r.get("lat") and same_name(p["name"], r["name"]) and km(pt, (r["lat"], r["lng"])) < 1 for r in radar):
