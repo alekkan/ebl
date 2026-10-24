@@ -9,7 +9,7 @@
 Ключ — строка DGIS_KEY=… в ~/.config/ebl/keys (или переменная окружения DGIS_KEY): не в git, не в чат, не в логи.
 Условия 2ГИС ограничивают хранение данных справочника — что из ответа идёт на бой, решает владелец (docs/radar.md).
 """
-import argparse, json, os, pathlib, re, sys, time, urllib.parse, urllib.request
+import urllib.error, argparse, json, os, pathlib, re, sys, time, urllib.parse, urllib.request
 
 API = "https://catalog.api.2gis.com/3.0/items"
 FIELDS = "items.point,items.address_name,items.full_address_name,items.rubrics,items.adm_div,items.attribute_groups"
@@ -56,9 +56,14 @@ _ki = 0
 def page_any(ks, lat, lng, n, radius, region_id=None):
     """page() с текущим ключом; ключ упёрся в лимит (403/429/«limit», «blocked») — следующий"""
     global _ki
+    tries = 0
     while _ki < len(ks):
         try:
             return page(ks[_ki], lat, lng, n, radius, region_id)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:   # сеть моргнула (25.10 упали на 575-м пункте)
+            tries += 1
+            if tries > 4: raise
+            print(f"  сеть: {e}, повтор через {10 * tries} с", file=sys.stderr); time.sleep(10 * tries)
         except RuntimeError as e:
             if not re.search(r"(403|429|limit|лимит|block|блок)", str(e), re.I): raise
             print(f"  ключ {_ki + 1} кончился: {e}", file=sys.stderr); _ki += 1
