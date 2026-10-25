@@ -13,9 +13,13 @@
   const PREC_LABEL = { auto: "нашёл геокодер по названию, не проверена", city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
   const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€", JPY: "¥", AED: "د.إ" };
   const curSign = (c) => CUR_SIGN[c] || c;
-  // цена — с центами, где они бывают (25.10: «12,50 €»): целые как есть, дробные — два знака; ввод — с запятой или точкой
+  // цена — с центами, где они бывают (25.10: «12,50 €»): целые как есть, дробные — два знака; ввод — с запятой или точкой.
+  // Рубли — только целые (решение Лехи 25.10): валюта не указана или RUB — округляем
   const money = (n) => (+n).toLocaleString("ru-RU", Number.isInteger(+n) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const priceIn = (v) => Math.round((+String(v ?? "").replace(/\s/g, "").replace(",", ".") || 0) * 100) / 100;
+  const priceIn = (v, cur) => {
+    const n = +String(v ?? "").replace(/\s/g, "").replace(",", ".") || 0;
+    return !cur || cur.toUpperCase() === "RUB" ? Math.round(n) : Math.round(n * 100) / 100;
+  };
   // будни/выходной и «до HH:MM» у цены — оба поля необязательные, показываем только то, что указано
   const schedLabel = (p) => [p.is_weekend == null ? "" : p.is_weekend ? "вых" : "будни", p.before_time ? `до ${p.before_time.slice(0, 5)}` : ""].filter(Boolean).join(", ");
   const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
@@ -701,13 +705,13 @@
     $$("#prWeekend button", d).forEach((b) => b.addEventListener("click", () => $$("#prWeekend button", d).forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
     $("#prForm", d)?.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const price = priceIn($("#prPrice", d).value); if (!price || price <= 0) return;
       const currency = $("#prCurrency", d).value.trim() || null;
+      const price = priceIn($("#prPrice", d).value, currency); if (!price || price <= 0) return;
       const durationMin = +$("#prDur", d).value || null;
       const wVal = $("#prWeekend [aria-pressed=true]", d)?.dataset.w;
       const isWeekend = wVal === "" || wVal == null ? null : wVal === "1";
       const beforeTime = $("#prBefore", d).value || null;
-      const beerPrice = priceIn($("#prBeer", d).value) || null;
+      const beerPrice = priceIn($("#prBeer", d).value, currency) || null;
       try {
         const pid = await D.submitBathPrice(id, price, currency, durationMin, isWeekend, beforeTime);
         if (pid) (prices[id] ||= []).push({ id: pid, price, currency: (currency || "RUB").toUpperCase(), duration_min: durationMin,
@@ -1628,7 +1632,7 @@
     vf.dataset.busy = "1"; $("#vSubmit span").textContent = "Отправляю…";
     try {
       const saved = await D.submitVisit(payload);
-      const priceVal = priceIn($("#vPrice").value);
+      const priceVal = priceIn($("#vPrice").value, $("#vPrCurrency").value.trim());
       if (priceVal > 0) {
         const wVal = $("#vPrWeekend [aria-pressed=true]").dataset.w;
         const isWeekend = wVal ? wVal === "1" : null;
@@ -1639,7 +1643,7 @@
             is_weekend: isWeekend, before_time: beforeTime, price_date: new Date().toISOString().slice(0, 10) });
         } catch { /* поход важнее цены — если она не сохранилась, поход всё равно засчитан, отдельно не сообщаем */ }
       }
-      const beerVal = priceIn($("#vPrBeer").value);
+      const beerVal = priceIn($("#vPrBeer").value, $("#vPrCurrency").value.trim());
       if (beerVal > 0) {
         const currency = $("#vPrCurrency").value.trim() || null;
         try {

@@ -323,14 +323,14 @@ sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessa
 edits = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "editMessageText"]
 check("кнопка «Пиво» — тоже строкой в карточке", not any("Сколько стоило" in t for t in sent)
       and any("🍺 Цена пива? Напиши цифру." in t for t in edits), (sent, edits))
-st = post("4,5", 189, chat=ME, chat_type="private")   # 25.10: с десятыми — для валют, где бывают центы
-check("цена с десятыми через запятую принята как есть", st.get("beerPrice") == 4.5, st)
+st = post("299,5", 189, chat=ME, chat_type="private")   # 25.10: центы — для евро и др.; рубли — только целые
+check("цена с центами в рублях — округлена до целых", st.get("beerPrice") == 300, st)
 seen = len(TELEGRAM.calls)
 post("да", 190, chat=ME, chat_type="private")
 check("поход ушёл в Комиссию", mine() - before == 1)
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
 check("цена и пиво — в подтверждении без пометки «со слов автора» (она осталась только у типа бани)",
-      any("💰 6000 ₽ · будни" in t for t in sent) and any("🍺 4,50 ₽" in t for t in sent), sent)
+      any("💰 6000 ₽ · будни" in t for t in sent) and any("🍺 300 ₽" in t for t in sent), sent)
 check("цена дороже 5500, внесённая только в этом раунде, — пасхалка уже есть (по настоящей цене после записи)",
       any(("пижон" in t or "Наши люди" in t) for t in sent), sent)
 check("тип «хуитнес» выбран только в этом раунде — своя пасхалка в этот раз не срабатывает (bathType смотрели до записи)",

@@ -554,6 +554,10 @@ with sync_playwright() as pw:
               sql(f"select count(*) from bath_prices where bath_id = {bath} and currency = 'EUR' and price = 12.5") == "1")
         check("…и показывается с двумя знаками", s.js("() => document.querySelector('#drawer').innerText.includes('12,50')"),
               s.js("() => document.querySelector('#drawer').innerText.slice(0, 600)"))
+        if s.js("() => document.getElementById('prExtra').hidden"): s.page.click("#prMore")
+        s.page.fill("#prPrice", "640,4"); s.page.fill("#prCurrency", ""); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("рубли — только целые: «640,4» без валюты сохранилась как 640",
+              sql(f"select count(*) from bath_prices where bath_id = {bath} and currency = 'RUB' and price = 640") == "1")
         s.clean("участник после отправки похода")
         s.close()
 
