@@ -547,6 +547,13 @@ with sync_playwright() as pw:
         check("та же цена пива ещё раз — не дублируем", sql(beer_rows) == "1", sql(beer_rows))
         s.page.fill("#prPrice", "600"); s.page.fill("#prBeer", "300"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
         check("цена пива изменилась — новая запись, старая осталась", sql(beer_rows) == "2", sql(beer_rows))
+        # 25.10: цена с центами — «12,5» с запятой в евро сохраняется как есть и показывается «12,50 EUR»
+        if s.js("() => document.getElementById('prExtra').hidden"): s.page.click("#prMore")
+        s.page.fill("#prPrice", "12,5"); s.page.fill("#prCurrency", "EUR"); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
+        check("цена с центами (EUR, через запятую) — сохранилась без округления",
+              sql(f"select count(*) from bath_prices where bath_id = {bath} and currency = 'EUR' and price = 12.5") == "1")
+        check("…и показывается с двумя знаками", s.js("() => document.querySelector('#drawer').innerText.includes('12,50')"),
+              s.js("() => document.querySelector('#drawer').innerText.slice(0, 600)"))
         s.clean("участник после отправки похода")
         s.close()
 

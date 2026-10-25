@@ -13,6 +13,9 @@
   const PREC_LABEL = { auto: "нашёл геокодер по названию, не проверена", city: "по городу из названия", region: "по центру региона", country: "по центру страны" };
   const CUR_SIGN = { RUB: "₽", USD: "$", EUR: "€", JPY: "¥", AED: "د.إ" };
   const curSign = (c) => CUR_SIGN[c] || c;
+  // цена — с центами, где они бывают (25.10: «12,50 €»): целые как есть, дробные — два знака; ввод — с запятой или точкой
+  const money = (n) => (+n).toLocaleString("ru-RU", Number.isInteger(+n) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const priceIn = (v) => Math.round((+String(v ?? "").replace(/\s/g, "").replace(",", ".") || 0) * 100) / 100;
   // будни/выходной и «до HH:MM» у цены — оба поля необязательные, показываем только то, что указано
   const schedLabel = (p) => [p.is_weekend == null ? "" : p.is_weekend ? "вых" : "будни", p.before_time ? `до ${p.before_time.slice(0, 5)}` : ""].filter(Boolean).join(", ");
   const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
@@ -555,19 +558,19 @@
         <section>
           <h3>Цена</h3>
           <div class="price-now">
-            ${lastP ? `<p><span><b>${fmt(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` · ${lastP.duration_min} мин` : ""}${schedLabel(lastP) ? ` · ${schedLabel(lastP)}` : ""}</span><small>${dayLabel(lastP.price_date)}</small></p>` : ""}
-            ${lastBeer ? `<p><span>🍺 <b>${fmt(lastBeer.price)} ${curSign(lastBeer.currency)}</b> пиво</span><small>${dayLabel(lastBeer.price_date)}</small></p>` : ""}
+            ${lastP ? `<p><span><b>${money(lastP.price)} ${curSign(lastP.currency)}</b>${lastP.duration_min ? ` · ${lastP.duration_min} мин` : ""}${schedLabel(lastP) ? ` · ${schedLabel(lastP)}` : ""}</span><small>${dayLabel(lastP.price_date)}</small></p>` : ""}
+            ${lastBeer ? `<p><span>🍺 <b>${money(lastBeer.price)} ${curSign(lastBeer.currency)}</b> пиво</span><small>${dayLabel(lastBeer.price_date)}</small></p>` : ""}
             ${!lastP && !lastBeer ? `<p class="hint" id="dPriceNone">Цену пока никто не указал${member ? "" : "."}</p>` : ""}
             <div class="price-site" id="dPriceSite" hidden></div>
           </div>
           ${olderP.length || olderBeer.length ? `<details class="price-old"><summary>Раньше · ${olderP.length + olderBeer.length}</summary>
-            ${olderP.map((p) => `<p><span>${fmt(p.price)} ${curSign(p.currency)}${p.duration_min ? ` · ${p.duration_min} мин` : ""}${schedLabel(p) ? ` · ${schedLabel(p)}` : ""}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}
-            ${olderBeer.map((p) => `<p><span>🍺 ${fmt(p.price)} ${curSign(p.currency)}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}</details>` : ""}
+            ${olderP.map((p) => `<p><span>${money(p.price)} ${curSign(p.currency)}${p.duration_min ? ` · ${p.duration_min} мин` : ""}${schedLabel(p) ? ` · ${schedLabel(p)}` : ""}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}
+            ${olderBeer.map((p) => `<p><span>🍺 ${money(p.price)} ${curSign(p.currency)}</span><small>${dayLabel(p.price_date)}</small></p>`).join("")}</details>` : ""}
           ${member ? `<button type="button" class="addbtn" id="prOpen" ${cardOpen.has("pr") ? "hidden" : ""}>+ Указать цену</button>
           <form class="prform" id="prForm" ${cardOpen.has("pr") ? "" : "hidden"}>
             <div class="row">
-              <input class="inp" id="prPrice" type="number" min="1" step="1" placeholder="♨️ Цена входа, ₽" required>
-              <input class="inp" id="prBeer" type="number" min="1" step="1" placeholder="🍺 Цена пива, ₽">
+              <input class="inp" id="prPrice" inputmode="decimal" autocomplete="off" placeholder="♨️ Цена входа, ₽" required>
+              <input class="inp" id="prBeer" inputmode="decimal" autocomplete="off" placeholder="🍺 Цена пива, ₽">
             </div>
             <button type="button" class="linkbtn" id="prMore">ещё: сеанс · будни/выходной · валюта</button>
             <div class="row" id="prExtra" hidden>
@@ -698,13 +701,13 @@
     $$("#prWeekend button", d).forEach((b) => b.addEventListener("click", () => $$("#prWeekend button", d).forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
     $("#prForm", d)?.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const price = +$("#prPrice", d).value; if (!price || price <= 0) return;
+      const price = priceIn($("#prPrice", d).value); if (!price || price <= 0) return;
       const currency = $("#prCurrency", d).value.trim() || null;
       const durationMin = +$("#prDur", d).value || null;
       const wVal = $("#prWeekend [aria-pressed=true]", d)?.dataset.w;
       const isWeekend = wVal === "" || wVal == null ? null : wVal === "1";
       const beforeTime = $("#prBefore", d).value || null;
-      const beerPrice = +$("#prBeer", d).value || null;
+      const beerPrice = priceIn($("#prBeer", d).value) || null;
       try {
         const pid = await D.submitBathPrice(id, price, currency, durationMin, isWeekend, beforeTime);
         if (pid) (prices[id] ||= []).push({ id: pid, price, currency: (currency || "RUB").toUpperCase(), duration_min: durationMin,
@@ -1625,7 +1628,7 @@
     vf.dataset.busy = "1"; $("#vSubmit span").textContent = "Отправляю…";
     try {
       const saved = await D.submitVisit(payload);
-      const priceVal = +$("#vPrice").value;
+      const priceVal = priceIn($("#vPrice").value);
       if (priceVal > 0) {
         const wVal = $("#vPrWeekend [aria-pressed=true]").dataset.w;
         const isWeekend = wVal ? wVal === "1" : null;
@@ -1636,7 +1639,7 @@
             is_weekend: isWeekend, before_time: beforeTime, price_date: new Date().toISOString().slice(0, 10) });
         } catch { /* поход важнее цены — если она не сохранилась, поход всё равно засчитан, отдельно не сообщаем */ }
       }
-      const beerVal = +$("#vPrBeer").value;
+      const beerVal = priceIn($("#vPrBeer").value);
       if (beerVal > 0) {
         const currency = $("#vPrCurrency").value.trim() || null;
         try {

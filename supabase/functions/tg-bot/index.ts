@@ -284,6 +284,10 @@ function typeFromText(text: string): string | null {
 // bath_prices/bath_beer_prices как обычную запись истории (recordPrice), отдельно не проверяя: так же, как если бы
 // её занесли на сайте.
 const curLabel = (code: string | null) => code ?? "₽";
+// цена — с центами, где они бывают (25.10: «9,5 €»): целые как есть, дробные — два знака с запятой
+const PRICE_TEXT = /^(?:\d{2,6}|\d{1,6}[.,]\d{1,2})$/;
+const priceNum = (text: string) => Math.round(Number(text.trim().replace(",", ".")) * 100) / 100;
+const money = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
 const CUR_BTNS: [string, string][] = [["RUB", "₽ Рубль"], ["USD", "USD"], ["EUR", "EUR"], ["JPY", "JPY"], ["AED", "AED"]];
 const BEFORE_HOURS = [12, 14, 16, 18, 20, 22];
 // будни/выходной словами — только подсказка для кнопок в карточке (как догадка типа бани), окончательный выбор — кнопкой;
@@ -321,7 +325,7 @@ async function allKnownPrices(table: string, bathId: number): Promise<Any[]> {
     const key = [row.currency ?? "RUB", ...dims.map((d) => row[d] ?? "")].join("|");
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ price: Math.round(row.price), currency: row.currency === "RUB" ? null : row.currency, is_weekend: row.is_weekend ?? null, before_time: row.before_time ?? null });
+    out.push({ price: Number(row.price), currency: row.currency === "RUB" ? null : row.currency, is_weekend: row.is_weekend ?? null, before_time: row.before_time ?? null });
   }
   return out;
 }
@@ -454,17 +458,17 @@ async function renderCard(st: Any, lg: Any) {
   else if (priceStep === "currency") lines.push(`💰 Цена входа${schedLabel(st)} — в какой валюте?`);
   else if (st.awaitPriceFor === "price") lines.push(priceAskLine(st, "💰 Цена входа"));
   else if (st.priceFromHistory) {
-    const list = (st.knownPrices ?? []).map((p: Any) => `${p.price} ${curLabel(p.currency)}${priceDimLabel(p)}`).join(" / ");
+    const list = (st.knownPrices ?? []).map((p: Any) => `${money(p.price)} ${curLabel(p.currency)}${priceDimLabel(p)}`).join(" / ");
     lines.push(`💰 ${list} — как в прошлый раз, ✏️ можно поменять`);
   }
-  else if (st.price) lines.push(`💰 ${st.price} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
+  else if (st.price) lines.push(`💰 ${money(st.price)} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
   else lines.push("💰 Цена входа? Кнопкой ниже.");
   if (st.awaitPriceFor === "beer") lines.push(priceAskLine(st, "🍺 Цена пива"));
   else if (st.beerFromHistory) {
-    const list = (st.knownBeerPrices ?? []).map((p: Any) => `${p.price} ${curLabel(p.currency)}`).join(" / ");
+    const list = (st.knownBeerPrices ?? []).map((p: Any) => `${money(p.price)} ${curLabel(p.currency)}`).join(" / ");
     lines.push(`🍺 ${list} — как в прошлый раз, ✏️ можно поменять`);
   }
-  else if (st.beerPrice) lines.push(`🍺 ${st.beerPrice} ${curLabel(st.currency)} — со слов автора`);
+  else if (st.beerPrice) lines.push(`🍺 ${money(st.beerPrice)} ${curLabel(st.currency)} — со слов автора`);
   else if (st.price != null || st.priceFromHistory) lines.push("🍺 Цена пива? Кнопкой ниже.");
   if (st.hint) lines.push(`\n${st.hint}`);
   if (st.awaiting === "company") lines.push("\nКто был? Отметь кнопками или ответь на это сообщение: ники через запятую или @username, «один» — если один.");
@@ -570,7 +574,7 @@ function priceAskLine(st: Any, label: string) {
 }
 // цифра пришла в личку, а черновик — в чате: ставим её в черновик и правим карточку там
 async function priceFromDm(msg: Any, st: Any, lg: Any) {
-  const n = Number((msg.text ?? "").trim());
+  const n = priceNum(msg.text ?? "");
   if (st.awaitPriceFor === "price") st.price = n; else st.beerPrice = n;
   await dropPriceAsk(st);
   await react(msg.chat.id, msg.message_id, "👍");
@@ -750,9 +754,9 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       if (c.ids.length) { st.company = [...new Set([...(st.company ?? []), ...c.ids])]; st.companyOk = true; st.picking = false; }
       // ответ на явный вопрос о цене — просто цифра; бот знает, чего именно ждёт (awaitPriceFor — после шагов
       // будни/скидка/валюта или кнопки «Пиво»), иначе это другая цифра взамен «как в прошлый раз»
-      if (/^\d{2,5}$/.test(text)) {
-        if (st.awaitPriceFor === "price" && st.price == null) { st.price = Number(text); await dropPriceAsk(st); }
-        else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = Number(text); await dropPriceAsk(st); }
+      if (PRICE_TEXT.test(text)) {
+        if (st.awaitPriceFor === "price" && st.price == null) { st.price = priceNum(text); await dropPriceAsk(st); }
+        else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = priceNum(text); await dropPriceAsk(st); }
       }
       if (st.priceWeekend == null) st.priceWeekend = scheduleFromText(text);
       if (st.priceBefore == null) st.priceBefore = beforeTimeFromText(text);
@@ -821,8 +825,8 @@ async function submit(st: Any, lg: Any, tgId: number) {
   const summary = `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 кандидат в УУ" : ""}\n⏱ ${durLabel(st.dur)}\n👥 ${nicks.length ? esc(nicks.join(", ")) : "один"}`
     + photoLine(photos)
     + (st.type && !st.bathType ? `\n🏷 ${TYPE_RU[st.type]} — со слов автора` : "")
-    + (st.price ? `\n💰 ${st.price} ${curLabel(st.currency)}${schedLabel(st)}` : "")
-    + (st.beerPrice ? `\n🍺 ${st.beerPrice} ${curLabel(st.currency)}` : "")
+    + (st.price ? `\n💰 ${money(st.price)} ${curLabel(st.currency)}${schedLabel(st)}` : "")
+    + (st.beerPrice ? `\n🍺 ${money(st.beerPrice)} ${curLabel(st.currency)}` : "")
     + repeatLine(await sameDayRepeat(visit.id));
   // статус «ушло в Комиссию» — всегда; персональное приветствие (если есть) — строкой ниже, а не вместо
   const greeting = greetLine(st.authorNick);
@@ -1717,7 +1721,7 @@ async function onMessage(msg: Any) {
   if (msg.photo && (isPrivate || mentionsBot(msg)) && !(replyToCard && st) && isPhotoOnly(text)) return photoToRecent(msg, me);
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
   // цифра цены в личку — ответ на вопрос из черновика в чате (askPrice)
-  if (isPrivate && st?.priceInDm && st.awaitPriceFor && st.chat !== chat && /^\d{2,6}$/.test(text)) return priceFromDm(msg, st, await league());
+  if (isPrivate && st?.priceInDm && st.awaitPriceFor && st.chat !== chat && PRICE_TEXT.test(text)) return priceFromDm(msg, st, await league());
 
   const lg = await league();
   if (replyToCard && !mentionsBot(msg)) return continueDraft(msg, st, me, lg);
