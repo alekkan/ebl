@@ -284,9 +284,13 @@ function typeFromText(text: string): string | null {
 // bath_prices/bath_beer_prices как обычную запись истории (recordPrice), отдельно не проверяя: так же, как если бы
 // её занесли на сайте.
 const curLabel = (code: string | null) => code ?? "₽";
-// цена — с центами, где они бывают (25.10: «9,5 €»): целые как есть, дробные — два знака с запятой
+// цена — с центами, где они бывают (25.10: «9,5 €»): целые как есть, дробные — два знака с запятой.
+// Рубли — только целые (решение Лехи 25.10): валюта не выбрана или RUB — округляем
 const PRICE_TEXT = /^(?:\d{2,6}|\d{1,6}[.,]\d{1,2})$/;
-const priceNum = (text: string) => Math.round(Number(text.trim().replace(",", ".")) * 100) / 100;
+const priceNum = (text: string, cur: string | null = null) => {
+  const n = Number(text.trim().replace(",", "."));
+  return !cur || cur === "RUB" ? Math.round(n) : Math.round(n * 100) / 100;
+};
 const money = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
 const CUR_BTNS: [string, string][] = [["RUB", "₽ Рубль"], ["USD", "USD"], ["EUR", "EUR"], ["JPY", "JPY"], ["AED", "AED"]];
 const BEFORE_HOURS = [12, 14, 16, 18, 20, 22];
@@ -574,7 +578,7 @@ function priceAskLine(st: Any, label: string) {
 }
 // цифра пришла в личку, а черновик — в чате: ставим её в черновик и правим карточку там
 async function priceFromDm(msg: Any, st: Any, lg: Any) {
-  const n = priceNum(msg.text ?? "");
+  const n = priceNum(msg.text ?? "", st.currency);
   if (st.awaitPriceFor === "price") st.price = n; else st.beerPrice = n;
   await dropPriceAsk(st);
   await react(msg.chat.id, msg.message_id, "👍");
@@ -755,8 +759,8 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       // ответ на явный вопрос о цене — просто цифра; бот знает, чего именно ждёт (awaitPriceFor — после шагов
       // будни/скидка/валюта или кнопки «Пиво»), иначе это другая цифра взамен «как в прошлый раз»
       if (PRICE_TEXT.test(text)) {
-        if (st.awaitPriceFor === "price" && st.price == null) { st.price = priceNum(text); await dropPriceAsk(st); }
-        else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = priceNum(text); await dropPriceAsk(st); }
+        if (st.awaitPriceFor === "price" && st.price == null) { st.price = priceNum(text, st.currency); await dropPriceAsk(st); }
+        else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = priceNum(text, st.currency); await dropPriceAsk(st); }
       }
       if (st.priceWeekend == null) st.priceWeekend = scheduleFromText(text);
       if (st.priceBefore == null) st.priceBefore = beforeTimeFromText(text);
