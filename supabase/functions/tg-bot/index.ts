@@ -832,6 +832,7 @@ async function submit(st: Any, lg: Any, tgId: number) {
   const needGeo = !!st.card && (bath?.lat == null || bath?.precision !== "exact");
   await sb.from("bot_posts").update({ card_text: cardText, ...(needGeo ? { geo_msg: st.card, geo_at: new Date().toISOString() } : {}) }).eq("visit_id", visit.id);
   if (!(await refreshCard(visit.id)) && st.card) await edit(st.chat, st.card, cardText);
+  if (st.chatType === "private") await leagueCopy(visit.id);
   // 👀 — и на пост, и на карточку «Ушло в Комиссию»
   if (st.chatType !== "private") { await react(st.chat, st.source, "👀"); await react(st.chat, st.card, "👀"); }
   // пасхалки — отдельным сообщением, не в самой карточке (её потом ещё правят решением Комиссии); на настоящей
@@ -895,8 +896,9 @@ const repeatLine = (names: string[]) => names.length ? `\n⚠️ Похоже н
 const GEO_ASK = "📍 Точной точки на карте нет — ответь на эту карточку ссылкой из Яндекс/Google Карт, адресом или геопозицией. Необязательно.";
 const GEO_RETRY = "📍 Не нашёл, где это. Ответь на карточку ссылкой, где на карте видна точка, адресом с номером дома или геопозицией.";
 async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> {
-  const { data: p } = await sb.from("bot_posts").select("chat_id, card_msg, card_text, geo_msg, ask_msg, long_note, verdict_text").eq("visit_id", visitId).maybeSingle();
+  const { data: p } = await sb.from("bot_posts").select("chat_id, card_msg, card_text, geo_msg, ask_msg, long_note, verdict_text, league_chat, league_msg, league_head").eq("visit_id", visitId).maybeSingle();
   if (!p?.card_msg || !p.card_text) return false;
+  if (p.league_msg) await edit(p.league_chat, p.league_msg, leagueText(p));
   const parts = [p.card_text], kb: Any[][] = [];
   if (p.geo_msg && p.geo_msg === p.card_msg) { parts.push(geoRetry ? GEO_RETRY : GEO_ASK); kb.push([btn("🙅 Без точки", `gx:${visitId}`)]); }
   if (p.ask_msg && p.ask_msg === p.card_msg && !p.long_note) { parts.push("⏳ Прошло 2,5 часа — долгая была, больше 2,5 ч?"); kb.push(LONG_KB(visitId)[0]); }
@@ -905,6 +907,31 @@ async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> 
   await edit(p.chat_id, p.card_msg, parts.join("\n\n"), kb);
   return true;
 }
+// Поход отметили в личке с ботом (25.10): ОУД о нём не узнавал вовсе — в чат лиги кладём копию карточки, как пост похода
+// с сайта. Просьбы о точке и «долгая?» остаются автору в личке, в копии — сводка и решение; правят обе вместе (refreshCard).
+// Зовут отправка похода и ?refresh (так же доставляется копия походу, отправленному раньше, — только пока он ждёт решения).
+function leagueText(p: Any): string {
+  const cut = p.card_text.indexOf("\n\n");
+  return [`${p.league_head}\n\n${cut >= 0 ? p.card_text.slice(cut + 2) : p.card_text}`, p.long_note, p.verdict_text || "Ждёт Комиссию 👀"]
+    .filter(Boolean).join("\n\n");
+}
+async function leagueCopy(visitId: number): Promise<boolean> {
+  const { data: p } = await sb.from("bot_posts").select("chat_id, card_text, long_note, verdict_text, league_msg").eq("visit_id", visitId).maybeSingle();
+  if (!p?.card_text || p.chat_id < 0 || p.league_msg != null) return false;   // пост в группе или копия уже есть
+  const { data: v } = await sb.from("visits").select("status, author:players!visits_created_by_fkey(nick)").eq("id", visitId).maybeSingle();
+  const chat = Number(await setting("league_chat")) || 0;
+  if (!chat || v?.status !== "pending") return false;
+  // защита от повтора: отправка и ?refresh могут прийти разом — пишет тот, кто первым занял строку
+  const { data: claim } = await sb.from("bot_posts").update({ league_msg: 0 }).eq("visit_id", visitId).is("league_msg", null).select("visit_id");
+  if (!claim?.length) return false;
+  const head = `📩 <b>${esc((v as Any).author?.nick)}</b> отметил баню в личке бота`;
+  const r = await send(chat, leagueText({ ...p, league_head: head }));
+  if (!r.ok) { await sb.from("bot_posts").update({ league_msg: null }).eq("visit_id", visitId); return false; }
+  await sb.from("bot_posts").update({ league_chat: chat, league_msg: r.result.message_id, league_head: head }).eq("visit_id", visitId);
+  await react(chat, r.result.message_id, "👀");
+  return true;
+}
+
 // строка решения Комиссии с очками — для карточки и для личек Комиссии
 async function verdictLine(visitId: number): Promise<string | null> {
   const { data: v } = await sb.from("visits").select("status, reject_reason, judge:players!visits_moderated_by_fkey(nick)").eq("id", visitId).maybeSingle();
@@ -958,6 +985,7 @@ async function refreshVisit(visitId: number): Promise<boolean> {
     await sb.from("bot_notifications").update({ text: note }).eq("visit_id", visitId).eq("chat_id", n.chat_id);
     changed = true;
   }
+  if (await leagueCopy(visitId)) changed = true;
   // живая карточка в чате: шапка («Ушло в Комиссию ✅ …») остаётся, сводка под ней — свежая
   const { data: post } = await sb.from("bot_posts").select("card_text, verdict_text").eq("visit_id", visitId).maybeSingle();
   // решение с очками — тоже свежее: тип или регион бани поменяли, таблица пересчитана — очки другие
@@ -1028,7 +1056,7 @@ async function announce(visitId: number): Promise<boolean> {
   const freshVerdict = !!v.moderated_at && Date.now() - new Date(v.moderated_at).getTime() < 15 * 60e3;
   // объявляет тот, кто первым отметил статус объявленным: кнопка и триггер могут прийти одновременно
   const { data: won } = await sb.from("bot_posts").update({ announced: v.status })
-    .eq("visit_id", visitId).or(`announced.is.null,announced.neq.${v.status}`).select("chat_id, source_msg, card_msg, card_text");
+    .eq("visit_id", visitId).or(`announced.is.null,announced.neq.${v.status}`).select("chat_id, source_msg, card_msg, card_text, league_chat, league_msg");
   let post = won?.[0];
   if (!post && v.source === "site" && freshVerdict) {
     // поход с сайта: поста в группе нет — объявим отдельным сообщением в чате лиги (вставка строки — та же защита от повтора).
@@ -1057,6 +1085,7 @@ async function announce(visitId: number): Promise<boolean> {
     await sb.from("bot_posts").update({ verdict_text: line }).eq("visit_id", visitId);
     if (post.source_msg && post.source_msg !== post.card_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
     await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
+    if (post.league_msg) await react(post.league_chat, post.league_msg, ok ? "👍" : "💩");
     await refreshCard(visitId);
     return true;
   }
