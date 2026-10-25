@@ -232,7 +232,26 @@ st = post("что-то непонятное", 72, chat=ME, chat_type="private")
 check("непонятный ответ черновик не ломает", st and st.get("bathName") == "Василевские" and st["company"] == [], st)
 post("да", 73, chat=ME, chat_type="private")
 check("«да» на «всё верно?» — поход ушёл в Комиссию, как кнопкой", mine() - before == 1 and sql(f"select count(*) from bot_sessions where tg_id = {ME}") == "0", mine() - before)
-sql("delete from visits where id = (select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot')")
+# 25.10: поход из лички ОУД не видел вовсе — теперь в чат лиги уходит копия карточки (Толмач)
+dm = sql("select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot'")
+league = int(sql("select value #>> '{}' from settings where key = 'league_chat'"))
+copy = sql(f"select league_chat || '|' || league_msg from bot_posts where visit_id = {dm}").split("|")
+check("поход из лички — копия карточки в чате лиги: «… отметил баню в личке бота», ждёт Комиссию",
+      copy[0] == str(league) and int(copy[1] or 0) > 0
+      and any(m == "sendMessage" and int(p.get("chat_id") or 0) == league and "в личке бота" in (p.get("text") or "") and "Ждёт Комиссию" in p["text"]
+              for m, p in TELEGRAM.calls), copy)
+check("…?refresh второй копии не пишет", sql(f"select league_msg from bot_posts where visit_id = {dm}") == copy[1]
+      and req("POST", f"/functions/v1/tg-bot?refresh={dm}", {})[0] == 200 and sql(f"select league_msg from bot_posts where visit_id = {dm}") == copy[1])
+seen = len(TELEGRAM.calls)
+sql(f"update visits set status = 'ok', moderated_at = now(), moderated_by = (select id from players where nick = 'Витёк') where id = {dm}")
+req("POST", f"/functions/v1/tg-bot?verdict={dm}", {})   # триггер зовёт то же самое — кто первый, тот и объявляет
+copy_edited = lambda: any(m == "editMessageText" and int(p.get("chat_id") or 0) == league and int(p.get("message_id") or 0) == int(copy[1])
+                          and "Засчитано" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:])
+for _ in range(20):
+    if copy_edited(): break
+    time.sleep(0.3)
+check("…решение Комиссии — и в копии в чате лиги", copy_edited())
+sql(f"delete from visits where id = {dm}")
 
 print("Компания — явный выбор")
 den = sql("select id from players where nick = 'Ден'")
