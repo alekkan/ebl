@@ -48,6 +48,9 @@ const edit = (chat: number, msg: number, text: string, kb?: Any[][]) => tg("edit
 });
 const react = (chat: number, msg: number, emoji: string) =>
   tg("setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] });
+// «засчитано» — 👍, но у кого-то своя реакция (27.10, просьба лиги: Лехе — 🤓). Только из списка реакций Telegram
+const OK_EMOJI: Record<string, string> = { "Леха": "🤓" };
+const okEmoji = (nick?: string) => (nick && OK_EMOJI[nick]) || "👍";
 // опрос по просьбе владельца (bot_actions): {question, options, multiple, anonymous} — по умолчанию анонимный, как в Telegram
 const poll = (chat: number, p: Any) => tg("sendPoll", {
   chat_id: chat, question: String(p?.question ?? ""), options: (p?.options ?? []).map((t: unknown) => ({ text: String(t) })),
@@ -1058,7 +1061,7 @@ async function siteVisit(visitId: number): Promise<boolean> {
 }
 
 // Решение Комиссии — в Telegram, одинаково для кнопок бота, сайта и правки заявки (оттуда зовёт триггер: ?verdict=<id>):
-// 👍/💩 на пост и карточку, итог отдельным сообщением в ответ на пост, в личке Комиссии — кто решил, кнопки убираем.
+// 👍 (или своя реакция участника, OK_EMOJI)/💩 на пост и карточку, итог отдельным сообщением в ответ на пост, в личке Комиссии — кто решил, кнопки убираем.
 async function announce(visitId: number): Promise<boolean> {
   const { data: v } = await sb.from("visits")
     .select("status, source, bath_id, reject_reason, moderated_at, baths(name), author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)")
@@ -1080,6 +1083,7 @@ async function announce(visitId: number): Promise<boolean> {
   }
   if (!post) return false;
   const ok = v.status === "ok", vv = v as Any;
+  const mark = ok ? okEmoji(vv.author?.nick) : "💩";
   if (ok) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
 
   const line = await verdictLine(visitId);
@@ -1094,9 +1098,9 @@ async function announce(visitId: number): Promise<boolean> {
   // живая карточка: 👍/💩 на пост и карточку, решение с очками — правкой карточки, новых сообщений в чате нет
   if (post.card_msg && post.card_text) {
     await sb.from("bot_posts").update({ verdict_text: line }).eq("visit_id", visitId);
-    if (post.source_msg && post.source_msg !== post.card_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
-    await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
-    if (post.league_msg) await react(post.league_chat, post.league_msg, ok ? "👍" : "💩");
+    if (post.source_msg && post.source_msg !== post.card_msg) await react(post.chat_id, post.source_msg, mark);
+    await react(post.chat_id, post.card_msg, mark);
+    if (post.league_msg) await react(post.league_chat, post.league_msg, mark);
     await refreshCard(visitId);
     return true;
   }
@@ -1107,8 +1111,8 @@ async function announce(visitId: number): Promise<boolean> {
     const ptsLine = ok && pts?.length ? ": " + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
     // ответом на пост видно, о каком походе речь; отдельному сообщению (старые походы с сайта) — пометка
     const where = v.source === "site" && !post.source_msg ? " (отмечен на сайте)" : "";
-    if (post.source_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
-    if (post.card_msg) await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
+    if (post.source_msg) await react(post.chat_id, post.source_msg, mark);
+    if (post.card_msg) await react(post.chat_id, post.card_msg, mark);
     const r = await send(post.chat_id, ok
       ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${where}${ptsLine}`
       : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${where}.`

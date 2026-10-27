@@ -515,6 +515,19 @@ check("ссылка ответом на ту же карточку — это п
 sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
 check("решение Комиссии — строкой в карточке, с очками", wait(f"select left(coalesce(verdict_text, ''), 11) from bot_posts where visit_id = {vid}", "👍 Засчитано"),
       sql(f"select verdict_text from bot_posts where visit_id = {vid}"))
+# реакция «засчитано» — 👍, у Лехи своя — 🤓 (27.10): на пост и карточку
+def got_react(mid, emoji):
+    for _ in range(40):
+        if any(m == "setMessageReaction" and int(p.get("message_id") or 0) == mid and (p.get("reaction") or [{}])[0].get("emoji") == emoji for m, p in TELEGRAM.calls): return True
+        time.sleep(0.25)
+    return False
+check("засчитали поход Лехи — на посте и карточке 🤓, а не 👍", got_react(4241, "🤓") and got_react(CARD, "🤓"))
+sql(f"delete from visits where id = {vid}")
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now() - interval '3 hours', 60, id, 'bot' from players where nick = 'Ден' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick = 'Ден'")
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text) values ({vid}, {CHAT}, 4245, 4246, 5, 'Ушло в Комиссию ✅')")
+sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
+check("засчитали поход Дена — как раньше, 👍", got_react(4245, "👍") and got_react(4246, "👍"))
 sql(f"delete from visits where id = {vid}")
 
 print("Поход поправили — у Комиссии и в карточке свежая сводка")
