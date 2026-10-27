@@ -48,8 +48,8 @@ const edit = (chat: number, msg: number, text: string, kb?: Any[][]) => tg("edit
 });
 const react = (chat: number, msg: number, emoji: string) =>
   tg("setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] });
-// «засчитано» — 👍, но у кого-то своя реакция (27.10, просьба лиги: Лехе — 🤓). Только из списка реакций Telegram
-const OK_EMOJI: Record<string, string> = { "Леха": "🤓" };
+// «засчитано» — 👍, но у кого-то из участников своя реакция (27.10, по нику автора похода). Только из списка реакций Telegram
+const OK_EMOJI: Record<string, string> = { "Леха": "🤓", "Шурик": "🤡" };
 const okEmoji = (nick?: string) => (nick && OK_EMOJI[nick]) || "👍";
 // опрос по просьбе владельца (bot_actions): {question, options, multiple, anonymous} — по умолчанию анонимный, как в Telegram
 const poll = (chat: number, p: Any) => tg("sendPoll", {
