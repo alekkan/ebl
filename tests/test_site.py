@@ -447,7 +447,7 @@ with sync_playwright() as pw:
         # цена и цена пива, вписанные прямо в форму похода, сохраняются тем же путём, что и через карточку бани
         check("цена из формы похода сохранилась", sql(f"select count(*) from bath_prices where bath_id = {bath}") == "1")
         check("цена пива из формы похода сохранилась", sql(f"select count(*) from bath_beer_prices where bath_id = {bath}") == "1")
-        sql(f"delete from bath_prices where bath_id = {bath}"); sql(f"delete from bath_beer_prices where bath_id = {bath}")
+        sql(f"delete from bath_prices where bath_id = {bath}"); sql(f"delete from bath_beer_prices where bath_id = {bath}"); sql(f"delete from bath_schedule where bath_id = {bath}")
         # точка примерная — форма похода просит ссылку и ставит точку сразу, не дожидаясь отправки похода
         orig = sql(f"select lat || ',' || lng || ',' || precision from baths where id = {bath}")
         sql(f"update baths set precision = 'city' where id = {bath}")
@@ -559,6 +559,26 @@ with sync_playwright() as pw:
         s.page.fill("#prPrice", "640,4"); s.page.fill("#prCurrency", ""); s.page.click('#prForm button[type="submit"]'); s.page.wait_for_timeout(900)
         check("рубли — только целые: «640,4» без валюты сохранилась как 640",
               sql(f"select count(*) from bath_prices where bath_id = {bath} and currency = 'RUB' and price = 640") == "1")
+        # 27.10: пары и часы работы — «каждый час» раскладывается из «с — до», «другое» — часы отмечает сам, повтор не дублирует
+        sched_rows = f"select count(*) from bath_schedule where bath_id = {bath}"
+        s.page.click("#shOpen"); s.page.click('#shEvery button[data-e="60"]')
+        s.page.fill("#shFrom", "14:00"); s.page.fill("#shTo", "17:00")
+        check("«каждый час с 14 до 17» — сайт сам показывает пары", s.js("() => document.getElementById('shPreview').innerText.includes('14:00 · 15:00 · 16:00 · 17:00')"))
+        s.page.fill("#shOpenT", "10:00"); s.page.fill("#shCloseT", "23:00")
+        s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
+        check("пары и часы работы сохранились", sql(sched_rows) == "2", sql(sched_rows))
+        check("…пары — списком времени", sql(f"select times::text from bath_schedule where bath_id = {bath} and kind = 'steam'") == "{14:00:00,15:00:00,16:00:00,17:00:00}")
+        check("карточка показывает пары и часы", s.js("() => { const t = document.getElementById('dSched').innerText; return t.includes('каждый час с 14:00 до 17:00') && t.includes('10:00–23:00') }"),
+              s.js("() => document.getElementById('dSched').innerText"))
+        s.page.click("#shOpen"); s.page.click('#shEvery button[data-e="60"]'); s.page.fill("#shFrom", "14:00"); s.page.fill("#shTo", "17:00")
+        s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
+        check("те же пары ещё раз — не дублируем", sql(sched_rows) == "2", sql(sched_rows))
+        s.page.click('#shEvery button[data-e="other"]')
+        for t in ("12:00", "15:00", "19:00"): s.page.click(f'#shPick button[data-t="{t}"]')
+        s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
+        check("«другое» — отмеченные часы, новая запись, старая осталась", sql(sched_rows) == "3", sql(sched_rows))
+        check("карточка показывает свежие пары", s.js("() => document.getElementById('dSched').innerText.includes('12:00 · 15:00 · 19:00')"),
+              s.js("() => document.getElementById('dSched').innerText"))
         s.clean("участник после отправки похода")
         s.close()
 
@@ -1091,6 +1111,7 @@ with sync_playwright() as pw:
         sql("delete from reviews where text like '%— проверка сайта'")
         sql(f"delete from bath_prices where bath_id = {bath}")
         sql(f"delete from bath_beer_prices where bath_id = {bath}")
+        sql(f"delete from bath_schedule where bath_id = {bath}")
         sql(f"update baths set name = 'Василевские' where id = {bath} and name = 'проверка сайта'")
     browser.close()
     sql(f"update settings set value = '{cutover}' where key = 'cutover_week'")

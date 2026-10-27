@@ -447,6 +447,13 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .rate button:hover { transform: translateY(-2px) rotate(-6deg); }
 .rvform, .prform { display: grid; gap: 10px; padding: 14px; background: var(--panel-2); border-radius: var(--r); }
 .rvform .row, .prform .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prform .sh-t { display: flex; flex: none; align-items: center; gap: 6px; }   /* «с [10:00]» — подпись и время в строку */
+.prform .sh-t .inp { flex: 0 0 auto; width: auto; }
+.prform .sh-row { justify-content: flex-start; gap: 8px 14px; }   /* «с … до …» рядом, а не по краям */
+.prform .sh-q { flex-basis: 100%; }
+.chips.sh-pick { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }   /* 24 часа — 4 ровных ряда */
+.chips.sh-pick button { justify-content: center; padding: 6px 0; font-size: 13px; }
+#dSched .ic { width: 15px; height: 15px; vertical-align: -2px; }
 .rvform .sel { width: auto; height: 36px; font-size: 13px; }
 .prform .row .inp { flex: 1 1 160px; }
 

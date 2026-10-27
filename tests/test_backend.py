@@ -270,6 +270,33 @@ check("отклонённой бане цену пива не добавить",
 sql("update baths set status = 'ok' where id = 7")
 sql("delete from bath_beer_prices where bath_id = 7")
 
+print("Пары и часы работы")
+steam = lambda bath, times, every, token: req("POST", "/rest/v1/rpc/submit_bath_steam", {"p_bath_id": bath, "p_times": times, "p_every_min": every}, token=token)
+hours = lambda bath, o, c, token: req("POST", "/rest/v1/rpc/submit_bath_hours", {"p_bath_id": bath, "p_open": o, "p_close": c}, token=token)
+sched = lambda: req("POST", "/rest/v1/rpc/bath_schedule_of", {"p_bath": 7})[1]
+check("без входа пары не внести", steam(7, ["14:00"], 60, None)[0] in (401, 403))
+check("без входа часы не внести", hours(7, "10:00", "22:00", None)[0] in (401, 403))
+s, r = steam(7, ["16:00", "14:00", "15:00", "14:00"], 60, shurik)
+check("пары — новая запись, по порядку и без повторов", s == 200 and r is not None
+      and sql(f"select times::text from bath_schedule where id = {r}") == "{14:00:00,15:00:00,16:00:00}", (s, r))
+s2, r2 = steam(7, ["14:00", "15:00", "16:00"], 60, vitek)
+check("те же пары от другого участника — не дублируем", s2 == 200 and r2 is None, (s2, r2))
+s3, r3 = steam(7, ["14:00", "16:00"], 120, shurik)
+check("пары изменились — новая строка, старая осталась", s3 == 200 and r3 is not None and sql("select count(*) from bath_schedule where bath_id = 7 and kind = 'steam'") == "2", (s3, r3))
+check("пары — только каждый час или каждые два часа (или «другое» без шага)", steam(7, ["14:00"], 30, shurik)[0] >= 400)
+check("пустые пары не принимаются", steam(7, [], None, shurik)[0] >= 400)
+s, r = hours(7, "10:00", "23:00", shurik)
+check("часы работы — новая запись", s == 200 and r is not None, (s, r))
+check("те же часы ещё раз — не дублируем", hours(7, "10:00", "23:00", vitek)[1] is None)
+check("без закрытия часы не принимаются", hours(7, "10:00", None, shurik)[0] >= 400)
+sc = sched()
+check("гость видит последние пары и часы", sc.get("steam", {}).get("times") == ["14:00", "16:00"] and sc["steam"]["every_min"] == 120
+      and sc.get("hours", {}).get("open") == "10:00" and sc["hours"]["close"] == "23:00", sc)
+sql("update baths set status = 'rejected' where id = 7")
+check("отклонённой бане пары не добавить", steam(7, ["12:00"], None, shurik)[0] >= 400)
+sql("update baths set status = 'ok' where id = 7")
+sql("delete from bath_schedule where bath_id = 7")
+
 print("Ночной бэкап и восстановление")
 dry = req("GET", "/functions/v1/backup?dry=1")[1]
 check("бэкап видит все таблицы public и сколько в них строк", dry.get("tables", {}).get("baths") == int(sql("select count(*) from baths")), dry)

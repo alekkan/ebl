@@ -219,6 +219,15 @@
   const mskNow = () => mskDate().toISOString().slice(0, 16);
   const mskIso = (t) => new Date(new Date(t).getTime() + 3 * 3600e3).toISOString().slice(0, 16);   // момент → МСК 'YYYY-MM-DDTHH:MM'
   // день похода коротко: «сегодня», «вчера», «27 сент.» (s — МСК 'YYYY-MM-DDTHH:MM')
+  // пары «каждый час / каждые два часа» с from до to включительно («22:00»–«02:00» — через полночь)
+  function steamTimes(from, to, step) {
+    const m = (t) => /^\d{2}:\d{2}/.test(t || "") ? +t.slice(0, 2) * 60 + +t.slice(3, 5) : null;
+    let a = m(from), b = m(to); if (a == null || b == null || !step) return [];
+    if (b < a) b += 1440;
+    const out = [];
+    for (let x = a; x <= b && out.length < 48; x += step) out.push(String(Math.floor(x / 60) % 24).padStart(2, "0") + ":" + String(x % 60).padStart(2, "0"));
+    return out;
+  }
   function dayLabel(s) {
     const day = s.slice(0, 10), today = mskNow().slice(0, 10);
     if (day === today) return "сегодня";
@@ -591,6 +600,34 @@
           </form>` : ""}
         </section>
         <section>
+          <h3>Пары и часы работы</h3>
+          <div class="price-now" id="dSched"><p class="hint">Пока никто не указал${member ? "" : "."}</p></div>
+          ${member ? `<button type="button" class="addbtn" id="shOpen" ${cardOpen.has("sh") ? "hidden" : ""}>+ Указать пары и часы</button>
+          <form class="prform" id="shForm" ${cardOpen.has("sh") ? "" : "hidden"}>
+            <span class="hint">Как часто пары?</span>
+            <div class="seg" id="shEvery" role="radiogroup" aria-label="Как часто пары">
+              <button type="button" data-e="60" aria-pressed="false">Каждый час</button>
+              <button type="button" data-e="120" aria-pressed="false">Каждые два часа</button>
+              <button type="button" data-e="other" aria-pressed="false">Другое</button>
+            </div>
+            <div class="row sh-row" id="shRange" hidden>
+              <span class="hint sh-q">Со скольки до скольки?</span>
+              <label class="hint sh-t">с <input class="inp" id="shFrom" type="time"></label>
+              <label class="hint sh-t">до <input class="inp" id="shTo" type="time"></label>
+            </div>
+            <div class="chips sh-pick" id="shPick" role="group" aria-label="Часы паров" hidden>${Array.from({ length: 24 }, (_, h) => {
+              const t = String(h).padStart(2, "0") + ":00"; return `<button type="button" data-t="${t}" aria-pressed="false">${t}</button>`;
+            }).join("")}</div>
+            <p class="hint" id="shPreview" hidden></p>
+            <span class="hint">Часы работы</span>
+            <div class="row sh-row">
+              <label class="hint sh-t">с <input class="inp" id="shOpenT" type="time"></label>
+              <label class="hint sh-t">до <input class="inp" id="shCloseT" type="time"></label>
+            </div>
+            <button class="btn solid" type="submit" style="justify-self:start">Сохранить</button>
+          </form>` : ""}
+        </section>
+        <section>
           <h3>Кто парился в 2026</h3>
           ${who.length ? `<div class="who">${who.map(([p, n]) => `<button data-player="${esc(p)}">${ava(p, "sm")}${esc(p)}${n > 1 ? `<b>×${n}</b>` : ""}</button>`).join("")}</div>`
             : `<p class="hint" style="margin:0">${!b.nHist && !b.isNew
@@ -631,6 +668,8 @@
       if (!photoCache.has(id)) photoCache.set(id, D.bathPhotos(id).catch(() => { photoCache.delete(id); return []; }));
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
     }
+    if (!schedCache.has(id)) schedCache.set(id, D.bathSchedule(id).catch(() => { schedCache.delete(id); return null; }));
+    schedCache.get(id).then((sc) => renderSchedule(id, sc));
     if (D.live) {
       if (!factCache.has(id)) factCache.set(id, D.bathFacts(id).catch(() => { factCache.delete(id); return null; }));
       factCache.get(id).then((f) => renderFacts(id, f));
@@ -735,6 +774,40 @@
     });
     openForm("pr", "#prOpen", "#prForm", "#prPrice");
     openForm("rv", "#rvOpen", "#rvForm", "#rvText");
+    openForm("sh", "#shOpen", "#shForm", "#shEvery button");
+    const shForm = $("#shForm", d);
+    if (shForm) {
+      let every = null;
+      const picked = () => $$("#shPick [aria-pressed=true]", d).map((x) => x.dataset.t);
+      const times = () => every === "other" ? picked() : steamTimes($("#shFrom", d).value, $("#shTo", d).value, +every);
+      const preview = () => {
+        const p = $("#shPreview", d), ts = every ? times() : [];
+        p.hidden = every === "other" || !ts.length;
+        p.textContent = ts.length ? "Пары: " + ts.join(" · ") : "";
+      };
+      $$("#shEvery button", d).forEach((x) => x.addEventListener("click", () => {
+        every = x.dataset.e;
+        $$("#shEvery button", d).forEach((y) => y.setAttribute("aria-pressed", String(y === x)));
+        $("#shRange", d).hidden = every === "other"; $("#shPick", d).hidden = every !== "other";
+        preview();
+      }));
+      $$("#shPick button", d).forEach((x) => x.addEventListener("click", () => x.setAttribute("aria-pressed", String(x.getAttribute("aria-pressed") !== "true"))));
+      ["#shFrom", "#shTo"].forEach((q) => $(q, d).addEventListener("input", preview));
+      shForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const ts = every ? times() : [], open = $("#shOpenT", d).value, close = $("#shCloseT", d).value;
+        if (every && !ts.length) { toast(every === "other" ? "Отметь часы паров" : "Укажи, со скольки до скольки пары"); return; }
+        if (!!open !== !!close) { toast("Часы работы — и открытие, и закрытие"); return; }
+        if (!ts.length && !open) { toast("Укажи пары или часы работы"); return; }
+        try {
+          const a = ts.length ? await D.submitBathSteam(id, ts, every === "other" ? null : +every) : null;
+          const b = open ? await D.submitBathHours(id, open, close) : null;
+          schedCache.delete(id);
+          if (a || b) { toast("Сохранил — спасибо"); cardOpen.delete("sh"); openBath(id); }
+          else toast("Так уже записано — не дублирую");
+        } catch (err) { toast("Не сохранилось: " + err.message); }
+      });
+    }
     $("#geoFixForm", d)?.addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
@@ -861,8 +934,22 @@
       if ($("#dPriceNone")) $("#dPriceNone").hidden = true;
     }
   }
+  function renderSchedule(id, sc) {
+    const box = $("#dSched");
+    if (openId !== id || !box || !sc || (!sc.steam && !sc.hours)) return;
+    const st = sc.steam, h = sc.hours, ts = st?.times || [];
+    // «каждый час с 14:00 до 22:00», если ровно так и вносили; иначе — все пары списком
+    const even = st?.every_min && ts.length > 1 && steamTimes(ts[0], ts[ts.length - 1], st.every_min).join() === ts.join();
+    const steam = !st ? "" : even
+      ? `${st.every_min === 60 ? "каждый час" : "каждые два часа"} с ${ts[0]} до ${ts[ts.length - 1]}`
+      : ts.join(" · ");
+    const at = (x) => `<small>${dayLabel(mskIso(x.at))}</small>`;
+    box.innerHTML = (st ? `<p><span>♨️ <b>Пары</b> ${esc(steam)}</span>${at(st)}</p>` : "")
+      + (h ? `<p><span>${icon("clock")} <b>Работает</b> ${h.open === h.close ? "круглосуточно" : `${esc(h.open)}–${esc(h.close)}`}</span>${at(h)}</p>` : "");
+  }
   let cardFor = null;
-  const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv») — до перехода к другой бане
+  const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv», «sh») — до перехода к другой бане
+  const schedCache = new Map();   // пары и часы бани — просим при открытии карточки
   function renderPhotos(id, ps) {
     const box = $("#dPhotos"); if (!box || openId !== id || !ps.length) return;
     box.innerHTML = `<div class="ph-strip">${ps.map((p, i) => {
