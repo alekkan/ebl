@@ -499,6 +499,8 @@ async function renderCard(st: Any, lg: Any) {
       ...(askSched ? [Object.entries(SCHED_RU).map(([s, l]) => btn(`${st.priceWeekend === s ? "✓ " : ""}${l}`, `pw:${s}`))] : []),
       // экспресс или долгая — выбор виден прямо на кнопках (галочка), как у типа бани
       [btn(`${st.dur == null || st.dur <= LONG ? "✓ " : ""}⚡ Экспресс`, "d:120"), btn(`${st.dur != null && st.dur > LONG ? "✓ " : ""}🔥 Долгая`, "d:180")],
+      // ждём цифру цены — отправить можно только без неё, явно
+      ...(st.awaitPriceFor ? [[btn(skipPriceLabel(st), "pn")]] : []),
       [btn("✅ В Комиссию", "send")], pick.length ? [btn("🏠 Баня", "eb")] : [btn("🏠 Баня", "eb"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
   return { text: `${who}, всё верно?\n\n${lines.join("\n")}`, kb };
 }
@@ -572,6 +574,7 @@ async function dropPriceAsk(st: Any, clear = true) {
   st.awaitPriceMsg = null;
   if (clear) { st.awaitPriceFor = null; st.priceInDm = false; }
 }
+const skipPriceLabel = (st: Any) => st.awaitPriceFor === "beer" ? "Без цены пива" : "Без цены";
 function priceAskLine(st: Any, label: string) {
   if (st.chatType === "private") return `${label}? Напиши цифру.`;
   return st.priceInDm ? `${label} — спросил в личке, ответь там цифрой.` : `${label} — ответь цифрой на вопрос ниже.`;
@@ -1787,6 +1790,11 @@ async function onCallback(cq: Any) {
   }
   if (data === "send" && (st.companyOk === false || st.picking)) return answer(cq.id, "Сначала отметь, кто был в бане, или нажми «🙋 Один»", true);
   if (data === "send" && st.dup && !st.dupOk) return answer(cq.id, "Сначала ответь: это другой поход или тот же", true);
+  // ждём цифру цены — не отпускаем: после отправки черновика нет, и цифра в личке стала бы новым походом (27.10, Hamanoyu)
+  if (data === "send" && st.awaitPriceFor) {
+    const where = st.chatType === "private" ? "напиши" : st.priceInDm ? "напиши в личке" : "ответь на вопрос";
+    return answer(cq.id, `Сначала ${where} цифру ${st.awaitPriceFor === "beer" ? "цены пива" : "цены входа"} или нажми «${skipPriceLabel(st)}»`, true);
+  }
   if (data === "send") return sendDraft(cq, tgId);
   await answer(cq.id);
   const lg = await league();
@@ -1841,6 +1849,8 @@ async function onCallback(cq: Any) {
   } else if (data.startsWith("pb:") && st.priceStep === "before" && BEFORE_HOURS.includes(Number(data.slice(3)))) {
     st.priceBefore = `${data.slice(3).padStart(2, "0")}:00`;
     st.priceStep = "currency";
+  } else if (data === "pn" && st.awaitPriceFor) {
+    await dropPriceAsk(st);   // цифру не ждём — вопрос в чате убираем, отправлять можно
   } else if (data === "pz") {
     st.priceStep = null; st.priceWeekend = null; st.priceBefore = null;   // пропустили мастер цены — можно начать заново кнопкой
   } else if (data.startsWith("pc:") && st.priceStep === "currency" && CUR_BTNS.some(([c]) => c === data.slice(3))) {

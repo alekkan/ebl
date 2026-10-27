@@ -792,6 +792,13 @@ dm = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("c
 grp = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]
 check("черновик в чате: цифру цены бот спрашивает у автора в личке, в чат ничего нового",
       len(dm) == 1 and "Сколько стоил вход" in dm[0].get("text", "") and not grp and state().get("priceInDm") is True, (dm, grp))
+data, texts = card_kb()
+check("ждём цифру — в карточке «Без цены»", "pn" in data and "Без цены" in texts, texts)
+seen = len(TELEGRAM.calls)
+card("send", cid="pds")
+ans = [p for m, p in TELEGRAM.calls[seen:] if m == "answerCallbackQuery" and p.get("callback_query_id") == "pds"]
+check("цифру ещё не прислали — «В Комиссию» не отправляет, а просит цифру в личке или «Без цены»",
+      state().get("awaitPriceFor") == "price" and ans and "в личке" in ans[0].get("text", "") and "Без цены" in ans[0].get("text", ""), (ans, state()))
 seen = len(TELEGRAM.calls)
 post("1500", 94, chat=ME, chat_type="private")
 st = state()
@@ -818,6 +825,14 @@ upd = {"update_id": 9600, "message": {"message_id": 96, "date": now(), "chat": {
 req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
 st = state(911)
 check("ответ цифрой в чате — цена в черновике, вопрос бота удалён (чат чистый)", st.get("price") == 800
+      and any(m == "deleteMessage" and int(p.get("message_id") or 0) == qid for m, p in TELEGRAM.calls[seen:]), st)
+card("ab", who=911, cid="pfb")
+qid = state(911).get("awaitPriceMsg")
+seen = len(TELEGRAM.calls)
+card("pn", who=911, cid="pfn")
+st = state(911)
+check("«Без цены пива» — цифру не ждём, цена входа осталась, вопрос в чате удалён",
+      not st.get("awaitPriceFor") and st.get("beerPrice") is None and st.get("price") == 800
       and any(m == "deleteMessage" and int(p.get("message_id") or 0) == qid for m, p in TELEGRAM.calls[seen:]), st)
 sql("delete from bot_sessions")
 sql("delete from player_accounts where tg_id = 911")
