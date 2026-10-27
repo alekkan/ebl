@@ -515,6 +515,19 @@ check("ссылка ответом на ту же карточку — это п
 sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
 check("решение Комиссии — строкой в карточке, с очками", wait(f"select left(coalesce(verdict_text, ''), 11) from bot_posts where visit_id = {vid}", "👍 Засчитано"),
       sql(f"select verdict_text from bot_posts where visit_id = {vid}"))
+# реакция «засчитано» — 👍, у Лехи своя — 🤓 (27.10): на пост и карточку
+def got_react(mid, emoji):
+    for _ in range(40):
+        if any(m == "setMessageReaction" and int(p.get("message_id") or 0) == mid and (p.get("reaction") or [{}])[0].get("emoji") == emoji for m, p in TELEGRAM.calls): return True
+        time.sleep(0.25)
+    return False
+check("засчитали поход Лехи — на посте и карточке 🤓, а не 👍", got_react(4241, "🤓") and got_react(CARD, "🤓"))
+sql(f"delete from visits where id = {vid}")
+vid = sql("insert into visits (bath_id, entered_at, duration_min, created_by, source) select 5, now() - interval '3 hours', 60, id, 'bot' from players where nick = 'Ден' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick = 'Ден'")
+sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, card_text) values ({vid}, {CHAT}, 4245, 4246, 5, 'Ушло в Комиссию ✅')")
+sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
+check("засчитали поход Дена — как раньше, 👍", got_react(4245, "👍") and got_react(4246, "👍"))
 sql(f"delete from visits where id = {vid}")
 
 print("Поход поправили — у Комиссии и в карточке свежая сводка")
@@ -792,6 +805,13 @@ dm = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("c
 grp = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == CHAT]
 check("черновик в чате: цифру цены бот спрашивает у автора в личке, в чат ничего нового",
       len(dm) == 1 and "Сколько стоил вход" in dm[0].get("text", "") and not grp and state().get("priceInDm") is True, (dm, grp))
+data, texts = card_kb()
+check("ждём цифру — в карточке «Без цены»", "pn" in data and "Без цены" in texts, texts)
+seen = len(TELEGRAM.calls)
+card("send", cid="pds")
+ans = [p for m, p in TELEGRAM.calls[seen:] if m == "answerCallbackQuery" and p.get("callback_query_id") == "pds"]
+check("цифру ещё не прислали — «В Комиссию» не отправляет, а просит цифру в личке или «Без цены»",
+      state().get("awaitPriceFor") == "price" and ans and "в личке" in ans[0].get("text", "") and "Без цены" in ans[0].get("text", ""), (ans, state()))
 seen = len(TELEGRAM.calls)
 post("1500", 94, chat=ME, chat_type="private")
 st = state()
@@ -818,6 +838,14 @@ upd = {"update_id": 9600, "message": {"message_id": 96, "date": now(), "chat": {
 req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
 st = state(911)
 check("ответ цифрой в чате — цена в черновике, вопрос бота удалён (чат чистый)", st.get("price") == 800
+      and any(m == "deleteMessage" and int(p.get("message_id") or 0) == qid for m, p in TELEGRAM.calls[seen:]), st)
+card("ab", who=911, cid="pfb")
+qid = state(911).get("awaitPriceMsg")
+seen = len(TELEGRAM.calls)
+card("pn", who=911, cid="pfn")
+st = state(911)
+check("«Без цены пива» — цифру не ждём, цена входа осталась, вопрос в чате удалён",
+      not st.get("awaitPriceFor") and st.get("beerPrice") is None and st.get("price") == 800
       and any(m == "deleteMessage" and int(p.get("message_id") or 0) == qid for m, p in TELEGRAM.calls[seen:]), st)
 sql("delete from bot_sessions")
 sql("delete from player_accounts where tg_id = 911")

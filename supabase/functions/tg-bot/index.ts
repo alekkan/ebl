@@ -48,6 +48,9 @@ const edit = (chat: number, msg: number, text: string, kb?: Any[][]) => tg("edit
 });
 const react = (chat: number, msg: number, emoji: string) =>
   tg("setMessageReaction", { chat_id: chat, message_id: msg, reaction: [{ type: "emoji", emoji }] });
+// «засчитано» — 👍, но у кого-то из участников своя реакция (27.10, по нику автора похода). Только из списка реакций Telegram
+const OK_EMOJI: Record<string, string> = { "Леха": "🤓", "Шурик": "🤡" };
+const okEmoji = (nick?: string) => (nick && OK_EMOJI[nick]) || "👍";
 // опрос по просьбе владельца (bot_actions): {question, options, multiple, anonymous} — по умолчанию анонимный, как в Telegram
 const poll = (chat: number, p: Any) => tg("sendPoll", {
   chat_id: chat, question: String(p?.question ?? ""), options: (p?.options ?? []).map((t: unknown) => ({ text: String(t) })),
@@ -499,6 +502,8 @@ async function renderCard(st: Any, lg: Any) {
       ...(askSched ? [Object.entries(SCHED_RU).map(([s, l]) => btn(`${st.priceWeekend === s ? "✓ " : ""}${l}`, `pw:${s}`))] : []),
       // экспресс или долгая — выбор виден прямо на кнопках (галочка), как у типа бани
       [btn(`${st.dur == null || st.dur <= LONG ? "✓ " : ""}⚡ Экспресс`, "d:120"), btn(`${st.dur != null && st.dur > LONG ? "✓ " : ""}🔥 Долгая`, "d:180")],
+      // ждём цифру цены — отправить можно только без неё, явно
+      ...(st.awaitPriceFor ? [[btn(skipPriceLabel(st), "pn")]] : []),
       [btn("✅ В Комиссию", "send")], pick.length ? [btn("🏠 Баня", "eb")] : [btn("🏠 Баня", "eb"), btn("👥 Компания", "ec")], [btn("✖️ Отмена", "x")]];
   return { text: `${who}, всё верно?\n\n${lines.join("\n")}`, kb };
 }
@@ -572,6 +577,7 @@ async function dropPriceAsk(st: Any, clear = true) {
   st.awaitPriceMsg = null;
   if (clear) { st.awaitPriceFor = null; st.priceInDm = false; }
 }
+const skipPriceLabel = (st: Any) => st.awaitPriceFor === "beer" ? "Без цены пива" : "Без цены";
 function priceAskLine(st: Any, label: string) {
   if (st.chatType === "private") return `${label}? Напиши цифру.`;
   return st.priceInDm ? `${label} — спросил в личке, ответь там цифрой.` : `${label} — ответь цифрой на вопрос ниже.`;
@@ -1055,7 +1061,7 @@ async function siteVisit(visitId: number): Promise<boolean> {
 }
 
 // Решение Комиссии — в Telegram, одинаково для кнопок бота, сайта и правки заявки (оттуда зовёт триггер: ?verdict=<id>):
-// 👍/💩 на пост и карточку, итог отдельным сообщением в ответ на пост, в личке Комиссии — кто решил, кнопки убираем.
+// 👍 (или своя реакция участника, OK_EMOJI)/💩 на пост и карточку, итог отдельным сообщением в ответ на пост, в личке Комиссии — кто решил, кнопки убираем.
 async function announce(visitId: number): Promise<boolean> {
   const { data: v } = await sb.from("visits")
     .select("status, source, bath_id, reject_reason, moderated_at, baths(name), author:players!visits_created_by_fkey(nick), judge:players!visits_moderated_by_fkey(nick)")
@@ -1077,6 +1083,7 @@ async function announce(visitId: number): Promise<boolean> {
   }
   if (!post) return false;
   const ok = v.status === "ok", vv = v as Any;
+  const mark = ok ? okEmoji(vv.author?.nick) : "💩";
   if (ok) await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
 
   const line = await verdictLine(visitId);
@@ -1091,9 +1098,9 @@ async function announce(visitId: number): Promise<boolean> {
   // живая карточка: 👍/💩 на пост и карточку, решение с очками — правкой карточки, новых сообщений в чате нет
   if (post.card_msg && post.card_text) {
     await sb.from("bot_posts").update({ verdict_text: line }).eq("visit_id", visitId);
-    if (post.source_msg && post.source_msg !== post.card_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
-    await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
-    if (post.league_msg) await react(post.league_chat, post.league_msg, ok ? "👍" : "💩");
+    if (post.source_msg && post.source_msg !== post.card_msg) await react(post.chat_id, post.source_msg, mark);
+    await react(post.chat_id, post.card_msg, mark);
+    if (post.league_msg) await react(post.league_chat, post.league_msg, mark);
     await refreshCard(visitId);
     return true;
   }
@@ -1104,8 +1111,8 @@ async function announce(visitId: number): Promise<boolean> {
     const ptsLine = ok && pts?.length ? ": " + pts.map((p: Any) => `${esc(p.nick)} +${p.total}`).join(" · ") : "";
     // ответом на пост видно, о каком походе речь; отдельному сообщению (старые походы с сайта) — пометка
     const where = v.source === "site" && !post.source_msg ? " (отмечен на сайте)" : "";
-    if (post.source_msg) await react(post.chat_id, post.source_msg, ok ? "👍" : "💩");
-    if (post.card_msg) await react(post.chat_id, post.card_msg, ok ? "👍" : "💩");
+    if (post.source_msg) await react(post.chat_id, post.source_msg, mark);
+    if (post.card_msg) await react(post.chat_id, post.card_msg, mark);
     const r = await send(post.chat_id, ok
       ? `👍 Комиссия засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${where}${ptsLine}`
       : `💩 Комиссия не засчитала поход${who ? " " + esc(who) : ""} в «${bath}»${where}.`
@@ -1787,6 +1794,11 @@ async function onCallback(cq: Any) {
   }
   if (data === "send" && (st.companyOk === false || st.picking)) return answer(cq.id, "Сначала отметь, кто был в бане, или нажми «🙋 Один»", true);
   if (data === "send" && st.dup && !st.dupOk) return answer(cq.id, "Сначала ответь: это другой поход или тот же", true);
+  // ждём цифру цены — не отпускаем: после отправки черновика нет, и цифра в личке стала бы новым походом (27.10, Hamanoyu)
+  if (data === "send" && st.awaitPriceFor) {
+    const where = st.chatType === "private" ? "напиши" : st.priceInDm ? "напиши в личке" : "ответь на вопрос";
+    return answer(cq.id, `Сначала ${where} цифру ${st.awaitPriceFor === "beer" ? "цены пива" : "цены входа"} или нажми «${skipPriceLabel(st)}»`, true);
+  }
   if (data === "send") return sendDraft(cq, tgId);
   await answer(cq.id);
   const lg = await league();
@@ -1841,6 +1853,8 @@ async function onCallback(cq: Any) {
   } else if (data.startsWith("pb:") && st.priceStep === "before" && BEFORE_HOURS.includes(Number(data.slice(3)))) {
     st.priceBefore = `${data.slice(3).padStart(2, "0")}:00`;
     st.priceStep = "currency";
+  } else if (data === "pn" && st.awaitPriceFor) {
+    await dropPriceAsk(st);   // цифру не ждём — вопрос в чате убираем, отправлять можно
   } else if (data === "pz") {
     st.priceStep = null; st.priceWeekend = null; st.priceBefore = null;   // пропустили мастер цены — можно начать заново кнопкой
   } else if (data.startsWith("pc:") && st.priceStep === "currency" && CUR_BTNS.some(([c]) => c === data.slice(3))) {
