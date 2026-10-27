@@ -76,6 +76,14 @@ window.EBLData = (() => {
   // «2026-09-26T11:42» по Москве
   const mskLocal = (iso) => new Date(new Date(iso).getTime() + 3 * 3600e3).toISOString().slice(0, 16);
   const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+  // витрина: пары и часы бани в localStorage — как на сервере, не изменилось — null
+  function localSchedule(bathId, kind, rec) {
+    const all = store.get("schedule", {}), cur = all[bathId] || { steam: null, hours: null };
+    const { at, ...last } = cur[kind] || {};
+    if (JSON.stringify(last) === JSON.stringify(rec)) return null;
+    all[bathId] = { ...cur, [kind]: { ...rec, at: new Date().toISOString() } }; store.set("schedule", all);
+    return Date.now();
+  }
   // PostgREST отдаёт не больше 1000 строк (24.10: в Сверке 1322 предложения, сайт видел 1000) — читаем страницами
   async function pagedAll(make) {
     const out = [];
@@ -274,6 +282,20 @@ window.EBLData = (() => {
         store.set("beerPrices", cache.beerPrices); return rec.id;
       }
       return check(await sb.rpc("submit_beer_price", { p_bath_id: bathId, p_price: price, p_currency: currency || null }));
+    },
+
+    // пары и часы работы (27.10): в силе последняя запись своего вида; не изменилось — сервер новую строку не пишет, вернёт null
+    async bathSchedule(bathId) {
+      if (!live) return store.get("schedule", {})[bathId] || null;
+      return check(await sb.rpc("bath_schedule_of", { p_bath: bathId }));
+    },
+    async submitBathSteam(bathId, times, everyMin) {
+      if (!live) return localSchedule(bathId, "steam", { times: [...new Set(times)].sort(), every_min: everyMin || null });
+      return check(await sb.rpc("submit_bath_steam", { p_bath_id: bathId, p_times: times, p_every_min: everyMin || null }));
+    },
+    async submitBathHours(bathId, open, close) {
+      if (!live) return localSchedule(bathId, "hours", { open, close });
+      return check(await sb.rpc("submit_bath_hours", { p_bath_id: bathId, p_open: open, p_close: close }));
     },
 
     // поход: v = { bathId | newBath, bathType (тип не размеченной бани со слов автора), date (МСК), dur, companions, lines, total, player, week }
