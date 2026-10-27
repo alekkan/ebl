@@ -29,12 +29,13 @@
 ## Рабочее место — настроить один раз
 
 Нужны `git`, [GitHub CLI](https://cli.github.com) `gh`, [Supabase CLI](https://supabase.com/docs/guides/cli), Docker Desktop,
-Python 3, Google Chrome (сайт тестируется в настоящем Chrome) и — чтобы выкладывать сайт — [Yandex Cloud CLI](https://yandex.cloud/ru/docs/cli/quickstart) `yc`.
+Python 3 и — чтобы выкладывать сайт — [Yandex Cloud CLI](https://yandex.cloud/ru/docs/cli/quickstart) `yc`.
 
 ```bash
 gh auth login                                     # под своим аккаунтом GitHub
 gh repo clone alekkan/ebl && cd ebl
-pip3 install playwright                           # браузерные тесты сайта (Chrome берётся установленный, браузеры playwright не нужны)
+pip3 install playwright                           # браузерные тесты сайта
+python3 -m playwright install chromium            # их браузер (свой Chromium, а не установленный Chrome)
 supabase login
 supabase link --project-ref yeerkfdgmhcmvdqzaoio  # нужен доступ к проекту в Supabase — его выдаёт Леха
 curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash   # yc — для выкладки сайта
@@ -115,7 +116,7 @@ scripts/check.sh
 
 - бэкенд: вход, права, поход → модерация → очки;
 - бот: разбор постов;
-- сайт в Chrome: за гостя, участника и Комиссию, на телефоне и в режиме витрины.
+- сайт в Chromium: за гостя, участника и Комиссию, на телефоне и в режиме витрины.
 
 Любая ошибка в консоли браузера, упавший сценарий или вылезшая за экран вёрстка — провал. Логи лежат в `/tmp/ebl-<набор>.log`.
 
