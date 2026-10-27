@@ -212,5 +212,5 @@ docker exec supabase_db_ebl psql -U postgres -c "select cron.unschedule(jobname)
 docker exec supabase_db_ebl psql -U postgres -c "update settings set value = '\"http://supabase_kong_ebl:8000/functions/v1\"' where key = 'functions_url'"   # триггер вердикта — на локального бота
 cp supabase/functions/.env.example supabase/functions/.env
 supabase functions serve --env-file supabase/functions/.env
-scripts/check.sh                                    # бэкенд, бот и сайт в Chrome (нужен pip3 install playwright)
+scripts/check.sh                                    # бэкенд, бот и сайт в Chromium (нужен playwright + его chromium)
 ```

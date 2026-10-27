@@ -243,7 +243,8 @@ def all_views(s, label, mobile=False):
 
 with sync_playwright() as pw:
     url = serve()
-    browser = pw.chromium.launch(channel="chrome", headless=True)
+    # Chromium из playwright, не установленный Chrome: тот обновляется сам и с Python под Intel идёт через Rosetta (в 20 раз медленнее)
+    browser = pw.chromium.launch(headless=True)
     link("Шурик", "shurik_tg"); link("Витёк", "vitek_tg")
     shurik, vitek = session(2002, "Shurik_TG"), session(3003, "vitek_tg")
     # как на бою: портал считает текущую неделю (иначе засчитанный поход этой недели не даст очков)
