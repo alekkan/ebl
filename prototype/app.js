@@ -602,7 +602,7 @@
         <section>
           <h3>Пары и часы работы</h3>
           <div class="price-now" id="dSched"><p class="hint">Пока никто не указал${member ? "" : "."}</p></div>
-          ${member ? `<button type="button" class="addbtn" id="shOpen" ${cardOpen.has("sh") ? "hidden" : ""}>+ Указать пары и часы</button>
+          ${member ? `<button type="button" class="addbtn" id="shOpen" ${cardOpen.has("sh") ? "hidden" : ""}>+ Указать пары${hoursKnown(id) ? "" : " и часы"}</button>
           <form class="prform" id="shForm" ${cardOpen.has("sh") ? "" : "hidden"}>
             <span class="hint">Как часто пары?</span>
             <div class="seg" id="shEvery" role="radiogroup" aria-label="Как часто пары">
@@ -612,17 +612,20 @@
             </div>
             <div class="row sh-row" id="shRange" hidden>
               <span class="hint sh-q">Со скольки до скольки?</span>
-              <label class="hint sh-t">с <input class="inp" id="shFrom" type="time"></label>
-              <label class="hint sh-t">до <input class="inp" id="shTo" type="time"></label>
+              <label class="hint sh-t">с <select class="inp" id="shFrom">${timeOpts}</select></label>
+              <label class="hint sh-t">до <select class="inp" id="shTo">${timeOpts}</select></label>
             </div>
             <div class="chips sh-pick" id="shPick" role="group" aria-label="Часы паров" hidden>${Array.from({ length: 24 }, (_, h) => {
               const t = String(h).padStart(2, "0") + ":00"; return `<button type="button" data-t="${t}" aria-pressed="false">${t}</button>`;
             }).join("")}</div>
             <p class="hint" id="shPreview" hidden></p>
-            <span class="hint">Часы работы</span>
-            <div class="row sh-row">
-              <label class="hint sh-t">с <input class="inp" id="shOpenT" type="time"></label>
-              <label class="hint sh-t">до <input class="inp" id="shCloseT" type="time"></label>
+            <button type="button" class="linkbtn" id="shHoursEdit" style="justify-self:start" hidden>изменить часы работы</button>
+            <div class="sh-hours" id="shHours">
+              <span class="hint">Часы работы</span>
+              <div class="row sh-row">
+                <label class="hint sh-t">с <select class="inp" id="shOpenT">${timeOpts}</select></label>
+                <label class="hint sh-t">до <select class="inp" id="shCloseT">${timeOpts}</select></label>
+              </div>
             </div>
             <button class="btn solid" type="submit" style="justify-self:start">Сохранить</button>
           </form>` : ""}
@@ -669,10 +672,10 @@
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
     }
     if (!schedCache.has(id)) schedCache.set(id, D.bathSchedule(id).catch(() => { schedCache.delete(id); return null; }));
-    schedCache.get(id).then((sc) => renderSchedule(id, sc));
+    schedCache.get(id).then((sc) => { schedNow.set(id, sc); renderSchedule(id, sc); });
     if (D.live) {
       if (!factCache.has(id)) factCache.set(id, D.bathFacts(id).catch(() => { factCache.delete(id); return null; }));
-      factCache.get(id).then((f) => renderFacts(id, f));
+      factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); });
     }
     $(".x", d).onclick = closeBath;
     // тип бани — Комиссия меняет прямо в карточке, но только после подтверждения: от типа зависят очки за все походы сюда (18.10)
@@ -792,18 +795,21 @@
         preview();
       }));
       $$("#shPick button", d).forEach((x) => x.addEventListener("click", () => x.setAttribute("aria-pressed", String(x.getAttribute("aria-pressed") !== "true"))));
-      ["#shFrom", "#shTo"].forEach((q) => $(q, d).addEventListener("input", preview));
+      ["#shFrom", "#shTo"].forEach((q) => $(q, d).addEventListener("change", preview));
+      $("#shHoursEdit", d).addEventListener("click", () => editHours(id));
+      syncHours(id);
       shForm.addEventListener("submit", async (e) => {
         e.preventDefault();
-        const ts = every ? times() : [], open = $("#shOpenT", d).value, close = $("#shCloseT", d).value;
+        const withHours = !$("#shHours", d).hidden;
+        const ts = every ? times() : [], open = withHours ? $("#shOpenT", d).value : "", close = withHours ? $("#shCloseT", d).value : "";
         if (every && !ts.length) { toast(every === "other" ? "Отметь часы паров" : "Укажи, со скольки до скольки пары"); return; }
         if (!!open !== !!close) { toast("Часы работы — и открытие, и закрытие"); return; }
         if (!ts.length && !open) { toast("Укажи пары или часы работы"); return; }
         try {
           const a = ts.length ? await D.submitBathSteam(id, ts, every === "other" ? null : +every) : null;
           const b = open ? await D.submitBathHours(id, open, close) : null;
-          schedCache.delete(id);
-          if (a || b) { toast("Сохранил — спасибо"); cardOpen.delete("sh"); openBath(id); }
+          schedCache.delete(id); schedNow.delete(id);
+          if (a || b) { toast("Сохранил — спасибо"); cardOpen.delete("sh"); cardOpen.delete("shh"); openBath(id); }
           else toast("Так уже записано — не дублирую");
         } catch (err) { toast("Не сохранилось: " + err.message); }
       });
@@ -898,11 +904,13 @@
     if (box) {
       // часы: главное — сегодня; всё расписание — по нажатию
       const byDay = hoursByDay(f.hours), today = byDay?.[(new Date().getDay() + 6) % 7];
+      const edit = member ? ` <button type="button" class="linkbtn" data-hedit>изменить</button>` : "";
       const hours = !f.hours ? "" : byDay
-        ? `<p>${icon("clock")}<span>${today ? `<b>Сегодня ${today === "закрыто" ? "закрыто" : today}</b>` : "<b>Сегодня не работает</b>"}
+        ? `<p id="dHoursRow">${icon("clock")}<span>${today ? `<b>Сегодня ${today === "закрыто" ? "закрыто" : today}</b>` : "<b>Сегодня не работает</b>"}
             <button type="button" class="linkbtn" id="dHoursBtn" aria-expanded="false">все часы</button>
+${edit}
             <span class="d-hours" id="dHours" hidden>${hoursRows(byDay).map(esc).join("<br>")}</span></span></p>`
-        : `<p>${icon("clock")}<span class="d-clamp">${esc(tidy(f.hours))}</span></p>`;
+        : `<p id="dHoursRow">${icon("clock")}<span><span class="d-clamp">${esc(tidy(f.hours))}</span>${edit}</span></p>`;
       const gender = tidy(f.gender_days);
       const tags = [...new Set([...(f.sections || []), ...(f.amenities || [])].map((x) => String(x).trim()).filter(Boolean))].slice(0, 10);
       const q = encodeURIComponent([byId.get(id)?.name, f.address].filter(Boolean).join(", "));
@@ -918,6 +926,8 @@
       box.hidden = false;
       const hb = $("#dHoursBtn", box);
       if (hb) hb.onclick = () => { const h = $("#dHours", box); h.hidden = !h.hidden; hb.textContent = h.hidden ? "все часы" : "свернуть"; hb.setAttribute("aria-expanded", String(!h.hidden)); };
+      $("[data-hedit]", box)?.addEventListener("click", () => editHours(id));
+      syncHours(id);
     }
     // цена с сайта: первая — крупно, остальные варианты — под «ещё», откуда — подписью
     const ps = $("#dPriceSite");
@@ -945,10 +955,38 @@
       : ts.join(" · ");
     const at = (x) => `<small>${dayLabel(mskIso(x.at))}</small>`;
     box.innerHTML = (st ? `<p><span>♨️ <b>Пары</b> ${esc(steam)}</span>${at(st)}</p>` : "")
-      + (h ? `<p><span>${icon("clock")} <b>Работает</b> ${h.open === h.close ? "круглосуточно" : `${esc(h.open)}–${esc(h.close)}`}</span>${at(h)}</p>` : "");
+      + (h ? `<p><span>${icon("clock")} <b>Работает</b> ${h.open === h.close ? "круглосуточно" : `${esc(h.open)}–${esc(h.close)}`}${member ? ` <button type="button" class="linkbtn" data-hedit>изменить</button>` : ""}</span>${at(h)}</p>` : "");
+    $("[data-hedit]", box)?.addEventListener("click", () => editHours(id));
+    syncHours(id);
+  }
+  // часы работы уже известны — из сверки (Яндекс, сайт бани) или от участника: в форме их не спрашиваем, только «изменить» (28.10)
+  const schedNow = new Map(), factNow = new Map();   // что уже пришло: промисы из кэшей синхронно не прочитать
+  const known = (m, id, k) => !!m.get(id)?.[k];
+  const hoursKnown = (id) => known(schedNow, id, "hours") || known(factNow, id, "hours");
+  function syncHours(id) {
+    if (openId !== id) return;
+    const has = hoursKnown(id), editing = cardOpen.has("shh");
+    const box = $("#shHours"), btn = $("#shHoursEdit"), add = $("#shOpen");
+    if (box) box.hidden = has && !editing;
+    if (btn) btn.hidden = !has || editing;
+    if (add) add.textContent = "+ Указать пары" + (has ? "" : " и часы");
+    // свои часы участников новее сверки — часы из сверки не показываем, чтобы не было двух разных
+    const row = $("#dHoursRow"); if (row) row.hidden = known(schedNow, id, "hours");
+  }
+  function editHours(id) {
+    cardOpen.add("sh"); cardOpen.add("shh");
+    const f = $("#shForm"); if (!f) return;
+    f.hidden = false; if ($("#shOpen")) $("#shOpen").hidden = true;
+    const h = schedNow.get(id)?.hours;
+    if (h && !$("#shOpenT").value) { $("#shOpenT").value = h.open; $("#shCloseT").value = h.close; }
+    syncHours(id); $("#shOpenT").focus();
   }
   let cardFor = null;
-  const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv», «sh») — до перехода к другой бане
+  const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv», «sh», «shh» — поля часов работы) — до перехода к другой бане
+  // время пар и часов работы — только :00 и :30 (28.10): других минут на деле не бывает, а выбрать из списка быстрее
+  const timeOpts = `<option value="">—</option>` + Array.from({ length: 48 }, (_, i) => {
+    const t = String(i >> 1).padStart(2, "0") + (i % 2 ? ":30" : ":00"); return `<option value="${t}">${t}</option>`;
+  }).join("");
   const schedCache = new Map();   // пары и часы бани — просим при открытии карточки
   function renderPhotos(id, ps) {
     const box = $("#dPhotos"); if (!box || openId !== id || !ps.length) return;
@@ -2923,7 +2961,7 @@
     const retyped = act === "reopen" && (cat || []).some((x) => x.prev_type && list.some((l) => l.id === x.id));
     await D.catalogDecide(list.map((p) => p.id), act, reason);
     const fresh = await D.catalog();
-    cat = fresh; catAsk = null; renderCat(); factCache.clear();   // «О бане» в карточках — по новым решениям
+    cat = fresh; catAsk = null; renderCat(); factCache.clear(); factNow.clear();   // «О бане» в карточках — по новым решениям
     if (act !== "reject" && act !== "keep") refreshData().then(renderCat).catch(() => {});
     if (retyped) recomputeSoon();
   }
