@@ -451,6 +451,7 @@ h3 { font: 600 12px/1 var(--body); text-transform: uppercase; letter-spacing: .0
 .prform .sh-t .inp { flex: 0 0 auto; width: auto; }
 .prform .sh-row { justify-content: flex-start; gap: 8px 14px; }   /* «с … до …» рядом, а не по краям */
 .prform .sh-q { flex-basis: 100%; }
+.sh-hours { display: grid; gap: 10px; }   /* часы работы в форме паров — прячутся целиком, если уже известны */
 .chips.sh-pick { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }   /* 24 часа — 4 ровных ряда */
 .chips.sh-pick button { justify-content: center; padding: 6px 0; font-size: 13px; }
 #dSched .ic { width: 15px; height: 15px; vertical-align: -2px; }

@@ -448,6 +448,7 @@ with sync_playwright() as pw:
         check("цена из формы похода сохранилась", sql(f"select count(*) from bath_prices where bath_id = {bath}") == "1")
         check("цена пива из формы похода сохранилась", sql(f"select count(*) from bath_beer_prices where bath_id = {bath}") == "1")
         sql(f"delete from bath_prices where bath_id = {bath}"); sql(f"delete from bath_beer_prices where bath_id = {bath}"); sql(f"delete from bath_schedule where bath_id = {bath}")
+        sql("delete from catalog_proposals where run = 'test'")   # часы из сверки от упавшего прогона спрятали бы поля часов в форме пар
         # точка примерная — форма похода просит ссылку и ставит точку сразу, не дожидаясь отправки похода
         orig = sql(f"select lat || ',' || lng || ',' || precision from baths where id = {bath}")
         sql(f"update baths set precision = 'city' where id = {bath}")
@@ -562,15 +563,19 @@ with sync_playwright() as pw:
         # 27.10: пары и часы работы — «каждый час» раскладывается из «с — до», «другое» — часы отмечает сам, повтор не дублирует
         sched_rows = f"select count(*) from bath_schedule where bath_id = {bath}"
         s.page.click("#shOpen"); s.page.click('#shEvery button[data-e="60"]')
-        s.page.fill("#shFrom", "14:00"); s.page.fill("#shTo", "17:00")
+        check("время — только :00 и :30 (28.10)", s.js("() => ['shFrom', 'shTo', 'shOpenT', 'shCloseT'].every((x) => { const o = [...document.getElementById(x).options].filter((o) => o.value); return o.length === 48 && o.every((o) => /:(00|30)$/.test(o.value)); })"))
+        s.page.select_option("#shFrom", "14:00"); s.page.select_option("#shTo", "17:00")
         check("«каждый час с 14 до 17» — сайт сам показывает пары", s.js("() => document.getElementById('shPreview').innerText.includes('14:00 · 15:00 · 16:00 · 17:00')"))
-        s.page.fill("#shOpenT", "10:00"); s.page.fill("#shCloseT", "23:00")
+        s.page.select_option("#shOpenT", "10:00"); s.page.select_option("#shCloseT", "23:00")
         s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
         check("пары и часы работы сохранились", sql(sched_rows) == "2", sql(sched_rows))
         check("…пары — списком времени", sql(f"select times::text from bath_schedule where bath_id = {bath} and kind = 'steam'") == "{14:00:00,15:00:00,16:00:00,17:00:00}")
         check("карточка показывает пары и часы", s.js("() => { const t = document.getElementById('dSched').innerText; return t.includes('каждый час с 14:00 до 17:00') && t.includes('10:00–23:00') }"),
               s.js("() => document.getElementById('dSched').innerText"))
-        s.page.click("#shOpen"); s.page.click('#shEvery button[data-e="60"]'); s.page.fill("#shFrom", "14:00"); s.page.fill("#shTo", "17:00")
+        s.page.click("#shOpen")
+        check("часы работы уже есть — в форме их не спрашиваем, только «изменить»",
+              s.js("() => document.getElementById('shHours').hidden && !document.getElementById('shHoursEdit').hidden && document.getElementById('shOpen').textContent === '+ Указать пары'"))
+        s.page.click('#shEvery button[data-e="60"]'); s.page.select_option("#shFrom", "14:00"); s.page.select_option("#shTo", "17:00")
         s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
         check("те же пары ещё раз — не дублируем", sql(sched_rows) == "2", sql(sched_rows))
         s.page.click('#shEvery button[data-e="other"]')
@@ -579,6 +584,11 @@ with sync_playwright() as pw:
         check("«другое» — отмеченные часы, новая запись, старая осталась", sql(sched_rows) == "3", sql(sched_rows))
         check("карточка показывает свежие пары", s.js("() => document.getElementById('dSched').innerText.includes('12:00 · 15:00 · 19:00')"),
               s.js("() => document.getElementById('dSched').innerText"))
+        s.page.click("#dSched [data-hedit]")
+        check("«изменить» у часов — поля открыты и заполнены нынешними", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden && document.getElementById('shOpenT').value === '10:00'"))
+        s.page.select_option("#shOpenT", "09:30"); s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
+        check("…новые часы — новой записью", sql(f"select open_time::text from bath_schedule where bath_id = {bath} and kind = 'hours' order by id desc limit 1") == "09:30:00"
+              and s.js("() => document.getElementById('dSched').innerText.includes('09:30–23:00')"), s.js("() => document.getElementById('dSched').innerText"))
         s.clean("участник после отправки похода")
         s.close()
 
@@ -888,6 +898,7 @@ with sync_playwright() as pw:
         sql(f"update baths set lat = {lat0}, lng = {lng0}, precision = {prec0} where id = {own_b}")
         # принятое из сверки видно в карточке бани всем — «О бане»: часы, дни, цена, ссылки и откуда это (19.10)
         sql(f"update catalog_proposals set status = 'accepted' where id = {c_sure}")
+        sql(f"delete from bath_schedule where bath_id = {cb_id}")   # часы от участника (выше, та же баня) показались бы вместо часов из сверки
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{cb_id}"]'); s.page.wait_for_selector("#dInfo:not([hidden])", timeout=8000)
@@ -896,6 +907,9 @@ with sync_playwright() as pw:
                 && /Сегодня 8–22/.test(i) && /мужские пн, ср/.test(i) && !/по 2ГИС/.test(i) && document.querySelectorAll('#dInfo .d-tags span').length === 2
                 && document.querySelectorAll('#dInfo .d-links a').length === 3 && document.querySelectorAll('#dInfo .d-links .l-grp').length === 2
                 && document.getElementById('dHours').hidden && getComputedStyle(document.querySelector('#drawer .w-acts')).display === 'block'; }"""))
+        check("часы из сверки есть — форма пар их не спрашивает", s.js("() => document.getElementById('shOpen').textContent === '+ Указать пары'"))
+        s.page.click("#dInfo [data-hedit]")
+        check("…а «изменить» рядом с ними открывает поля часов", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden"))
         s.page.click("#dHoursBtn")
         check("…«все часы» — расписание по дням", s.js("() => !document.getElementById('dHours').hidden && /пн–вс 8–22/.test(document.getElementById('dHours').innerText)"))
         check("цена с сайта — в «Цене»: только вход (кабины и аренду не показываем), первая крупно, остальное под «ещё»",
