@@ -269,6 +269,8 @@
     history.replaceState(null, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
   }
   $$(".nav button").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
+  // веник в шапке — на стартовый раздел с картой, откуда бы ни нажали
+  $(".brand").addEventListener("click", (e) => { e.preventDefault(); show("map"); scrollTo({ top: 0, behavior: "smooth" }); });
 
   // ---------- карта ---------- (сама карта и подложка — в начале, до данных)
   const cluster = L.markerClusterGroup({ disableClusteringAtZoom: 13, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true });
