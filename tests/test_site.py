@@ -1047,6 +1047,8 @@ with sync_playwright() as pw:
         s.nav_free("«Хозяева» на телефоне во время приближения")
         s.page.click('.nav [data-view="table"]', timeout=3000)
         check("…и меню переключает вкладку, не дожидаясь конца анимации", s.js("() => !document.getElementById('view-table').hidden"))
+        s.page.click(".brand"); s.page.wait_for_timeout(300)
+        check("веник в шапке возвращает на карту", s.js("() => !document.getElementById('view-map').hidden && location.hash === '#map'"))
         s.close()
         s = Site(browser, url, sess=vitek, mobile=True, name="mobile-commission")
         s.view("dir")
