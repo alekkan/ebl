@@ -976,9 +976,9 @@ sql("""update settings set value = '["Шурик"]' where key = 'point_asks'""")
 seen = len(TELEGRAM.calls)
 n1 = asks_run()
 q = dms(seen, 909)
-check("проба на одном: Шурику одна баня — где был чаще, с регионом, походами, датой последнего и кнопками; Дену — ничего",
+check("проба на одном: Шурику одна баня — где был чаще, с регионом, походами, датой последнего и кнопками (без «Не спрашивай»); Дену — ничего",
       n1 == 1 and len(q) == 1 and "Тест-Сеунгвон" in q[0]["text"] and f"Корея · у тебя там 2 похода, последний — {ago3}." in q[0]["text"]
-      and "Пришли сюда" in q[0]["text"] and "pa:f:" in json.dumps(q[0].get("reply_markup")) and not dms(seen, 901), (n1, [p.get("text") for p in q]))
+      and "Пришли сюда" in q[0]["text"] and "pa:f:" in json.dumps(q[0].get("reply_markup")) and "pa:s:" not in json.dumps(q[0].get("reply_markup")) and not dms(seen, 901), (n1, [p.get("text") for p in q]))
 check("пока не ответил — следующую не шлём", asks_run() == 0)
 ask1 = ask_of(ab1, "Шурик")
 seen = len(TELEGRAM.calls)
@@ -1042,7 +1042,7 @@ sql(f"update catalog_proposals set status = 'new' where bath_id = {ab1}"); sql(f
 sql(f"delete from point_asks where bath_id = {ab1}")
 seen = len(TELEGRAM.calls)
 asks_run()
-check("«🔕 Больше не спрашивай» — больше не пишем", sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
+check("«🔕 Больше не спрашивай» на старом сообщении — больше не пишем", sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
 sql("update settings set value = '\"off\"' where key = 'point_asks'"); sql("update players set no_point_asks = false")
 sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_id in ({ab1}, {ab2}, {ab3})")
 sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4}, {ab5})")
