@@ -3,7 +3,7 @@
 // Ссылка Google на место без координат (короткая maps.app.goo.gl раскрывается в /maps/place/<название, адрес>/…) —
 // ищем адрес из самой ссылки. Геокодер OpenStreetMap edge-функциям не отвечает — тогда спрашиваем через сервер базы
 // (useDbGeocoder: pg_net, geo_search/geo_result).
-import { NOMINATIM } from "./hosts.ts";
+import { NOMINATIM, PHOTON } from "./hosts.ts";
 
 // deno-lint-ignore no-explicit-any
 let db: any = null;
@@ -97,6 +97,29 @@ async function nominatimSearch(q: string): Promise<any[] | null> {
   return null;
 }
 
+// Photon (тот же OpenStreetMap, поиск помягче) — когда Nominatim не нашёл: 30.10 «2 Nolu Park Sokak, Rize» Nominatim не знал,
+// Photon нашёл. Ответ — в виде Nominatim (lat, lon, addresstype, display_name), чтобы сверять одинаково
+async function photonSearch(q: string): Promise<any[] | null> {
+  let j: any = null;
+  try {
+    const r = await fetch(`${PHOTON}/api?` + new URLSearchParams({ q, limit: "3" }), { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } });
+    if (r.ok) j = await r.json();
+  } catch { /* через базу */ }
+  if (!j?.features && db) {
+    const { data: id } = await db.rpc("geo_photon", { p_q: q });
+    for (let i = 0; id != null && i < 16 && !j?.features; i++) {
+      await new Promise((res) => setTimeout(res, 500));
+      const r = (await db.rpc("geo_result", { p_id: id })).data?.[0];
+      if (r) { try { j = r.status === 200 ? JSON.parse(r.content) : {}; } catch { j = {}; } }
+    }
+  }
+  return (j?.features ?? []).map((f: any) => {
+    const p = f.properties ?? {}, [lon, lat] = f.geometry?.coordinates ?? [];
+    return { lat: String(lat), lon: String(lon), addresstype: p.type, category: p.osm_key, class: p.osm_key,
+      display_name: [p.name, [p.street, p.housenumber].filter(Boolean).join(" "), p.district, p.city, p.state, p.country].filter(Boolean).join(", ") };
+  });
+}
+
 // латиница и кириллица к одному виду: «Bansko» = «Банско», «Asanitsa» = «Асаница» — чтобы сверить находку с адресом Google
 const LAT: Record<string, string> = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i", й: "y", к: "k",
   л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sht",
@@ -112,12 +135,14 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
   // «село Архыз», «пос. Мозжинка»: с типом населённого пункта OpenStreetMap адрес не находит, без него — находит (30.10)
   const noKind = noBuilding.replace(/(^|[\s,])(село|с\.|посёлок|поселок|пос\.|п\.|пгт|деревня|дер\.|станица|ст-ца|хутор|аул|город|г\.)\s*(?=\p{Lu})/gu, "$1");
   const variants = [...new Set([clean, noBuilding, noBuilding.replace(/\b(ул\.?|улица)\s*/gi, ""), noKind])].filter((v) => v.length > 4);
-  for (const v of variants) {
-    for (const hit of (await nominatimSearch(v)) ?? []) {
-      if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) continue;
-      if (must.length && !must.every((w) => flat(hit.display_name ?? "").includes(flat(w)))) continue;
-      const p = valid(+hit.lat, +hit.lon);
-      if (p && (!near || km(p, near) <= maxKm)) return p;
+  for (const search of [nominatimSearch, photonSearch]) {
+    for (const v of variants) {
+      for (const hit of (await search(v)) ?? []) {
+        if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) continue;
+        if (must.length && !must.every((w) => flat(hit.display_name ?? "").includes(flat(w)))) continue;
+        const p = valid(+hit.lat, +hit.lon);
+        if (p && (!near || km(p, near) <= maxKm)) return p;
+      }
     }
   }
   return null;
@@ -125,19 +150,24 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
 
 // Адрес из ссылки Google по-английски («12 Asanitsa Str, 2770 Bansko, Bulgaria») OpenStreetMap часто не находит (07.10),
 // а улицу без номера и «Str» с городом — находит («Asanitsa, Bansko, Bulgaria»). Варианты — от точного к общему.
+// Улица — по слову «улица» на любом языке; 30.10 в турецком адресе первой частью шло название дома («Yinsa Apartmanı»),
+// и его принимали за улицу. «NO:1/1» — номер дома по-турецки
+const STREET_WORD = /(^|[\s.])(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица|sokak|sokağı|sok|cadde|caddesi|cad|cd|bulvarı|calle|via|rua|straße|strasse)\.?(?![\p{L}])/iu;
 function placeVariants(place: string): { variants: string[]; must: string[] } {
   const parts = place.split(",").map((s) => s.trim()).filter(Boolean);
   const [name, ...rest] = parts;
   const clean = (s: string) => s.replace(/\b\d{3,6}\b/g, " ").replace(/^\s*\d+[a-zа-я]?\s+/i, " ")
     .replace(/\b(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица)\.?(?![\p{L}])/giu, " ").replace(/\s+/g, " ").trim();
   const cleaned = rest.map(clean).filter(Boolean);
-  const city = cleaned.length >= 2 ? cleaned[cleaned.length - 2] : cleaned[0] ?? "";
+  // город — перед страной; «Rize Merkez/Rize» (район/провинция) — последнее
+  const city = (cleaned.length >= 2 ? cleaned[cleaned.length - 2] : cleaned[0] ?? "").split("/").pop()!.trim();
   // сверка: в найденном должны быть город и улица из ссылки Google (если они там есть)
-  const street = cleaned.length >= 3 ? cleaned[0] : "";
+  const streetRaw = rest.find((p) => STREET_WORD.test(p))?.replace(/\s*\b(no|nr|№)\s*[:.]?\s*[\d/]+.*$/i, "").trim() ?? "";
+  const street = streetRaw ? clean(streetRaw) : cleaned.length >= 3 ? cleaned[0] : "";
   const must = [city, street].filter((w) => w && flat(w).length >= 3);
   return {
-    variants: [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : ""])]
-      .filter((q) => q.length >= 5),
+    variants: [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : "",
+      streetRaw && city ? `${streetRaw}, ${city}` : ""])].filter((q) => q.length >= 5),
     must,
   };
 }
@@ -153,8 +183,11 @@ async function googlePlace(url: string): Promise<string | null> {
       u = r.url || u;
     } catch { return null; }
   }
-  const m = (() => { try { return decodeURIComponent(u); } catch { return u; } })().match(/\/maps\/place\/([^/?]+)/);
-  return m ? m[1].replace(/\+/g, " ").trim() : null;
+  // раскодируем только само место: «NO:1%2F1» (номер дома по-турецки) иначе резал адрес на «/» (30.10)
+  const m = u.match(/\/maps\/place\/([^/?]+)/);
+  if (!m) return null;
+  const place = m[1].replace(/\+/g, " ");
+  try { return decodeURIComponent(place).trim(); } catch { return place.trim(); }
 }
 
 // заголовок страницы карточки организации: «Сандуновские бани, баня, Неглинная ул., 14, стр. 5, Москва — Яндекс Карты»

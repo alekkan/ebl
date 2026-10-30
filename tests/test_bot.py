@@ -891,6 +891,13 @@ reply_geo("https://www.google.com/maps/place/St+George+Ski+and+Holiday+Hotel,+12
 check("ссылка Google на место без координат — точка по адресу из ссылки (улица и город, если весь адрес не нашёлся)", point() == "41.8296,23.4734", point())
 sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
 sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+# 30.10: турецкий адрес — первой частью название дома («Yinsa Apartmanı»), улица — «2 Nolu Park Sokak NO:1/1»; её знает только Photon
+sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
+sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+reply_geo("https://www.google.com/maps/place/Elite+CLUB+SPA+Center+Rize,+Yinsa+Apartman%C4%B1,+Piri%C3%A7elebi,+2+Nolu+Park+Sokak+NO:1%2F1,+53020+Rize+Merkez%2FRize,+%D0%A2%D1%83%D1%80%D1%86%D0%B8%D1%8F/data=!4m2!3m1!1s0x40667ae6672e9957:0xbef0923dd3c00062", 83)
+check("ссылка Google на место в Турции — улица по слову Sokak, а не название дома; нашёл Photon, когда Nominatim не знает", point() == "41.0263,40.5172", point())
+sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
+sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
 reply_geo("https://www.google.com/maps/place/Lipa+Spa,+7+Lipa+Str,+2770+Bansko,+Bulgaria/data=!4m2!3m1!1s0x14ab:0x92", 84)
 check("сверка с адресом из ссылки Google: нашлась улица-тёзка в Софии, а в ссылке Банско — точку не ставим", point() == ",", point())
 reply_geo("St. George, Банско, Болгария", 83)
@@ -952,6 +959,8 @@ sql(f"delete from visits where id = {rv}"); sql(f"delete from baths where id = {
 
 print("Сверка: «где была баня?» в личку тем, кто был")
 # 30.10: агенты не нашли — спрашиваем участников по одной бане; ответил — следующая в ближайший заход, точка — сразу на карту
+# у Шурика бывает второй Telegram из test_backend (2002) — вопрос ушёл бы туда
+sql("delete from player_accounts where tg_id <> 909 and player_id = (select id from players where nick = 'Шурик')")
 sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
 sql("update players set no_point_asks = false")
 ab1 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Сеунгвон', 'ok', 'public', 'Корея', 37.5, 127.0, 'country') returning id").splitlines()[0]
@@ -976,9 +985,9 @@ sql("""update settings set value = '["Шурик"]' where key = 'point_asks'""")
 seen = len(TELEGRAM.calls)
 n1 = asks_run()
 q = dms(seen, 909)
-check("проба на одном: Шурику одна баня — где был чаще, с регионом, походами, датой последнего и кнопками; Дену — ничего",
+check("проба на одном: Шурику одна баня — где был чаще, с регионом, походами, датой последнего и кнопками (без «Не спрашивай»); Дену — ничего",
       n1 == 1 and len(q) == 1 and "Тест-Сеунгвон" in q[0]["text"] and f"Корея · у тебя там 2 похода, последний — {ago3}." in q[0]["text"]
-      and "Пришли сюда" in q[0]["text"] and "pa:f:" in json.dumps(q[0].get("reply_markup")) and not dms(seen, 901), (n1, [p.get("text") for p in q]))
+      and "Пришли сюда" in q[0]["text"] and "pa:f:" in json.dumps(q[0].get("reply_markup")) and "pa:s:" not in json.dumps(q[0].get("reply_markup")) and not dms(seen, 901), (n1, [p.get("text") for p in q]))
 check("пока не ответил — следующую не шлём", asks_run() == 0)
 ask1 = ask_of(ab1, "Шурик")
 seen = len(TELEGRAM.calls)
@@ -1042,7 +1051,7 @@ sql(f"update catalog_proposals set status = 'new' where bath_id = {ab1}"); sql(f
 sql(f"delete from point_asks where bath_id = {ab1}")
 seen = len(TELEGRAM.calls)
 asks_run()
-check("«🔕 Больше не спрашивай» — больше не пишем", sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
+check("«🔕 Больше не спрашивай» на старом сообщении — больше не пишем", sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
 sql("update settings set value = '\"off\"' where key = 'point_asks'"); sql("update players set no_point_asks = false")
 sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_id in ({ab1}, {ab2}, {ab3})")
 sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4}, {ab5})")

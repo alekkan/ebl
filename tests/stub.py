@@ -12,7 +12,7 @@ from email.policy import default as email_policy
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENV_FILE = ROOT / "supabase" / "functions" / ".env"
 EDGE_CONTAINER = "supabase_edge_runtime_ebl"
-KEYS = ("TELEGRAM_API_URL", "NOMINATIM_URL", "NPM_CDN_URL", "S3_URL")
+KEYS = ("TELEGRAM_API_URL", "NOMINATIM_URL", "PHOTON_URL", "NPM_CDN_URL", "S3_URL")
 # файл фото из Telegram: file_id «photo-…» — есть (крошечный JPEG), остальные — «invalid file_id», как у настоящего
 PHOTO_PREFIX = "photo-"
 jpeg = lambda tag: b"\xff\xd8\xff\xe0" + tag.encode() + b"\xff\xd9"
@@ -48,6 +48,13 @@ SEARCH = {
     "Банковская ул., 53, Архыз": [{"lat": "43.5647", "lon": "41.2662", "addresstype": "residential", "category": "highway",
                                   "display_name": "Банковская улица, Архыз, Архызское сельское поселение, Карачаево-Черкесская Республика, Россия"}],
     "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
+}
+
+# ответы Photon /api (30.10: турецкую улицу из ссылки Google Nominatim не знает, Photon — находит); остальное — пусто
+PHOTON = {
+    "2 Nolu Park Sokak, Rize": {"features": [{"geometry": {"coordinates": [40.5172, 41.0263]},
+        "properties": {"type": "house", "osm_key": "place", "housenumber": "2 C", "street": "2 Nolu Park Sokak", "district": "Piriçelebi",
+                       "city": "Rize", "state": "Rize", "country": "Türkiye"}}]},
 }
 
 
@@ -200,6 +207,8 @@ def start(token):
                     return self.reply(*reverse(urllib.parse.parse_qs(u.query)))
                 if what == "search":
                     return self.reply(200, SEARCH.get(urllib.parse.parse_qs(u.query).get("q", [""])[0], []))
+            if u.path == prefixes["PHOTON_URL"] + "/api":
+                return self.reply(200, PHOTON.get(urllib.parse.parse_qs(u.query).get("q", [""])[0], {"features": []}))
             if u.path.startswith(prefixes["NPM_CDN_URL"] + "/"):
                 data = npm_file(u.path[len(prefixes["NPM_CDN_URL"]) + 1:])
                 if data:
