@@ -1242,13 +1242,26 @@ const ASK_WAIT = 3 * 864e5;   // молчит три дня — баню спр�
 const ASK_KB = (id: number) => [[btn("🤷 Не помню", `pa:f:${id}`), btn("🙅 Не был там", `pa:n:${id}`)], [btn("🔕 Больше не спрашивай", `pa:s:${id}`)]];
 const mskDay = (t: number) => new Date(t + 3 * 3600e3).toISOString().slice(0, 10);
 const visitsWord = (n: number) => n % 10 === 1 && n % 100 !== 11 ? "поход" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "похода" : "походов";
-const askText = (b: Any, n: number, last: number | null) =>
-  `📍 Комиссия сверяет карту лиги — помоги с одной баней.\n\n`
+// когда был последний раз: с портала — дата; из таблицы — только сезон (дат и недель по баням там не было)
+const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+function lastSeen(date: string | null, year: number | null): string {
+  const thisYear = Number(mskDay(Date.now()).slice(0, 4));
+  if (date) {
+    const [y, m, d] = date.split("-").map(Number);
+    return `${d} ${MONTHS[m - 1]}${y === thisYear ? "" : ` ${y}`}`;
+  }
+  if (!year) return "";
+  return year === thisYear ? "в этом сезоне, ещё по таблице" : `в сезоне ${year}`;
+}
+const askText = (b: Any, n: number, date: string | null, year: number | null) => {
+  const when = lastSeen(date, year);
+  return `📍 Комиссия сверяет карту лиги — помоги с одной баней.\n\n`
   + `Где была <b>${esc(b.name)}</b>?\n${[b.region, b.country].filter(Boolean).map(esc).join(", ")}${b.region || b.country ? " · " : ""}`
-  + `у тебя там ${n} ${visitsWord(n)}${last ? `, последний — в ${last}` : ""}.\n`
+  + `у тебя там ${n} ${visitsWord(n)}${when ? `, ${n > 1 ? "последний — " : ""}${when}` : ""}.\n`
   + `На карте у неё пока примерная точка, а по картам агенты её не нашли.\n\n`
-  + `Ответь на это сообщение геопозицией (📎 → Геопозиция), ссылкой на Яндекс Карты, Google или 2ГИС или адресом. `
+  + `Пришли сюда геопозицию (📎 → Геопозиция), ссылку на Яндекс Карты, Google или 2ГИС или адрес. `
   + `Не помнишь — нажми кнопку, спрошу других. Больше одной бани в день не спрашиваю.`;
+};
 
 async function pointAsks(): Promise<number> {
   const { data: cfg } = await sb.from("settings").select("value").eq("key", "point_asks").maybeSingle();
@@ -1284,14 +1297,14 @@ async function pointAsks(): Promise<number> {
   let sent = 0;
   // сначала те, у кого выбор меньше: редкую баню не заберёт тот, кто может ответить и про другие
   for (const [pid, list] of [...byPlayer].sort((a, b) => a[1].length - b[1].length)) {
-    const c = list.filter((x) => !busyBath.has(x.bath) && bathOf.has(x.bath)).sort((a, b) => b.n - a.n || (b.last ?? 0) - (a.last ?? 0))[0];
+    const c = list.filter((x) => !busyBath.has(x.bath) && bathOf.has(x.bath)).sort((a, b) => b.n - a.n || String(b.date ?? b.last ?? "").localeCompare(String(a.date ?? a.last ?? "")))[0];
     if (!c) continue;
     busyBath.add(c.bath);
     const tgId = tgOf.get(pid) as number;
     // сначала строка (unique: второй вызов в тот же день ту же баню не пришлёт), потом сообщение
     const { data: row } = await sb.from("point_asks").insert({ bath_id: c.bath, player_id: pid, tg_chat: tgId }).select("id").maybeSingle();
     if (!row) continue;
-    const m = await send(tgId, askText(bathOf.get(c.bath), c.n, c.last), ASK_KB(row.id));
+    const m = await send(tgId, askText(bathOf.get(c.bath), c.n, c.date, c.last), ASK_KB(row.id));
     if (m.ok) { await sb.from("point_asks").update({ tg_msg: m.result.message_id }).eq("id", row.id); sent++; continue; }
     // личка с ботом закрыта (не нажимал Start или остановил бота) — писать некуда, больше не пробуем
     await sb.from("point_asks").delete().eq("id", row.id);
@@ -1793,6 +1806,16 @@ async function onMessage(msg: Any) {
       if (post.geo_msg === replyTo && post.bath_id) return geoAnswer(msg, post, acc.players);
       if (post.card_msg === replyTo) return;   // просто ответили на карточку — не нам
     }
+  }
+
+  // точка в личку без «Ответить», а бот ждёт ответа на «где была баня?» — это ответ (30.10: Леха прислал координаты
+  // отдельным сообщением, бот начал черновик похода)
+  if (isPrivate && !replyTo && (msg.location || msg.venue || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text))) {
+    const me = (await whoIs(tgId))?.players as Any;
+    const { data: ask } = me ? await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("player_id", me.id)
+      .eq("status", "sent").gte("sent_at", new Date(Date.now() - ASK_WAIT).toISOString()).order("sent_at", { ascending: false }).limit(1).maybeSingle()
+      : { data: null };
+    if (ask) return askAnswer(msg, ask, me);
   }
 
   const saved = await getState(tgId);
