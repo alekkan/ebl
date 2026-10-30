@@ -538,8 +538,11 @@ sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, bath_id, c
 sql(f"insert into visit_players (visit_id, player_id) select {vid}, id from players where nick = 'Ден'")   # как «добавь Дена в заявку»
 check("добавили Дена — сообщение Комиссии обновилось", wait(f"select position('👥 Ден' in text) > 0 from bot_notifications where visit_id = {vid}", "t"),
       sql(f"select text from bot_notifications where visit_id = {vid}"))
+# карточку бот правит следом за сообщением Комиссии — ждём и её (30.10: читали сразу и успевали раньше бота)
+fresh_card = wait(f"select card_text like 'Ушло в Комиссию ✅%' and position('👥 Ден' in card_text) > 0 and position('старая' in card_text) = 0 "
+                  f"from bot_posts where visit_id = {vid}", "t")
 card_text = sql(f"select card_text from bot_posts where visit_id = {vid}")
-check("и карточка в чате: шапка та же, сводка свежая", card_text.startswith("Ушло в Комиссию ✅") and "👥 Ден" in card_text and "старая" not in card_text, card_text)
+check("и карточка в чате: шапка та же, сводка свежая", fresh_card and card_text.startswith("Ушло в Комиссию ✅") and "👥 Ден" in card_text and "старая" not in card_text, card_text)
 sql(f"update visits set duration_min = 180 where id = {vid}")
 check("поменяли длительность — у Комиссии «долгая»", wait(f"select position('долгая' in text) > 0 from bot_notifications where visit_id = {vid}", "t"))
 sql(f"delete from visits where id = {vid}")

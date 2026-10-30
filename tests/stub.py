@@ -74,9 +74,16 @@ def env_file():
     return out
 
 
-def edge_env():
-    r = subprocess.run(["docker", "inspect", EDGE_CONTAINER, "--format", "{{json .Config.Env}}"], capture_output=True, text=True)
-    return dict(e.split("=", 1) for e in json.loads(r.stdout or "[]") if "=" in e)
+def edge_env(wait=60):
+    # после смены ветки или правки .env supabase functions serve пересоздаёт контейнер функций: несколько секунд его нет,
+    # и тест падал на чтении его настроек (30.10) — ждём, пока поднимется
+    for _ in range(wait):
+        r = subprocess.run(["docker", "inspect", EDGE_CONTAINER, "--format", "{{.State.Running}} {{json .Config.Env}}"], capture_output=True, text=True)
+        running, _, env = r.stdout.strip().partition(" ")
+        if running == "true":
+            return dict(e.split("=", 1) for e in json.loads(env or "[]") if "=" in e)
+        time.sleep(1)
+    raise SystemExit(f"Контейнер функций {EDGE_CONTAINER} не запущен — запусти supabase functions serve --env-file supabase/functions/.env")
 
 
 class Telegram:
