@@ -52,7 +52,7 @@ for s in $sets; do
   t=test_$s
   echo "== $t"
   start=$(date +%s)
-  python3 "tests/$t.py" > "/tmp/ebl-$t.log" 2>&1 || { grep -E "✗|Error|Traceback" "/tmp/ebl-$t.log" | head -20; echo "ПРОВАЛ: tests/$t.py (лог: /tmp/ebl-$t.log)" >&2; exit 1; }
+  python3 -u "tests/$t.py" > "/tmp/ebl-$t.log" 2>&1 || { grep -E "✗|Error|Traceback" "/tmp/ebl-$t.log" | head -20; echo "ПРОВАЛ: tests/$t.py (лог: /tmp/ebl-$t.log)" >&2; exit 1; }
   echo "   $(grep -c '✓' "/tmp/ebl-$t.log") проверок — ок, $(( $(date +%s) - start )) с"
   grep -- '– пропущено' "/tmp/ebl-$t.log" | sed 's/^ */   /' || true   # сетевые проверки без сети — видно, что пропущено
 done

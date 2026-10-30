@@ -19,7 +19,9 @@ def req(method, path, body=None, token=None, headers=None):
         h["Authorization"] = "Bearer " + token
     r = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None, method=method, headers=h)
     try:
-        with urllib.request.urlopen(r) as resp:
+        # без таймаута запрос, застрявший в функции на стенде, вешал весь прогон насовсем (30.10: test_site стоял 16+ минут);
+        # 120 с — больше любой заминки стенда (до ~70 с, см. AGENTS.md)
+        with urllib.request.urlopen(r, timeout=120) as resp:
             txt = resp.read().decode()
             try:
                 return resp.status, (json.loads(txt) if txt else None)
