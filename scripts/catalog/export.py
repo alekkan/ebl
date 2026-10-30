@@ -15,6 +15,7 @@ import argparse, json, re, subprocess, pathlib
 
 ap = argparse.ArgumentParser(); ap.add_argument("run"); ap.add_argument("--types", default="public")
 ap.add_argument("--approx", choices=["ru", "abroad"], help="все бани без точной точки, кроме частных (чья-то дача — точку не ищем)")
+ap.add_argument("--doubt", action="store_true", help="только бани из «Не нашли» в Сверке (30.10) — тех типов, что в --types")
 a = ap.parse_args(); run = pathlib.Path(a.run); run.mkdir(parents=True, exist_ok=True)
 kinds = [t for t in a.types.split(",") if t in ("public", "spa", "private")]
 conds = [f"b.type in ({', '.join(repr(t) for t in kinds)})"] if kinds else []
@@ -23,6 +24,11 @@ where = " or ".join(conds) or "false"
 if a.approx:
     where = ("coalesce(b.precision, '') <> 'exact' and coalesce(b.type, '') <> 'private' and b.name !~* '^частн' and "
              + ("b.country = 'Россия'" if a.approx == "ru" else "coalesce(b.country, '') <> 'Россия'"))
+if a.doubt:   # как вкладка «Не нашли»: агенты не уверены, точка не точная, точку от участника Комиссия ещё не решает
+    where = f"""({where}) and coalesce(b.precision, '') <> 'exact' and b.id in (select p.bath_id from catalog_proposals p
+      where p.status = 'new' and coalesce(p.match, 0) < 70 and not p.region_conflict and p.is_public is not false
+        and coalesce(p.place_status, 'open') not in ('closed', 'repair'))
+      and not exists (select 1 from bath_point_requests r where r.bath_id = b.id and r.status = 'pending')"""
 SQL = """
 select json_agg(x order by x.n26 desc, x.n_all desc, x.id) from (
   select b.id, b.name, coalesce(b.type, 'unknown') as type, b.region, b.country, b.lat, b.lng, b.precision,
