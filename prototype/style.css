@@ -312,9 +312,10 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 }
 .x:hover { background: var(--panel); }
 .x .ic { width: 18px; height: 18px; }
+.x-share { right: 56px; }
 /* ---------- карточка бани: шапка прокручивается вместе со всем, внизу закреплены «Я тут парился» и «Маршрут» ---------- */
 .d-hero { margin: 0 -22px; padding: 20px 22px 2px; background: linear-gradient(180deg, var(--tint), transparent 92%); }
-.d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 36px; padding-right: 48px; font-size: 13px; color: var(--ink-2); }
+.d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 36px; padding-right: 92px; font-size: 13px; color: var(--ink-2); }
 .d-meta .t { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink); }
 /* у Комиссии тип — кнопка в рамке: видно, что его можно сменить (18.10 — неприметный список не находили) */
 .d-meta .t-pick { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 10px 3px 5px; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
