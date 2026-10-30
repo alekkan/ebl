@@ -425,6 +425,11 @@ check("Комиссия радар видит", any(x["id"] == rid for x in req(
 check("участник решать по радару не может", req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "add"}, token=shurik)[0] >= 400)
 s, bid = req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "add"}, token=vitek)
 check("Комиссия: «В лигу» — общественная баня с точной точкой", s == 200 and sql(f"select type || ',' || precision || ',' || status from baths where id = {bid}") == "public,exact,ok", (s, bid))
+sql(f"update radar_places set address = 'пос. Тестово, 8а', map_url = 'https://2gis.ru/moscow/firm/70000001045082376', price_example = '900 ₽ — билет', gender_split = true where id = {rid}")
+rf = req("POST", "/rest/v1/rpc/bath_facts", {"p_bath": bid})[1] or {}
+check("заведённая из Радара баня — на карточке всё, что знает Радар: адрес, 2ГИС, цена, мужские и женские дни (30.10)",
+      rf.get("address") == "пос. Тестово, 8а" and "2gis.ru" in (rf.get("twogis_url") or "") and rf.get("price") == "900 ₽ — билет"
+      and "мужские" in (rf.get("gender_days") or "") and rf.get("source") == "radar", rf)
 check("второе нажатие «В лигу» — та же баня, без дубля", req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid, "p_action": "add"}, token=vitek)[1] == bid)
 places[0]["public_index"] = 95; push(places)
 check("повторная заливка обновляет место, но решение Комиссии не трогает",
