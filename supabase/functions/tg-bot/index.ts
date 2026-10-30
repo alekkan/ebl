@@ -1325,10 +1325,10 @@ async function pointAsks(): Promise<number> {
 // точка ответом на вопрос — сразу на карту (30.10: без проверки Комиссией — была двойная проверка), в Сверке — «своя точка».
 // Если точку бани тем временем уже уточнили — как перенос: запрос Комиссии, чужую не затираем
 async function askAnswer(msg: Any, ask: Any, me: Any) {
-  const { data: b } = await sb.from("baths").select("lat, lng, precision").eq("id", ask.bath_id).single();
   const loc = msg.location ?? msg.venue?.location;
-  const { near, maxKm } = searchNear(b);
-  const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", near, maxKm);
+  // примерная точка бани из «Не нашли» ненадёжна (30.10: «Rize» стояла в Анталье, в 1000 км) — расстояние до неё не проверяем,
+  // где баня, знает тот, кто там был
+  const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", null);
   if (!p) {
     await react(msg.chat.id, msg.message_id, "🤔");
     return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с городом и улицей или геопозицию (📎 → Геопозиция).",
