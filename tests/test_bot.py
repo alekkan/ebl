@@ -898,6 +898,11 @@ reply_geo("https://www.google.com/maps/place/Elite+CLUB+SPA+Center+Rize,+Yinsa+A
 check("ссылка Google на место в Турции — улица по слову Sokak, а не название дома; нашёл Photon, когда Nominatim не знает", point() == "41.0263,40.5172", point())
 sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
 sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+# 30.10: «поделиться» из Яндекс Карт — название, адрес по-русски, ссылка без координат; адрес находит Геокодер Яндекса
+reply_geo("Elit Club SPA Merkezi\nпровинция Ризе, район Ризе Меркез, Пиричелеби, улица 2 Парк, 1\nhttps://yandex.ru/maps/org/elit_club_spa_merkezi/191362709121/", 85)
+check("адрес по-русски из Яндекс Карт (Турция) — точка с Геокодера Яндекса", point() == "41.0261,40.5176", point())
+sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
+sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
 reply_geo("https://www.google.com/maps/place/Lipa+Spa,+7+Lipa+Str,+2770+Bansko,+Bulgaria/data=!4m2!3m1!1s0x14ab:0x92", 84)
 check("сверка с адресом из ссылки Google: нашлась улица-тёзка в Софии, а в ссылке Банско — точку не ставим", point() == ",", point())
 reply_geo("St. George, Банско, Болгария", 83)

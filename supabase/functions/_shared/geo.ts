@@ -3,7 +3,7 @@
 // Ссылка Google на место без координат (короткая maps.app.goo.gl раскрывается в /maps/place/<название, адрес>/…) —
 // ищем адрес из самой ссылки. Геокодер OpenStreetMap edge-функциям не отвечает — тогда спрашиваем через сервер базы
 // (useDbGeocoder: pg_net, geo_search/geo_result).
-import { NOMINATIM, PHOTON } from "./hosts.ts";
+import { NOMINATIM, PHOTON, YANDEX_GEOCODER } from "./hosts.ts";
 
 // deno-lint-ignore no-explicit-any
 let db: any = null;
@@ -97,6 +97,26 @@ async function nominatimSearch(q: string): Promise<any[] | null> {
   return null;
 }
 
+// Геокодер Яндекса (30.10, ключ Лехи — секрет YANDEX_GEOCODER_KEY, 1000 запросов в день): адреса по-русски находит там, где
+// OpenStreetMap — нет («Ризе, Пиричелеби, улица 2 Парк, 1», «село Архыз, Банковская 53»). Нет ключа — пропускаем.
+// Ответ — в виде Nominatim (lat, lon, addresstype, display_name)
+async function yandexSearch(q: string): Promise<any[] | null> {
+  const key = Deno.env.get("YANDEX_GEOCODER_KEY");
+  if (!key) return null;
+  try {
+    const r = await fetch(`${YANDEX_GEOCODER}/1.x/?` + new URLSearchParams({ apikey: key, geocode: q, format: "json", lang: "ru_RU", results: "3" }));
+    if (!r.ok) return null;
+    const j = await r.json();
+    // только дом или улица: нашёлся лишь город или район — это не точка бани
+    return (j?.response?.GeoObjectCollection?.featureMember ?? [])
+      .filter((m: any) => ["house", "street", "entrance"].includes(m.GeoObject?.metaDataProperty?.GeocoderMetaData?.kind)).map((m: any) => {
+      const o = m.GeoObject ?? {}, meta = o.metaDataProperty?.GeocoderMetaData ?? {};
+      const [lon, lat] = String(o.Point?.pos ?? "").split(" ");
+      return { lat, lon, addresstype: meta.kind, category: meta.kind, display_name: meta.text ?? "" };
+    });
+  } catch { return null; }
+}
+
 // Photon (тот же OpenStreetMap, поиск помягче) — когда Nominatim не нашёл: 30.10 «2 Nolu Park Sokak, Rize» Nominatim не знал,
 // Photon нашёл. Ответ — в виде Nominatim (lat, lon, addresstype, display_name), чтобы сверять одинаково
 async function photonSearch(q: string): Promise<any[] | null> {
@@ -135,7 +155,7 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
   // «село Архыз», «пос. Мозжинка»: с типом населённого пункта OpenStreetMap адрес не находит, без него — находит (30.10)
   const noKind = noBuilding.replace(/(^|[\s,])(село|с\.|посёлок|поселок|пос\.|п\.|пгт|деревня|дер\.|станица|ст-ца|хутор|аул|город|г\.)\s*(?=\p{Lu})/gu, "$1");
   const variants = [...new Set([clean, noBuilding, noBuilding.replace(/\b(ул\.?|улица)\s*/gi, ""), noKind])].filter((v) => v.length > 4);
-  for (const search of [nominatimSearch, photonSearch]) {
+  for (const search of [yandexSearch, nominatimSearch, photonSearch]) {
     for (const v of variants) {
       for (const hit of (await search(v)) ?? []) {
         if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) continue;
