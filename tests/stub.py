@@ -42,11 +42,16 @@ SEARCH = {
     # нашлась улица-тёзка в другом городе — бот должен отбросить (сверка с адресом из ссылки Google)
     "Lipa, Bansko, Bulgaria": [{"lat": "42.6977", "lon": "23.3219", "addresstype": "road", "category": "highway",
                                 "display_name": "Липа, Лозенец, София, 1000, Болгария"}],
-    "St. George, Банско, Болгария": [{"lat": "41.8361", "lon": "23.4879", "addresstype": "hotel", "category": "tourism"}],
+    "St. George, Банско, Болгария": [{"lat": "41.8361", "lon": "23.4879", "addresstype": "hotel", "category": "tourism",
+                                     "display_name": "St. George, Банско, Благоевградская область, Болгария"}],
     # 30.10: у бани точка «по стране» — центр России; Архыз за 3500 км от него, бот отбрасывал найденный адрес. Как настоящий:
     # «Банковская ул., 53, село Архыз» не находит, без «село» — находит улицу (дома 53 в OpenStreetMap нет)
     "Банковская ул., 53, Архыз": [{"lat": "43.5647", "lon": "41.2662", "addresstype": "residential", "category": "highway",
                                   "display_name": "Банковская улица, Архыз, Архызское сельское поселение, Карачаево-Черкесская Республика, Россия"}],
+    # 30.10 ссылка Хвоста: «Paradise Spa, Sherbhawan Building, Chaksibari, Kathmandu, Bagmati Province 44600, Непал» — целиком
+    # не находится, «район, город» — находит улицу
+    "Chaksibari, Kathmandu": [{"lat": "27.7155", "lon": "85.3103", "addresstype": "road", "category": "highway",
+                               "display_name": "Chaksibari Marg, Thamel, Kathmandu-26, Kathmandu Metropolitan City, Bagmati Province, 44600, Nepal"}],
     "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
 }
 

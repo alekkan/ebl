@@ -173,41 +173,65 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
 // Улица — по слову «улица» на любом языке; 30.10 в турецком адресе первой частью шло название дома («Yinsa Apartmanı»),
 // и его принимали за улицу. «NO:1/1» — номер дома по-турецки
 const STREET_WORD = /(^|[\s.])(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица|sokak|sokağı|sok|cadde|caddesi|cad|cd|bulvarı|calle|via|rua|straße|strasse)\.?(?![\p{L}])/iu;
+const ADMIN_WORD = /(province|region|state|oblast|област|край|county|prefecture|governorate|district)/i;
 function placeVariants(place: string): { variants: string[]; must: string[] } {
   const parts = place.split(",").map((s) => s.trim()).filter(Boolean);
   const [name, ...rest] = parts;
   const clean = (s: string) => s.replace(/\b\d{3,6}\b/g, " ").replace(/^\s*\d+[a-zа-я]?\s+/i, " ")
     .replace(/\b(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица)\.?(?![\p{L}])/giu, " ").replace(/\s+/g, " ").trim();
   const cleaned = rest.map(clean).filter(Boolean);
-  // город — перед страной; «Rize Merkez/Rize» (район/провинция) — последнее
-  const city = (cleaned.length >= 2 ? cleaned[cleaned.length - 2] : cleaned[0] ?? "").split("/").pop()!.trim();
-  // сверка: в найденном должны быть город и улица из ссылки Google (если они там есть)
+  // город — последняя часть перед страной, но не провинция или область («Kathmandu, Bagmati Province 44600, Непал», 30.10);
+  // «Rize Merkez/Rize» (район/провинция) — последнее
+  const body = cleaned.length >= 2 ? cleaned.slice(0, -1) : cleaned;
+  let ci = body.length - 1;
+  while (ci > 0 && ADMIN_WORD.test(body[ci])) ci--;
+  const city = (body[ci] ?? "").split("/").pop()!.trim();
+  const area = ci > 0 ? body[ci - 1] : "";   // район или улица перед городом: «Chaksibari, Kathmandu» находится, когда весь адрес — нет
+  // сверка: в найденном должны быть город и улица из ссылки Google (если они там есть). Улица — только по слову «улица»:
+  // первой частью часто идёт здание («Yinsa Apartmanı», «Sherbhawan Building»)
   const streetRaw = rest.find((p) => STREET_WORD.test(p))?.replace(/\s*\b(no|nr|№)\s*[:.]?\s*[\d/]+.*$/i, "").trim() ?? "";
-  const street = streetRaw ? clean(streetRaw) : cleaned.length >= 3 ? cleaned[0] : "";
+  const street = streetRaw ? clean(streetRaw) : "";
   const must = [city, street].filter((w) => w && flat(w).length >= 3);
   return {
     variants: [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : "",
-      streetRaw && city ? `${streetRaw}, ${city}` : ""])].filter((q) => q.length >= 5),
+      streetRaw && city ? `${streetRaw}, ${city}` : "", area && city ? `${area}, ${city}` : ""])].filter((q) => q.length >= 5),
     must,
   };
 }
 
-// Google: итоговая ссылка на место — /maps/place/<Название, адрес, город, страна>/…; координат в ней может не быть
-async function googlePlace(url: string): Promise<string | null> {
-  let u = url;
-  if (!/\/maps\/place\//.test(u)) {
-    if (!/goo\.gl|google\./.test(u)) return null;
-    try {
-      const r = await fetch(u, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" } });
-      await r.body?.cancel();
-      u = r.url || u;
-    } catch { return null; }
-  }
+// Google: итоговая ссылка на место — /maps/place/<Название, адрес, город, страна>/…; координат в ней может не быть.
+// Делятся и иначе (30.10, ссылка Хвоста не нашлась): /maps/search/<запрос>, ?q=<название, адрес>, страница согласия с
+// исходной ссылкой в continue, а бывает, что адрес — только внутри страницы (/maps/preview/place?…&q=<адрес>)
+const GPLACE = /\/maps\/(?:place|search)\/([^/?#]+)/;
+function googleText(raw: string): string | null {
+  const t = raw.replace(/\+/g, " ");
+  try { return decodeURIComponent(t).trim() || null; } catch { return t.trim() || null; }
+}
+function googleFromUrl(u: string): string | null {
   // раскодируем только само место: «NO:1%2F1» (номер дома по-турецки) иначе резал адрес на «/» (30.10)
-  const m = u.match(/\/maps\/place\/([^/?]+)/);
-  if (!m) return null;
-  const place = m[1].replace(/\+/g, " ");
-  try { return decodeURIComponent(place).trim(); } catch { return place.trim(); }
+  const m = u.match(GPLACE);
+  if (m) return googleText(m[1]);
+  try {
+    const p = new URL(u).searchParams;
+    const cont = p.get("continue");
+    if (cont && cont !== u) return googleFromUrl(cont);
+    const q = p.get("q") ?? p.get("query");
+    if (q) return q.trim() || null;
+  } catch { /* не ссылка */ }
+  return null;
+}
+async function googlePlace(url: string): Promise<string | null> {
+  if (!/goo\.gl|google\./.test(url)) return null;
+  const direct = googleFromUrl(url);
+  if (direct) return direct;
+  try {
+    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" } });
+    const fromUrl = googleFromUrl(r.url || url);
+    if (fromUrl) { await r.body?.cancel(); return fromUrl; }
+    const html = (await r.text()).slice(0, 500_000);
+    const m = html.match(/\/maps\/preview\/place\?[^"']*?[?&;]q=([^"'&]+)/);
+    return m ? googleText(m[1]) : null;
+  } catch { return null; }
 }
 
 // заголовок страницы карточки организации: «Сандуновские бани, баня, Неглинная ул., 14, стр. 5, Москва — Яндекс Карты»
@@ -231,6 +255,8 @@ export async function locate(text: string, near?: Point | null, maxKm = 300): Pr
   const gurl = (text ?? "").match(/https?:\/\/[^\s<>"]+/)?.[0];
   const place = gurl ? await googlePlace(gurl) : null;
   if (place) {
+    const pc = await parseLocation(place);   // «?q=41.02,40.51» — координаты прямо в ссылке
+    if (pc) return pc;
     const { variants, must } = placeVariants(place);
     for (const q of variants) {
       const p = await geocodeAddress(q, near, maxKm, true, must);

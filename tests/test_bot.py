@@ -901,6 +901,18 @@ reply_geo("https://www.google.com/maps/place/Elite+CLUB+SPA+Center+Rize,+Yinsa+A
 check("ссылка Google на место в Турции — улица по слову Sokak, а не название дома; нашёл Photon, когда Nominatim не знает", point() == "41.0263,40.5172", point())
 sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
 sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+# 30.10: ссылка Хвоста не нашлась — Google делится и иначе: ?q=<название, адрес>, /maps/search/<запрос>, координаты в q
+for link, want, what in (("https://www.google.com/maps?q=St.+George,+%D0%91%D0%B0%D0%BD%D1%81%D0%BA%D0%BE,+%D0%91%D0%BE%D0%BB%D0%B3%D0%B0%D1%80%D0%B8%D1%8F&ftid=0x14ab:0x9", "41.8361,23.4879", "?q=<название, город, страна>"),
+                         ("https://www.google.com/maps/search/Asanitsa,+Bansko,+Bulgaria", "41.8296,23.4734", "/maps/search/<запрос>"),
+                         ("https://maps.google.com/?q=41.026087,40.517614", "41.0261,40.5176", "координаты в ?q="),
+                         ("https://www.google.com/maps/place/Paradise+Spa,+Sherbhawan+Building,+Chaksibari,+Kathmandu,+Bagmati+Province+44600,+%D0%9D%D0%B5%D0%BF%D0%B0%D0%BB/data=!4m2!3m1!1s0x39eb:0x91", "27.7155,85.3103",
+                          "/maps/place/ с провинцией и зданием (Хвост, Катманду)")):
+    sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
+    sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+    reply_geo(link, 86)
+    check(f"ссылка Google вида {what} — точка нашлась", point() == want, point())
+sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
+sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
 # 30.10: «поделиться» из Яндекс Карт — название, адрес по-русски, ссылка без координат; адрес находит Геокодер Яндекса
 reply_geo("Elit Club SPA Merkezi\nпровинция Ризе, район Ризе Меркез, Пиричелеби, улица 2 Парк, 1\nhttps://yandex.ru/maps/org/elit_club_spa_merkezi/191362709121/", 85)
 check("адрес по-русски из Яндекс Карт (Турция) — точка с Геокодера Яндекса", point() == "41.0261,40.5176", point())
