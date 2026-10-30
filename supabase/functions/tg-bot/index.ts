@@ -12,7 +12,7 @@
 //
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { distKm, hasLocationHint, locate, looksLikeAddress, parseLocation, useDbGeocoder } from "../_shared/geo.ts";
+import { distKm, hasLocationHint, locate, looksLikeAddress, parseLocation, useDbGeocoder, geoTrail } from "../_shared/geo.ts";
 import { placePatch } from "../_shared/place.ts";
 import { requestPoint } from "../_shared/point-request.ts";
 import { greetLine } from "../_shared/greetings.ts";
@@ -1322,6 +1322,9 @@ async function pointAsks(): Promise<number> {
   return sent;
 }
 
+// точку не нашли — журнал шагов в bot_log (kind geo:fail): видно, на чём сорвалось, без пересылки ссылки
+const geoFail = (where: string) => sb.from("bot_log").insert({ kind: "geo:fail", detail: `${where}\n${geoTrail().join("\n")}`.slice(0, 4000) });
+
 // точка ответом на вопрос — сразу на карту (30.10: без проверки Комиссией — была двойная проверка), в Сверке — «своя точка».
 // Если точку бани тем временем уже уточнили — как перенос: запрос Комиссии, чужую не затираем
 async function askAnswer(msg: Any, ask: Any, me: Any) {
@@ -1330,6 +1333,7 @@ async function askAnswer(msg: Any, ask: Any, me: Any) {
   // где баня, знает тот, кто там был
   const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", null);
   if (!p) {
+    await geoFail(`ask ${ask.id}`);
     await react(msg.chat.id, msg.message_id, "🤔");
     return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с городом и улицей или геопозицию (📎 → Геопозиция).",
       undefined, msg.message_id);
@@ -1371,6 +1375,7 @@ async function geoAnswer(msg: Any, post: Any, me: Any) {
   // живая карточка — ответ реакцией и правкой карточки; у старых походов (вопрос отдельным сообщением) — как раньше
   const living = await refreshable(post.visit_id);
   if (!p) {
+    await geoFail(`visit ${post.visit_id}`);
     if (living) { await react(msg.chat.id, msg.message_id, "🤔"); return refreshCard(post.visit_id, true); }
     return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с номером дома или геопозицию (📎 → Геопозиция).",
       [[btn("🙅 Отстань", `gx:${post.visit_id}`)]], msg.message_id);
@@ -2018,6 +2023,17 @@ async function onCallback(cq: Any) {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   // решение Комиссии принято не кнопкой бота — зовёт триггер в базе; объявляет только настоящий статус и только один раз
+  // проверка поиска точки на бою: текст кладёт владелец базы в geo_debug, сюда — только его номер (docs/bot.md)
+  if (url.searchParams.get("geodebug")) {
+    const id = Number(url.searchParams.get("geodebug"));
+    const { data: row } = await sb.from("geo_debug").select("text, result").eq("id", id).maybeSingle();
+    if (!row) return new Response("{}", { status: 404 });
+    if (row.result) return new Response(JSON.stringify(row.result), { headers: { "Content-Type": "application/json" } });   // один прогон на строку — квота Яндекса
+    const point = await locate(row.text, null);
+    const result = { point, trail: geoTrail(), at: new Date().toISOString() };
+    await sb.from("geo_debug").update({ result }).eq("id", id);
+    return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+  }
   if (url.searchParams.get("asks")) {
     return new Response(JSON.stringify({ sent: await pointAsks() }), { headers: { "Content-Type": "application/json" } });
   }

@@ -52,6 +52,9 @@ SEARCH = {
     # не находится, «район, город» — находит улицу
     "Chaksibari, Kathmandu": [{"lat": "27.7155", "lon": "85.3103", "addresstype": "road", "category": "highway",
                                "display_name": "Chaksibari Marg, Thamel, Kathmandu-26, Kathmandu Metropolitan City, Bagmati Province, 44600, Nepal"}],
+    # 30.10 ссылка Google на пивоварню: «ул. Медовеевская» у Google и «Медовеевская улица» в OSM — то же место
+    "ул. Медовеевская, 17, Медовеевка, Краснодарский край, 354390": [{"lat": "43.6646", "lon": "40.0723", "addresstype": "craft",
+        "category": "craft", "display_name": "Горная пивоварня Endemic, 17, Медовеевская улица, Медовеевка, Адлерский район, Сочи, Краснодарский край, 354390, Россия"}],
     "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
 }
 
