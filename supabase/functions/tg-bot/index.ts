@@ -1180,7 +1180,12 @@ async function decidePoint(cq: Any, me: Any, id: number, ok: boolean) {
     .eq("id", id).eq("status", "pending").select(POINT_REQ);
   const r = rows?.[0] as Any;
   if (!r) return answer(cq.id, "Уже решено или пришла новая точка");
-  if (ok) await sb.from("baths").update({ lat: r.lat, lng: r.lng, precision: "exact" }).eq("id", r.bath_id);
+  if (ok) {
+    await sb.from("baths").update({ lat: r.lat, lng: r.lng, precision: "exact" }).eq("id", r.bath_id);
+    // в Сверке — как «своя точка»: предложение агентов уходит в «Решено»
+    await sb.from("catalog_proposals").update({ status: "rejected", reject_reason: "own_point", decided_by: me.id, decided_at: new Date().toISOString() })
+      .eq("bath_id", r.bath_id).eq("status", "new");
+  }
   await answer(cq.id, ok ? "Точка перенесена" : "Оставили как было");
   for (const m of r.messages ?? []) {
     await edit(m.chat, m.msg, `📍 Точка бани <b>${esc(r.baths?.name)}</b> от ${esc(r.player?.nick)}\n\n${ok ? "✅ Перенесена" : "✖️ Оставили как было"} — ${esc(me.nick)}`);
@@ -1229,6 +1234,105 @@ async function linked(accountId: string, judge?: string): Promise<boolean> {
     await send(a.tg_id, `✅ Комиссия подтвердила: ты — <b>${esc(me.nick)}</b>. Отмечай походы в чате лиги (отметь меня) или прямо здесь.`);
   }
   return !!(taken?.length || stash);
+}
+
+// ---------- Сверка: «где была баня?» в личку тем, кто был (30.10, docs/catalog.md) ----------
+// Раз в день (cron → ?asks=1) каждому — одна баня из «Не нашли», чтобы не пугать списком. Кому слать — settings.point_asks.
+const ASK_WAIT = 3 * 864e5;   // молчит три дня — баню спросим у другого, его — о следующей
+const ASK_KB = (id: number) => [[btn("🤷 Не помню", `pa:f:${id}`), btn("🙅 Не был там", `pa:n:${id}`)], [btn("🔕 Больше не спрашивай", `pa:s:${id}`)]];
+const mskDay = (t: number) => new Date(t + 3 * 3600e3).toISOString().slice(0, 10);
+const visitsWord = (n: number) => n % 10 === 1 && n % 100 !== 11 ? "поход" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "похода" : "походов";
+const askText = (b: Any, n: number, last: number | null) =>
+  `📍 Комиссия сверяет карту лиги — помоги с одной баней.\n\n`
+  + `Где была <b>${esc(b.name)}</b>?\n${[b.region, b.country].filter(Boolean).map(esc).join(", ")}${b.region || b.country ? " · " : ""}`
+  + `у тебя там ${n} ${visitsWord(n)}${last ? `, последний — в ${last}` : ""}.\n`
+  + `На карте у неё пока примерная точка, а по картам агенты её не нашли.\n\n`
+  + `Ответь на это сообщение геопозицией (📎 → Геопозиция), ссылкой на Яндекс Карты, Google или 2ГИС или адресом. `
+  + `Не помнишь — нажми кнопку, спрошу других. Больше одной бани в день не спрашиваю.`;
+
+async function pointAsks(): Promise<number> {
+  const { data: cfg } = await sb.from("settings").select("value").eq("key", "point_asks").maybeSingle();
+  const who = cfg?.value;
+  if (who !== "all" && !Array.isArray(who)) return 0;
+  const [{ data: cand }, { data: asks }, { data: players }, { data: accounts }] = await Promise.all([
+    sb.rpc("point_ask_candidates"),
+    sb.from("point_asks").select("id, bath_id, player_id, status, sent_at"),
+    sb.from("players").select("id, nick, left_at, no_point_asks"),
+    sb.from("player_accounts").select("player_id, tg_id").not("player_id", "is", null).not("tg_id", "is", null),
+  ]);
+  const now = Date.now(), today = mskDay(now);
+  const stale = (asks ?? []).filter((a: Any) => a.status === "sent" && now - Date.parse(a.sent_at) > ASK_WAIT);
+  if (stale.length) await sb.from("point_asks").update({ status: "skipped" }).in("id", stale.map((a: Any) => a.id));
+  const open = (asks ?? []).filter((a: Any) => a.status === "sent" && !stale.includes(a));
+  // ждёт ответа или уже спрошен сегодня — сегодня его не трогаем; баню, о которой ждём ответа, другим не шлём
+  const busyPlayer = new Set([...open, ...(asks ?? []).filter((a: Any) => mskDay(Date.parse(a.sent_at)) === today)].map((a: Any) => a.player_id));
+  const busyBath = new Set(open.map((a: Any) => a.bath_id));
+  const asked = new Set((asks ?? []).map((a: Any) => `${a.bath_id}:${a.player_id}`));
+  const pl = new Map((players ?? []).map((p: Any) => [p.id, p]));
+  const tgOf = new Map((accounts ?? []).map((a: Any) => [a.player_id, a.tg_id]));
+  const allow = Array.isArray(who) ? new Set(who) : null;
+  const byPlayer = new Map<string, Any[]>();
+  for (const c of (cand ?? []) as Any[]) {
+    const p = pl.get(c.player) as Any;
+    if (!p || p.left_at || p.no_point_asks || !tgOf.get(c.player) || (allow && !allow.has(p.nick))) continue;
+    if (busyPlayer.has(c.player) || asked.has(`${c.bath}:${c.player}`)) continue;
+    byPlayer.set(c.player, [...(byPlayer.get(c.player) ?? []), c]);
+  }
+  const ids = [...new Set([...byPlayer.values()].flat().map((c) => c.bath))];
+  const { data: baths } = ids.length ? await sb.from("baths").select("id, name, region, country").in("id", ids) : { data: [] };
+  const bathOf = new Map((baths ?? []).map((b: Any) => [b.id, b]));
+  let sent = 0;
+  // сначала те, у кого выбор меньше: редкую баню не заберёт тот, кто может ответить и про другие
+  for (const [pid, list] of [...byPlayer].sort((a, b) => a[1].length - b[1].length)) {
+    const c = list.filter((x) => !busyBath.has(x.bath) && bathOf.has(x.bath)).sort((a, b) => b.n - a.n || (b.last ?? 0) - (a.last ?? 0))[0];
+    if (!c) continue;
+    busyBath.add(c.bath);
+    const tgId = tgOf.get(pid) as number;
+    // сначала строка (unique: второй вызов в тот же день ту же баню не пришлёт), потом сообщение
+    const { data: row } = await sb.from("point_asks").insert({ bath_id: c.bath, player_id: pid, tg_chat: tgId }).select("id").maybeSingle();
+    if (!row) continue;
+    const m = await send(tgId, askText(bathOf.get(c.bath), c.n, c.last), ASK_KB(row.id));
+    if (m.ok) { await sb.from("point_asks").update({ tg_msg: m.result.message_id }).eq("id", row.id); sent++; continue; }
+    // личка с ботом закрыта (не нажимал Start или остановил бота) — писать некуда, больше не пробуем
+    await sb.from("point_asks").delete().eq("id", row.id);
+    await sb.from("players").update({ no_point_asks: true }).eq("id", pid);
+  }
+  return sent;
+}
+
+// точка ответом на вопрос — запрос Комиссии (как перенос точки): Комиссии в личку обе точки и «Перенести» / «Оставить»
+async function askAnswer(msg: Any, ask: Any, me: Any) {
+  const { data: b } = await sb.from("baths").select("lat, lng, precision").eq("id", ask.bath_id).single();
+  const loc = msg.location ?? msg.venue?.location;
+  const near = b?.lat != null && b.precision !== "exact" ? { lat: b.lat, lng: b.lng } : null;
+  const maxKm = { city: 80, region: 400, country: 1500 }[b?.precision as string] ?? 400;
+  const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", near, maxKm);
+  if (!p) {
+    await react(msg.chat.id, msg.message_id, "🤔");
+    return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с городом и улицей или геопозицию (📎 → Геопозиция).",
+      undefined, msg.message_id);
+  }
+  const r = await requestPoint(sb, ask.bath_id, p, me.id, "bot", { chat: msg.chat.id, msg: msg.message_id });
+  await sb.from("point_asks").update({ status: "point", request_id: r.requested ?? null, answered_at: new Date().toISOString() }).eq("id", ask.id);
+  await tg("editMessageReplyMarkup", { chat_id: ask.tg_chat, message_id: ask.tg_msg, reply_markup: { inline_keyboard: [] } });
+  await react(msg.chat.id, msg.message_id, r.same ? "👌" : "👀");
+  return send(msg.chat.id, r.same ? "Точка и так здесь — спасибо!" : "Спасибо! Передал Комиссии — как решат, поставлю 👍 на твоё сообщение.",
+    undefined, msg.message_id);
+}
+
+// «🤷 Не помню» / «🙅 Не был там» / «🔕 Больше не спрашивай» — нажимает только тот, кого спросили
+async function askButton(cq: Any, me: Any, data: string) {
+  const [, kind, id] = data.split(":");
+  const status = ({ f: "forgot", n: "not_there", s: "stop" } as Record<string, string>)[kind];
+  const { data: rows } = await sb.from("point_asks").update({ status, answered_at: new Date().toISOString() })
+    .eq("id", Number(id)).eq("player_id", me?.id ?? "").in("status", ["sent", "skipped"]).select("id, bath_id, baths(name)");
+  const a = rows?.[0] as Any;
+  if (!a) return answer(cq.id, "Уже ответил — спасибо!");
+  if (status === "stop") await sb.from("players").update({ no_point_asks: true }).eq("id", me.id);
+  await answer(cq.id, "Спасибо!");
+  const line = { forgot: "🤷 Не помнишь — спрошу других. Спасибо!", not_there: "🙅 Понял, не был — спрошу других. Спасибо!",
+    stop: "🔕 Больше не спрашиваю. Спасибо!" }[status];
+  return edit(cq.message.chat.id, cq.message.message_id, `📍 Где была <b>${esc(a.baths?.name)}</b>?\n\n${line}`);
 }
 
 // ответ на вопрос про точку: геопозиция, ссылка с точкой, адрес или ссылка на карточку организации
@@ -1663,6 +1767,12 @@ async function onMessage(msg: Any) {
 
   // ответ на «Долгая была?» или на просьбу прислать точку
   if (replyTo && msg.reply_to_message.from?.username?.toLowerCase() === BOT) {
+    // ответ на «где была баня?» из Сверки
+    if (isPrivate) {
+      const { data: ask } = await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("tg_chat", chat).eq("tg_msg", replyTo).maybeSingle();
+      const me = ask ? (await whoIs(tgId))?.players as Any : null;
+      if (ask && me?.id === ask.player_id) return askAnswer(msg, ask, me);
+    }
     // у живой карточки оба вопроса — сама карточка: ссылка, адрес или геопозиция — это про точку, остальное — про долгую
     const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id, bath_id, ask_msg, geo_msg, card_msg, long_note").eq("chat_id", chat)
       .or(`ask_msg.eq.${replyTo},geo_msg.eq.${replyTo},card_msg.eq.${replyTo}`).limit(1).maybeSingle();
@@ -1762,6 +1872,7 @@ async function onCallback(cq: Any) {
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
   if (data.startsWith("cl:") || data.startsWith("cn:")) return decideClaim(cq, me, data.slice(3), data.startsWith("cl:"));
   if (data.startsWith("mv:") || data.startsWith("mk:")) return decidePoint(cq, me, Number(data.slice(3)), data.startsWith("mv:"));
+  if (data.startsWith("pa:")) return askButton(cq, me, data);
   if (data.startsWith("gx:")) {
     if (!me) return answer(cq.id, "Кнопка для участников лиги");
     // просто закрываем этот вопрос: больше не ждём ответа на него
@@ -1872,6 +1983,9 @@ async function onCallback(cq: Any) {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   // решение Комиссии принято не кнопкой бота — зовёт триггер в базе; объявляет только настоящий статус и только один раз
+  if (url.searchParams.get("asks")) {
+    return new Response(JSON.stringify({ sent: await pointAsks() }), { headers: { "Content-Type": "application/json" } });
+  }
   if (url.searchParams.get("pointreq")) {
     return new Response(JSON.stringify({ notified: await pointRequestNotice(Number(url.searchParams.get("pointreq"))) }), { headers: { "Content-Type": "application/json" } });
   }
