@@ -277,6 +277,15 @@ with sync_playwright() as pw:
         check("шлюз отвечает — работаем через него, прямой путь не нужен", s.js("() => document.querySelectorAll('#list .item').length > 0"))
         check("на главной при старте — все бани, не только 2026 (30.10)", s.js("() => document.querySelector('#fSeason [aria-pressed=true]').dataset.v") == "all")
         s.close()
+        # 30.10: ссылка на баню — ebl.su/#bath=<номер> открывает её карточку; закрыл — снова #map
+        vb = sql("select id from baths where name = 'Василевские' limit 1")
+        s = Site(browser, url + f"#bath={vb}", config=cfg2(API, dead), name="bath-link")
+        s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000)
+        check("ссылка #bath=<номер> открывает карточку этой бани, в карточке — «Поделиться»",
+              s.js("() => document.querySelector('#drawer').innerText.includes('Василевские') && !!document.getElementById('dShare')"))
+        s.page.click("#drawer .x:not(.x-share)"); s.page.wait_for_timeout(200)
+        check("…закрыл карточку — в адресе снова #map", s.js("() => location.hash") == "#map")
+        s.close()
         # 08.10: в плохую минуту связи Яндекса с Cloudflare шлюз на первый же запрос ответил 503, сайт счёл его недоступным
         # и ушёл напрямую — а без VPN там режутся большие ответы, и сайт висел на заставке. Отдельной проверки шлюза с 15.10 нет:
         # первый же запрос (бани) получает 503 — сайт должен повторить его через шлюз, а не уходить на мёртвый прямой путь

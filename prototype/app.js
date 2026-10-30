@@ -519,6 +519,7 @@
     d.innerHTML = `
       <button type="button" class="grab d-grab" aria-label="Развернуть карточку на весь экран"><i></i></button>
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
+      <button type="button" class="x x-share" id="dShare" aria-label="Поделиться ссылкой на баню" title="Поделиться">${icon("share")}</button>
       <div class="d-body">
         <div class="d-hero t-${b.t}">
           <div class="d-meta">
@@ -669,6 +670,7 @@
           : `https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}`}">${icon("route")}Маршрут</a>
       </div>`;
     d.hidden = false;
+    history.replaceState(null, "", "#bath=" + id);   // ссылку на открытую баню можно скопировать из адресной строки
     if (D.live && member) {
       if (!photoCache.has(id)) photoCache.set(id, D.bathPhotos(id).catch(() => { photoCache.delete(id); return []; }));
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
@@ -680,6 +682,7 @@
       factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); });
     }
     $(".x", d).onclick = closeBath;
+    $("#dShare", d).onclick = () => shareBath(id);
     // тип бани — Комиссия меняет прямо в карточке, но только после подтверждения: от типа зависят очки за все походы сюда (18.10)
     const typeAsk = $("#dTypeAsk", d);
     if (typeAsk) {
@@ -1063,8 +1066,22 @@ ${edit}
     inp.click();
   }
 
+  // ссылка на баню (30.10, Леха): ebl.su/#bath=<номер> открывает карту с её карточкой. На телефоне — меню «Поделиться»
+  // системы, на компьютере — в буфер обмена
+  const bathUrl = (id) => `${location.origin}${location.pathname}#bath=${id}`;
+  async function shareBath(id) {
+    const b = byId.get(id), url = bathUrl(id);
+    if (navigator.share && phone.matches) {
+      try { await navigator.share({ title: b?.name, text: `${b?.name} — на карте ЕБЛ`, url }); return; }
+      catch (e) { if (e?.name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(url); toast("Ссылка на баню скопирована"); }
+    catch { toast(url); }
+  }
+
   function closeBath() {
     const d = $("#drawer");
+    if (location.hash.startsWith("#bath=")) history.replaceState(null, "", "#map");
     d.hidden = true; d.classList.remove("full", "dragging"); d.style.removeProperty("transform");
     openId = null; selectPin(); $$(".item.active").forEach((x) => x.classList.remove("active"));
   }
@@ -3067,6 +3084,8 @@ ${edit}
   render("home");
   setTimeout(announceDecisions, 600);   // после первой отрисовки — не поверх заставки
   const h = location.hash.slice(1);
+  const linked = h.match(/^bath=(\d+)$/);   // ссылка на баню — сразу её карточка на карте
+  if (linked && byId.has(+linked[1])) { show("map"); openBath(+linked[1], true); }
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
   if ((h === "radar" || h === "catalog") && canModerate && D.live) { show("dir"); setDirMode(h); }
 })();
