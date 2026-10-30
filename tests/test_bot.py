@@ -1037,12 +1037,13 @@ check("следующий заход: Шурику — баня, где Ден �
 seen = len(TELEGRAM.calls)
 asks_run()
 check("…молчит — больше не шлём", not dms(seen, 909))
-ab4 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Кедровый дом', 'ok', 'public', 'Россия', 64.68631, 97.74531, 'country') returning id").splitlines()[0]
+# примерная точка «по городу», но в другом конце страны (30.10: «Rize» стояла в Анталье) — ответ на вопрос всё равно принимаем
+ab4 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Кедровый дом', 'ok', 'public', 'Россия', 64.68631, 97.74531, 'city') returning id").splitlines()[0]
 sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ab4}, 2026, 'Ден', 1)")
 sql(f"insert into catalog_proposals (run, bath_id, match) values ('test-asks', {ab4}, 20)")
 asks_run()
 post("Баня Кедровый Дом\nБанковская ул., 53, село Архыз\nhttps://yandex.ru/maps/org/banya_kedrovy_dom/7743453001", 9407, who=901, chat=901, chat_type="private")
-check("адрес у бани с точкой «по стране» — ищем по всей стране, не только в 1500 км от её центра; «село» в адресе не мешает",
+check("ответ на вопрос — без проверки расстояния до нашей примерной точки (она бывает в другом городе); «село» в адресе не мешает",
       on_map(ab4) == "exact rejected own_point" and sql(f"select round(lat::numeric, 2) from baths where id = {ab4}") == "43.56", on_map(ab4))
 ab5 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Аренда', 'ok', 'private', 'Россия', 55.7, 37.6, 'region') returning id").splitlines()[0]
 sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ab5}, 2025, 'Ден', 1)")
