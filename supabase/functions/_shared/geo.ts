@@ -12,6 +12,13 @@ export function useDbGeocoder(sb: any) { db = sb; }
 
 export type Point = { lat: number; lng: number };
 
+// журнал поиска точки (30.10: ссылки Google не находились, а почему — видно не было): шаги — во что раскрылась ссылка,
+// что ответил каждый геокодер, что и почему отброшено. Бот пишет его в bot_log, когда точку не нашёл; ?geodebug — по запросу
+let trail: string[] = [];
+export const geoTrail = () => trail.slice();
+const note = (s: string) => { if (trail.length < 120) trail.push(s.slice(0, 240)); };
+const withTimeout = (ms: number) => ({ signal: AbortSignal.timeout(ms) });
+
 const valid = (lat: number, lng: number): Point | null =>
   Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0) ? { lat, lng } : null;
 
@@ -43,8 +50,9 @@ function fromUrl(raw: string): Point | null {
 // разметка страницы организации ненадёжна (в ней бывают чужие координаты — например, региона посетителя)
 async function fromRedirect(url: string): Promise<Point | null> {
   try {
-    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" } });
+    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" }, ...withTimeout(10000) });
     await r.body?.cancel();
+    note(`ссылка раскрылась: ${r.status} ${r.url.slice(0, 160)}`);
     return r.url && r.url !== url ? fromUrl(r.url) : null;
   } catch {
     return null;
@@ -81,9 +89,10 @@ const ADMIN = new Set(["city", "town", "village", "hamlet", "suburb", "municipal
 async function nominatimSearch(q: string): Promise<any[] | null> {
   try {
     const url = `${NOMINATIM}/search?` + new URLSearchParams({ q, format: "jsonv2", limit: "3", "accept-language": "ru" });
-    const r = await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } });
-    if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j.length) return j; }
-  } catch { /* через базу */ }
+    const r = await fetch(url, { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" }, ...withTimeout(8000) });
+    if (r.ok) { const j = await r.json(); if (Array.isArray(j)) return j; }
+    note(`nominatim напрямую: ${r.status}`);
+  } catch (e) { note(`nominatim напрямую: ${(e as Error).name}`); }
   if (!db) return null;
   const { data: id } = await db.rpc("geo_search", { p_q: q });
   if (id == null) return null;
@@ -104,8 +113,9 @@ async function yandexSearch(q: string): Promise<any[] | null> {
   const key = Deno.env.get("YANDEX_GEOCODER_KEY");
   if (!key) return null;
   try {
-    const r = await fetch(`${YANDEX_GEOCODER}/1.x/?` + new URLSearchParams({ apikey: key, geocode: q, format: "json", lang: "ru_RU", results: "3" }));
-    if (!r.ok) return null;
+    const r = await fetch(`${YANDEX_GEOCODER}/1.x/?` + new URLSearchParams({ apikey: key, geocode: q, format: "json", lang: "ru_RU", results: "3" }),
+      withTimeout(8000));
+    if (!r.ok) { note(`яндекс: ${r.status}`); return null; }
     const j = await r.json();
     // только дом или улица: нашёлся лишь город или район — это не точка бани
     return (j?.response?.GeoObjectCollection?.featureMember ?? [])
@@ -114,7 +124,7 @@ async function yandexSearch(q: string): Promise<any[] | null> {
       const [lon, lat] = String(o.Point?.pos ?? "").split(" ");
       return { lat, lon, addresstype: meta.kind, category: meta.kind, display_name: meta.text ?? "" };
     });
-  } catch { return null; }
+  } catch (e) { note(`яндекс: ${(e as Error).name}`); return null; }
 }
 
 // Photon (тот же OpenStreetMap, поиск помягче) — когда Nominatim не нашёл: 30.10 «2 Nolu Park Sokak, Rize» Nominatim не знал,
@@ -122,9 +132,10 @@ async function yandexSearch(q: string): Promise<any[] | null> {
 async function photonSearch(q: string): Promise<any[] | null> {
   let j: any = null;
   try {
-    const r = await fetch(`${PHOTON}/api?` + new URLSearchParams({ q, limit: "3" }), { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" } });
-    if (r.ok) j = await r.json();
-  } catch { /* через базу */ }
+    const r = await fetch(`${PHOTON}/api?` + new URLSearchParams({ q, limit: "3" }),
+      { headers: { "User-Agent": "EBL-bot/1.0 (https://ebl.su)" }, ...withTimeout(8000) });
+    if (r.ok) j = await r.json(); else note(`photon напрямую: ${r.status}`);
+  } catch (e) { note(`photon напрямую: ${(e as Error).name}`); }
   if (!j?.features && db) {
     const { data: id } = await db.rpc("geo_photon", { p_q: q });
     for (let i = 0; id != null && i < 16 && !j?.features; i++) {
@@ -157,11 +168,16 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
   const variants = [...new Set([clean, noBuilding, noBuilding.replace(/\b(ул\.?|улица)\s*/gi, ""), noKind])].filter((v) => v.length > 4);
   for (const search of [yandexSearch, nominatimSearch, photonSearch]) {
     for (const v of variants) {
-      for (const hit of (await search(v)) ?? []) {
-        if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) continue;
-        if (must.length && !must.every((w) => flat(hit.display_name ?? "").includes(flat(w)))) continue;
+      const hits = (await search(v)) ?? [];
+      note(`${search.name.replace("Search", "")} «${v}»: ${hits.length}`);
+      for (const hit of hits) {
+        const what = `  ${hit.addresstype} ${(hit.display_name ?? "").slice(0, 90)}`;
+        if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) { note(`${what} — город/район целиком`); continue; }
+        const miss = must.filter((w) => !flat(hit.display_name ?? "").includes(flat(w)));
+        if (miss.length) { note(`${what} — нет «${miss.join("», «")}»`); continue; }
         const p = valid(+hit.lat, +hit.lon);
-        if (p && (!near || km(p, near) <= maxKm)) return p;
+        if (p && (!near || km(p, near) <= maxKm)) { note(`${what} — взяли`); return p; }
+        note(`${what} — далеко от нашей точки`);
       }
     }
   }
@@ -190,7 +206,10 @@ function placeVariants(place: string): { variants: string[]; must: string[] } {
   // сверка: в найденном должны быть город и улица из ссылки Google (если они там есть). Улица — только по слову «улица»:
   // первой частью часто идёт здание («Yinsa Apartmanı», «Sherbhawan Building»)
   const streetRaw = rest.find((p) => STREET_WORD.test(p))?.replace(/\s*\b(no|nr|№)\s*[:.]?\s*[\d/]+.*$/i, "").trim() ?? "";
-  const street = streetRaw ? clean(streetRaw) : "";
+  // для сверки — само название улицы, без «ул.», «улица», номеров: Google пишет «ул. Медовеевская», OpenStreetMap —
+  // «Медовеевская улица» (30.10: пивоварня в Медовеевке отбрасывалась, \b не работает с кириллицей)
+  const street = streetRaw.split(/[\s.,]+/).filter((w) => w.length >= 4 && !STREET_WORD.test(w) && !/\d/.test(w))
+    .sort((a, b) => b.length - a.length)[0] ?? "";
   const must = [city, street].filter((w) => w && flat(w).length >= 3);
   return {
     variants: [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : "",
@@ -225,19 +244,20 @@ async function googlePlace(url: string): Promise<string | null> {
   const direct = googleFromUrl(url);
   if (direct) return direct;
   try {
-    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" } });
+    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" }, ...withTimeout(10000) });
+    note(`google раскрылась: ${r.status} ${(r.url || url).slice(0, 160)}`);
     const fromUrl = googleFromUrl(r.url || url);
     if (fromUrl) { await r.body?.cancel(); return fromUrl; }
     const html = (await r.text()).slice(0, 500_000);
     const m = html.match(/\/maps\/preview\/place\?[^"']*?[?&;]q=([^"'&]+)/);
     return m ? googleText(m[1]) : null;
-  } catch { return null; }
+  } catch (e) { note(`google: ${(e as Error).name}`); return null; }
 }
 
 // заголовок страницы карточки организации: «Сандуновские бани, баня, Неглинная ул., 14, стр. 5, Москва — Яндекс Карты»
 async function pageTitle(url: string): Promise<string | null> {
   try {
-    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "TelegramBot (like TwitterBot)", "Accept-Language": "ru" } });
+    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "TelegramBot (like TwitterBot)", "Accept-Language": "ru" }, ...withTimeout(10000) });
     const html = (await r.text()).slice(0, 200_000);
     const t = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ?? html.match(/<title>([^<]+)<\/title>/i)?.[1];
     return t ? t.replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s[—–-]\s(Яндекс ?Карты|Yandex ?Maps|Google ?Maps|2ГИС|2GIS).*$/i, "").trim() : null;
@@ -248,6 +268,7 @@ async function pageTitle(url: string): Promise<string | null> {
 
 /** Всё, чем участник может показать, где баня: координаты, ссылка с точкой, адрес в тексте, ссылка на карточку организации. */
 export async function locate(text: string, near?: Point | null, maxKm = 300): Promise<Point | null> {
+  trail = [];
   const direct = await parseLocation(text);
   if (direct) return direct;
   // ссылка Google на место без координат: «St George Ski and Holiday Hotel, 12 Asanitsa Str, 2770 Bansko, Bulgaria» —
@@ -255,9 +276,11 @@ export async function locate(text: string, near?: Point | null, maxKm = 300): Pr
   const gurl = (text ?? "").match(/https?:\/\/[^\s<>"]+/)?.[0];
   const place = gurl ? await googlePlace(gurl) : null;
   if (place) {
+    note(`место из ссылки Google: ${place}`);
     const pc = await parseLocation(place);   // «?q=41.02,40.51» — координаты прямо в ссылке
     if (pc) return pc;
     const { variants, must } = placeVariants(place);
+    note(`сверяем по: ${must.join(", ") || "—"}`);
     for (const q of variants) {
       const p = await geocodeAddress(q, near, maxKm, true, must);
       if (p) return p;

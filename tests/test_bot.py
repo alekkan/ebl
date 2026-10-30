@@ -906,13 +906,22 @@ for link, want, what in (("https://www.google.com/maps?q=St.+George,+%D0%91%D0%B
                          ("https://www.google.com/maps/search/Asanitsa,+Bansko,+Bulgaria", "41.8296,23.4734", "/maps/search/<запрос>"),
                          ("https://maps.google.com/?q=41.026087,40.517614", "41.0261,40.5176", "координаты в ?q="),
                          ("https://www.google.com/maps/place/Paradise+Spa,+Sherbhawan+Building,+Chaksibari,+Kathmandu,+Bagmati+Province+44600,+%D0%9D%D0%B5%D0%BF%D0%B0%D0%BB/data=!4m2!3m1!1s0x39eb:0x91", "27.7155,85.3103",
-                          "/maps/place/ с провинцией и зданием (Хвост, Катманду)")):
+                          "/maps/place/ с провинцией и зданием (Хвост, Катманду)"),
+                         ("https://www.google.com/maps/place/Endemic+Mountain+Brewery,+%D1%83%D0%BB.+%D0%9C%D0%B5%D0%B4%D0%BE%D0%B2%D0%B5%D0%B5%D0%B2%D1%81%D0%BA%D0%B0%D1%8F,+17,+%D0%9C%D0%B5%D0%B4%D0%BE%D0%B2%D0%B5%D0%B5%D0%B2%D0%BA%D0%B0,+%D0%9A%D1%80%D0%B0%D1%81%D0%BD%D0%BE%D0%B4%D0%B0%D1%80%D1%81%D0%BA%D0%B8%D0%B9+%D0%BA%D1%80%D0%B0%D0%B9,+354390/data=!4m2!3m1!1s0x40f5:0x8b", "43.6646,40.0723",
+                          "/maps/place/ по-русски: «ул. Медовеевская» = «Медовеевская улица» (пивоварня)")):
     sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
     sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
     reply_geo(link, 86)
     check(f"ссылка Google вида {what} — точка нашлась", point() == want, point())
 sql(f"update baths set lat = null, lng = null, precision = null where id = {gb}")
 sql(f"update bot_posts set geo_msg = 8102, geo_at = now() where visit_id = {gv}")
+# 30.10: проверка поиска на бою — текст в geo_debug, ?geodebug=<id> пишет точку и журнал шагов; второй вызов не ищет заново
+did = sql("insert into geo_debug (text) values ('https://www.google.com/maps/search/Asanitsa,+Bansko,+Bulgaria') returning id").splitlines()[0]
+gd = req("POST", f"/functions/v1/tg-bot?geodebug={did}", {})[1]
+check("?geodebug: точка и журнал шагов (что ответил каждый геокодер и что взяли)",
+      (gd.get("point") or {}).get("lat") == 41.8296 and any("взяли" in t for t in gd.get("trail") or []), gd)
+check("…и в geo_debug записан результат", sql(f"select result->'point'->>'lat' from geo_debug where id = {did}") == "41.8296")
+sql("delete from geo_debug")
 # 30.10: «поделиться» из Яндекс Карт — название, адрес по-русски, ссылка без координат; адрес находит Геокодер Яндекса
 reply_geo("Elit Club SPA Merkezi\nпровинция Ризе, район Ризе Меркез, Пиричелеби, улица 2 Парк, 1\nhttps://yandex.ru/maps/org/elit_club_spa_merkezi/191362709121/", 85)
 check("адрес по-русски из Яндекс Карт (Турция) — точка с Геокодера Яндекса", point() == "41.0261,40.5176", point())
