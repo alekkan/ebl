@@ -951,23 +951,26 @@ check("второе нажатие уже решённое не переигры
 sql(f"delete from visits where id = {rv}"); sql(f"delete from baths where id = {rb}"); sql("delete from player_accounts where tg_id = 909")
 
 print("Сверка: «где была баня?» в личку тем, кто был")
-# 30.10: агенты не нашли — спрашиваем участников, по одной бане в день
+# 30.10: агенты не нашли — спрашиваем участников по одной бане; ответил — следующая в ближайший заход, точка — сразу на карту
 sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
 sql("update players set no_point_asks = false")
 ab1 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Сеунгвон', 'ok', 'public', 'Корея', 37.5, 127.0, 'country') returning id").splitlines()[0]
 ab2 = sql("insert into baths (name, status, type, country, region, lat, lng, precision) values ('Тест-Пивоварня', 'ok', 'spa', 'Россия', 'Краснодарский край', 43.6, 39.7, 'city') returning id").splitlines()[0]
-for b, nick, k in ((ab1, "Шурик", 2), (ab2, "Шурик", 1)):
+ab3 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Осака', 'ok', 'public', 'Япония', 34.7, 135.5, 'country') returning id").splitlines()[0]
+for b, k in ((ab1, 2), (ab2, 1), (ab3, 1)):
     for _ in range(k):
-        v = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by, source) select {b}, now() - interval '3 day', 60, 'ok', id, 'bot' from players where nick = '{nick}' returning id").splitlines()[0]
-        sql(f"insert into visit_players (visit_id, player_id) select {v}, id from players where nick = '{nick}'")
+        v = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by, source) select {b}, now() - interval '3 day', 60, 'ok', id, 'bot' from players where nick = 'Шурик' returning id").splitlines()[0]
+        sql(f"insert into visit_players (visit_id, player_id) select {v}, id from players where nick = 'Шурик'")
 sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ab2}, 2024, 'Ден', 1)")   # из таблицы — только год
-for b in (ab1, ab2):
+for b in (ab1, ab2, ab3):
     sql(f"insert into catalog_proposals (run, bath_id, match) values ('test-asks', {b}, 20)")
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 ago3 = sql("select to_char((now() - interval '3 day') at time zone 'Europe/Moscow', 'FMDD FMMM')").split()
 ago3 = f"{ago3[0]} {MONTHS[int(ago3[1]) - 1]}"
 asks_run = lambda: req("POST", "/functions/v1/tg-bot?asks=1", {})[1].get("sent")
 dms = lambda seen, who: [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == who]
+ask_of = lambda b, nick: sql(f"select coalesce(max(id || '|' || coalesce(tg_msg, 0) || '|' || status), '') from point_asks where bath_id = {b} and player_id = (select id from players where nick = '{nick}')").split("|")
+on_map = lambda b: sql(f"select precision || ' ' || (select string_agg(status || ' ' || coalesce(reject_reason, ''), ',') from catalog_proposals where bath_id = {b}) from baths where id = {b}")
 check("выключено (settings.point_asks = off) — никому не пишем", asks_run() == 0)
 sql("""update settings set value = '["Шурик"]' where key = 'point_asks'""")
 seen = len(TELEGRAM.calls)
@@ -975,71 +978,61 @@ n1 = asks_run()
 q = dms(seen, 909)
 check("проба на одном: Шурику одна баня — где был чаще, с регионом, походами, датой последнего и кнопками; Дену — ничего",
       n1 == 1 and len(q) == 1 and "Тест-Сеунгвон" in q[0]["text"] and f"Корея · у тебя там 2 похода, последний — {ago3}." in q[0]["text"]
-      and "pa:f:" in json.dumps(q[0].get("reply_markup")) and not dms(seen, 901), (n1, [p.get("text") for p in q]))
-check("второй вызов в тот же день — ничего не шлёт", asks_run() == 0)
-ask1 = sql(f"select id || '|' || tg_msg from point_asks where bath_id = {ab1}").split("|")
+      and "Пришли сюда" in q[0]["text"] and "pa:f:" in json.dumps(q[0].get("reply_markup")) and not dms(seen, 901), (n1, [p.get("text") for p in q]))
+check("пока не ответил — следующую не шлём", asks_run() == 0)
+ask1 = ask_of(ab1, "Шурик")
 seen = len(TELEGRAM.calls)
 req("POST", "/functions/v1/tg-bot", {"update_id": 9401, "message": {"message_id": 9401, "date": now(), "chat": {"id": 909, "type": "private"},
     "from": {"id": 909, "is_bot": False, "first_name": "Шурик"}, "text": "37.566, 126.978",
     "reply_to_message": {"message_id": int(ask1[1]), "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": 909, "type": "private"}, "text": "📍"}}},
     headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
-for _ in range(100):   # уведомление Комиссии — по триггеру
-    if sql(f"select coalesce(max(jsonb_array_length(messages)), 0) from bath_point_requests where bath_id = {ab1}") != "0": break
-    time.sleep(0.3)
-arid = sql(f"select coalesce(max(id), 0) from bath_point_requests where bath_id = {ab1}")
 calls = TELEGRAM.calls[seen:]
-check("точка ответом на вопрос — запрос Комиссии, точка бани пока прежняя, у вопроса пропали кнопки, Шурику «спасибо»",
-      sql(f"select status || ' ' || coalesce(request_id::text, '') from point_asks where bath_id = {ab1}") == f"point {arid}"
-      and sql(f"select precision from baths where id = {ab1}") == "country"
-      and any(m == "sendMessage" and "Перенести точку бани?" in (p.get("text") or "") and "Тест-Сеунгвон" in p["text"] for m, p in calls)
+check("точка ответом на вопрос — сразу на карту, без Комиссии; в Сверке — «своя точка»; у вопроса пропали кнопки, Шурику 👍",
+      ask_of(ab1, "Шурик")[2] == "point" and on_map(ab1) == "exact rejected own_point"
+      and sql(f"select round(lat::numeric, 3) from baths where id = {ab1}") == "37.566"
+      and sql(f"select count(*) from bath_point_requests where bath_id = {ab1}") == "0"
+      and not any(m == "sendMessage" and "Перенести точку бани?" in (p.get("text") or "") for m, p in calls)
       and any(m == "editMessageReplyMarkup" and str(p.get("message_id")) == ask1[1] for m, p in calls)
-      and any("Передал Комиссии" in (p.get("text") or "") for p in dms(seen, 909)))
-press(f"mv:{arid}", ME, 9402)
-check("Комиссия жмёт «Перенести» — точка точная, в Сверке баня ушла в «Решено» как «своя точка»",
-      sql(f"select precision || ' ' || round(lat::numeric, 3) from baths where id = {ab1}") == "exact 37.566"
-      and sql(f"select status || ' ' || reject_reason from catalog_proposals where bath_id = {ab1}") == "rejected own_point")
+      and any("Поставил на карту" in (p.get("text") or "") for p in dms(seen, 909)), on_map(ab1))
 sql("update settings set value = '\"all\"' where key = 'point_asks'")
 seen = len(TELEGRAM.calls)
 asks_run()
-q = dms(seen, 901)
-check("всем: Шурика сегодня уже спросили — ждёт завтра; Дену — его баня (поход из таблицы — только сезон)",
-      not dms(seen, 909) and len(q) == 1 and "Тест-Пивоварня" in q[0]["text"] and "Краснодарский край, Россия · у тебя там 1 поход, в сезоне 2024." in q[0]["text"],
+q, q9 = dms(seen, 901), dms(seen, 909)
+check("всем: Дену — его единственная баня (поход из таблицы — только сезон); одну баню — одному",
+      len(q) == 1 and "Тест-Пивоварня" in q[0]["text"] and "Краснодарский край, Россия · у тебя там 1 поход, в сезоне 2024." in q[0]["text"],
       [p.get("text") for p in q])
-ask2 = sql(f"select id from point_asks where bath_id = {ab2} and player_id = (select id from players where nick = 'Ден')")
+check("…Шурик ответил — следующая баня в тот же день, не завтра", len(q9) == 1 and "Тест-Осака" in q9[0]["text"], [p.get("text") for p in q9])
+ask2 = ask_of(ab2, "Ден")[0]
 press(f"pa:n:{ask2}", 909, 9403)
-check("чужой кнопку не нажмёт", sql(f"select status from point_asks where id = {ask2}") == "sent")
+check("чужой кнопку не нажмёт", ask_of(ab2, "Ден")[2] == "sent")
 seen = len(TELEGRAM.calls)
 press(f"pa:n:{ask2}", 901, 9404)
 check("«🙅 Не был там» — записали, сообщение поправлено",
-      sql(f"select status from point_asks where id = {ask2}") == "not_there"
-      and any(m == "editMessageText" and "не был" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]))
-sql("update point_asks set sent_at = sent_at - interval '1 day'")
+      ask_of(ab2, "Ден")[2] == "not_there" and any(m == "editMessageText" and "не был" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]))
+# 30.10: Леха прислал координаты отдельным сообщением, без «Ответить», — бот начал черновик похода
+sql("delete from bot_sessions where tg_id = 909")
+seen = len(TELEGRAM.calls)
+post("34.6937, 135.5023", 9406, who=909, chat=909, chat_type="private")
+check("точка в личку без «Ответить», пока ждём ответа на вопрос, — это ответ, а не новый поход",
+      ask_of(ab3, "Шурик")[2] == "point" and on_map(ab3) == "exact rejected own_point"
+      and any("Поставил на карту" in (p.get("text") or "") for p in dms(seen, 909)) and not sql("select state from bot_sessions where tg_id = 909"))
 seen = len(TELEGRAM.calls)
 asks_run()
 q = dms(seen, 909)
-check("на следующий день Шурику — следующая баня (её Ден не помнит — спрашиваем другого)", len(q) == 1 and "Тест-Пивоварня" in q[0]["text"], [p.get("text") for p in q])
-ask3 = sql(f"select id from point_asks where bath_id = {ab2} and player_id = (select id from players where nick = 'Шурик')")
-press(f"pa:s:{ask3}", 909, 9405)
-sql("update point_asks set sent_at = sent_at - interval '1 day'")
+check("следующий заход: Шурику — баня, где Ден не был (спрашиваем другого)", len(q) == 1 and "Тест-Пивоварня" in q[0]["text"], [p.get("text") for p in q])
+seen = len(TELEGRAM.calls)
+asks_run()
+check("…молчит — больше не шлём", not dms(seen, 909))
+press(f"pa:s:{ask_of(ab2, 'Шурик')[0]}", 909, 9405)
 sql(f"update catalog_proposals set status = 'new' where bath_id = {ab1}"); sql(f"update baths set precision = 'country' where id = {ab1}")
 sql(f"delete from point_asks where bath_id = {ab1}")
 seen = len(TELEGRAM.calls)
 asks_run()
-check("«🔕 Больше не спрашивай» — больше не пишем",
-      sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
-# 30.10: Леха прислал координаты отдельным сообщением, без «Ответить», — бот начал черновик похода
-sql("update players set no_point_asks = false"); sql("delete from point_asks"); sql("delete from bot_sessions where tg_id = 909")
-asks_run()
-seen = len(TELEGRAM.calls)
-post("43.245754, 42.526522", 9406, who=909, chat=909, chat_type="private")
-check("точка в личку без «Ответить», пока ждём ответа на вопрос, — это ответ, а не новый поход",
-      sql("select string_agg(status, ',') from point_asks where player_id = (select id from players where nick = 'Шурик')") == "point"
-      and any("Передал Комиссии" in (p.get("text") or "") for p in dms(seen, 909))
-      and not sql("select state from bot_sessions where tg_id = 909"))
+check("«🔕 Больше не спрашивай» — больше не пишем", sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
 sql("update settings set value = '\"off\"' where key = 'point_asks'"); sql("update players set no_point_asks = false")
-sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_id in ({ab1}, {ab2})")
-sql(f"delete from visits where bath_id in ({ab1}, {ab2})"); sql(f"delete from legacy_visits where bath_id = {ab2}"); sql(f"delete from baths where id in ({ab1}, {ab2})")
-sql("delete from player_accounts where tg_id = 909")
+sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_id in ({ab1}, {ab2}, {ab3})")
+sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3})"); sql(f"delete from legacy_visits where bath_id = {ab2}")
+sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3})"); sql("delete from player_accounts where tg_id = 909")
 
 print("Действия бота по просьбе владельца (bot_actions)")
 from local import TELEGRAM

@@ -1237,7 +1237,8 @@ async function linked(accountId: string, judge?: string): Promise<boolean> {
 }
 
 // ---------- Сверка: «где была баня?» в личку тем, кто был (30.10, docs/catalog.md) ----------
-// Раз в день (cron → ?asks=1) каждому — одна баня из «Не нашли», чтобы не пугать списком. Кому слать — settings.point_asks.
+// Четыре раза в день (cron → ?asks=1) — по одной бане из «Не нашли», чтобы не пугать списком: следующую — только тем, кто
+// ответил на прошлую (30.10). Кому слать — settings.point_asks.
 const ASK_WAIT = 3 * 864e5;   // молчит три дня — баню спросим у другого, его — о следующей
 const ASK_KB = (id: number) => [[btn("🤷 Не помню", `pa:f:${id}`), btn("🙅 Не был там", `pa:n:${id}`)], [btn("🔕 Больше не спрашивай", `pa:s:${id}`)]];
 const mskDay = (t: number) => new Date(t + 3 * 3600e3).toISOString().slice(0, 10);
@@ -1260,7 +1261,7 @@ const askText = (b: Any, n: number, date: string | null, year: number | null) =>
   + `у тебя там ${n} ${visitsWord(n)}${when ? `, ${n > 1 ? "последний — " : ""}${when}` : ""}.\n`
   + `На карте у неё пока примерная точка, а по картам агенты её не нашли.\n\n`
   + `Пришли сюда геопозицию (📎 → Геопозиция), ссылку на Яндекс Карты, Google или 2ГИС или адрес. `
-  + `Не помнишь — нажми кнопку, спрошу других. Больше одной бани в день не спрашиваю.`;
+  + `Не помнишь — нажми кнопку, спрошу других. Ответишь — через пару часов пришлю следующую, нет — не тороплю.`;
 };
 
 async function pointAsks(): Promise<number> {
@@ -1273,12 +1274,12 @@ async function pointAsks(): Promise<number> {
     sb.from("players").select("id, nick, left_at, no_point_asks"),
     sb.from("player_accounts").select("player_id, tg_id").not("player_id", "is", null).not("tg_id", "is", null),
   ]);
-  const now = Date.now(), today = mskDay(now);
+  const now = Date.now();
   const stale = (asks ?? []).filter((a: Any) => a.status === "sent" && now - Date.parse(a.sent_at) > ASK_WAIT);
   if (stale.length) await sb.from("point_asks").update({ status: "skipped" }).in("id", stale.map((a: Any) => a.id));
   const open = (asks ?? []).filter((a: Any) => a.status === "sent" && !stale.includes(a));
-  // ждёт ответа или уже спрошен сегодня — сегодня его не трогаем; баню, о которой ждём ответа, другим не шлём
-  const busyPlayer = new Set([...open, ...(asks ?? []).filter((a: Any) => mskDay(Date.parse(a.sent_at)) === today)].map((a: Any) => a.player_id));
+  // ждём ответа — новую не шлём (ответил — следующая в ближайший заход); баню, о которой ждём ответа, другим не шлём
+  const busyPlayer = new Set(open.map((a: Any) => a.player_id));
   const busyBath = new Set(open.map((a: Any) => a.bath_id));
   const asked = new Set((asks ?? []).map((a: Any) => `${a.bath_id}:${a.player_id}`));
   const pl = new Map((players ?? []).map((p: Any) => [p.id, p]));
@@ -1301,7 +1302,7 @@ async function pointAsks(): Promise<number> {
     if (!c) continue;
     busyBath.add(c.bath);
     const tgId = tgOf.get(pid) as number;
-    // сначала строка (unique: второй вызов в тот же день ту же баню не пришлёт), потом сообщение
+    // сначала строка (unique: ту же баню тому же человеку второй раз не пришлём), потом сообщение
     const { data: row } = await sb.from("point_asks").insert({ bath_id: c.bath, player_id: pid, tg_chat: tgId }).select("id").maybeSingle();
     if (!row) continue;
     const m = await send(tgId, askText(bathOf.get(c.bath), c.n, c.date, c.last), ASK_KB(row.id));
@@ -1313,7 +1314,8 @@ async function pointAsks(): Promise<number> {
   return sent;
 }
 
-// точка ответом на вопрос — запрос Комиссии (как перенос точки): Комиссии в личку обе точки и «Перенести» / «Оставить»
+// точка ответом на вопрос — сразу на карту (30.10: без проверки Комиссией — была двойная проверка), в Сверке — «своя точка».
+// Если точку бани тем временем уже уточнили — как перенос: запрос Комиссии, чужую не затираем
 async function askAnswer(msg: Any, ask: Any, me: Any) {
   const { data: b } = await sb.from("baths").select("lat, lng, precision").eq("id", ask.bath_id).single();
   const loc = msg.location ?? msg.venue?.location;
@@ -1325,12 +1327,16 @@ async function askAnswer(msg: Any, ask: Any, me: Any) {
     return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с городом и улицей или геопозицию (📎 → Геопозиция).",
       undefined, msg.message_id);
   }
-  const r = await requestPoint(sb, ask.bath_id, p, me.id, "bot", { chat: msg.chat.id, msg: msg.message_id });
-  await sb.from("point_asks").update({ status: "point", request_id: r.requested ?? null, answered_at: new Date().toISOString() }).eq("id", ask.id);
+  const done = await setBathPoint(ask.bath_id, p);
+  const at = new Date().toISOString();
+  if (done) await sb.from("catalog_proposals").update({ status: "rejected", reject_reason: "own_point", decided_by: me.id, decided_at: at })
+    .eq("bath_id", ask.bath_id).eq("status", "new");
+  const r = done ? null : await requestPoint(sb, ask.bath_id, p, me.id, "bot", { chat: msg.chat.id, msg: msg.message_id });
+  await sb.from("point_asks").update({ status: "point", request_id: r?.requested ?? null, answered_at: at }).eq("id", ask.id);
   await tg("editMessageReplyMarkup", { chat_id: ask.tg_chat, message_id: ask.tg_msg, reply_markup: { inline_keyboard: [] } });
-  await react(msg.chat.id, msg.message_id, r.same ? "👌" : "👀");
-  return send(msg.chat.id, r.same ? "Точка и так здесь — спасибо!" : "Спасибо! Передал Комиссии — как решат, поставлю 👍 на твоё сообщение.",
-    undefined, msg.message_id);
+  await react(msg.chat.id, msg.message_id, done ? "👍" : r?.same ? "👌" : "👀");
+  return send(msg.chat.id, done ? "👍 Поставил на карту — спасибо!" : r?.same ? "Точка и так здесь — спасибо!"
+    : "Спасибо! У бани уже стоит точка — передал Комиссии твою.", undefined, msg.message_id);
 }
 
 // «🤷 Не помню» / «🙅 Не был там» / «🔕 Больше не спрашивай» — нажимает только тот, кого спросили
