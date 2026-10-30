@@ -159,7 +159,10 @@ class Site:
 
     def view(self, v):
         self.page.click(f'.nav [data-view="{v}"]')
-        self.page.wait_for_timeout(500)
+        # вкладка рисуется сразу (show в app.js); дальше — только перерисовка карты Leaflet: ждём вкладку и чуть-чуть, а не
+        # полсекунды вслепую (вкладки переключаются ~70 раз за прогон)
+        self.page.wait_for_selector(f"#view-{v}:not([hidden])", timeout=8000)
+        self.page.wait_for_timeout(250)
 
     def clean(self, label):
         ok = not self.errors

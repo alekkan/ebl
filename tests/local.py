@@ -1,5 +1,6 @@
 """Общие помощники для тестов на локальном стенде Supabase (`supabase start` + `supabase functions serve`)."""
-import hashlib, hmac, json, subprocess, time, urllib.error, urllib.request
+import hashlib, hmac, json, re, subprocess, threading, time, urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 import stub
 
 _status = json.loads(subprocess.run(["supabase", "status", "-o", "json"], capture_output=True, text=True).stdout or "{}")
@@ -32,8 +33,45 @@ def req(method, path, body=None, token=None, headers=None):
             return e.code, txt
 
 
-def sql(q):
+def _sql_once(q):
     return subprocess.run(["docker", "exec", DB_CONTAINER, "psql", "-U", "postgres", "-tAc", q], capture_output=True, text=True).stdout.strip()
+
+
+# Запрос к базе — через один постоянный psql: docker exec на каждый запрос стоил ~70 мс, а тесты делают их тысячи
+# (опросы «пока бот ответит» — тоже). Строка с несколькими командами — как раньше, через psql -c: там они идут одной транзакцией
+_psql, _psql_lock, _END = None, threading.Lock(), "__ebl_sql_end__"
+
+
+def _single(q):
+    """Одна команда без обратной косой черты (её psql на входе понимает как свою команду) — можно в постоянный psql."""
+    body = q.strip().rstrip(";")
+    if "\\" in body:
+        return False
+    plain = re.sub(r"\$\$.*?\$\$|'(?:[^']|'')*'|\"[^\"]*\"", "", body, flags=re.S)
+    return ";" not in plain
+
+
+def sql(q):
+    global _psql
+    if not _single(q):
+        return _sql_once(q)
+    with _psql_lock:
+        for attempt in range(2):
+            if _psql is None or _psql.poll() is not None:
+                _psql = subprocess.Popen(["docker", "exec", "-i", DB_CONTAINER, "psql", "-U", "postgres", "-tA", "-X", "-v", "ON_ERROR_STOP=0"],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+            try:
+                _psql.stdin.write(q.strip().rstrip(";") + ";\n\\echo " + _END + "\n")
+                _psql.stdin.flush()
+                out = []
+                for line in _psql.stdout:
+                    if line.rstrip("\n") == _END:
+                        return "\n".join(out).strip()
+                    out.append(line.rstrip("\n"))
+            except (BrokenPipeError, OSError):
+                pass
+            _psql = None   # psql умер (перезапустили контейнер базы) — поднимаем заново
+        return _sql_once(q)
 
 
 # Telegram, геокодер и npm-CDN для функций — заглушка в этом же процессе (tests/stub.py): без интернета и без зависаний
@@ -52,6 +90,41 @@ if _nom:
 SKEW = float(sql("select extract(epoch from now())") or time.time()) - time.time()
 if abs(SKEW) > 60:
     print(f"  (часы Docker расходятся с компьютером на {SKEW:+.0f} с — тесты берут время стенда)")
+
+
+def _warm():
+    """Будим функции до первых проверок: после перезапуска supabase functions serve первая просьба к каждой отвечает
+    секундами, и проверки, ждущие реакцию бота по времени, на этом падали (30.10)."""
+    def one(target):
+        method, path = target
+        for _ in range(60):
+            try:
+                if req(method, "/functions/v1/" + path)[0] < 500:
+                    return
+            except OSError:   # контейнер функций ещё поднимается
+                pass
+            time.sleep(1)
+        raise SystemExit(f"функция {path} не отвечает минуту — перезапусти supabase functions serve --env-file supabase/functions/.env")
+    with ThreadPoolExecutor(6) as ex:
+        list(ex.map(one, [("GET", "tg-bot?diag=1"), ("OPTIONS", "tg-login"), ("OPTIONS", "photos"), ("OPTIONS", "recompute"),
+                          ("OPTIONS", "bath-location")]))
+
+
+def sweep():
+    """Хвосты прерванных прогонов. Тест, упавший или остановленный посередине, не убирает за собой — и следующий прогон
+    падал уже на чужих проверках (30.10: походы в бани «Тест-…», вопросы «где была баня?», заявки на точку). Убираем
+    только то, что заводят сами тесты: бани «Тест-…», «Тестовая …» (с ними уходят их цены, вопросы, предложения Сверки), прогоны
+    Радара и Сверки с пометкой test, включённые вопросы участникам."""
+    test_baths = "select id from baths where name ~ '^(Тест|Проверка счётчика)'"
+    sql(f"delete from visits where bath_id in ({test_baths})")
+    sql(f"delete from baths where id in ({test_baths})")
+    sql("delete from radar_places where key like 'test:%'")
+    sql("delete from catalog_proposals where run like 'test%'")
+    sql("""update settings set value = '"off"' where key = 'point_asks' and value <> '"off"'""")
+
+
+_warm()
+sweep()
 
 
 def now():

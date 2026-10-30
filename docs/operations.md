@@ -11,9 +11,9 @@
 | Что поменял | Команда |
 |---|---|
 | Сайт (`prototype/`) | `scripts/deploy.sh` — проверки, затем сборка во временной копии → хранилище Яндекса `ebl.su` и резерв `gh-pages` (в `main` не пишет; нужен `yc`) |
-| Схему базы, edge-функции | `scripts/deploy-backend.sh [функция …]` — проверки, `supabase db push`, функции (без аргументов — все), пересчёт |
+| Схему базы, edge-функции | `scripts/deploy-backend.sh [функция …]` — проверки, `supabase db push`, функции (без аргументов — изменённые с прошлой выкладки, `ALL=1` — все), пересчёт |
 | Движок очков (`_shared/scoring.js`) | `scripts/deploy-backend.sh recompute` |
-| `_shared/*` (geo, place, avatar, greetings) | `scripts/deploy-backend.sh` без аргументов — функции, которые их используют, выложатся все |
+| `_shared/*` (geo, place, avatar, greetings) | `scripts/deploy-backend.sh` без аргументов — изменился `_shared`, выложатся все функции |
 | И сайт, и бэкенд | `scripts/deploy-all.sh [функция …]` — проверки один раз, потом бэкенд, потом сайт |
 
 Все функции деплоятся с `--no-verify-jwt`: Telegram и pg_cron не присылают ключ Supabase, проверка — внутри функций.

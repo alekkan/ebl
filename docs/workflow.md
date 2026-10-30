@@ -108,8 +108,14 @@ git switch -c fix/rejected-bath-on-map
 ### 4. Прогони проверки
 
 ```bash
-scripts/check.sh
+scripts/check.sh            # все наборы (~6 мин) — перед pull request и выкладкой
+scripts/check.sh changed    # пока правишь: только наборы, которые задевают правки ветки (бот — ~2,5 мин, сайт — ~3)
+scripts/check.sh bot        # или явно: backend, bot, site
 ```
+
+Неполный прогон для выкладки не засчитывается — перед PR всё равно полный. Хвосты прерванного прогона (бани «Тест-…»,
+прогоны Радара и Сверки test, включённые вопросы «где была баня?») тесты убирают сами в начале (`sweep` в `tests/local.py`),
+а перезапущенный `functions serve` ждут и будят, а не падают.
 
 Не оборачивай его в `| tail` без `set -o pipefail`: труба отдаёт код возврата `tail`, и провал проверок выглядит как успех
 (так однажды открылся PR с упавшим тестом). Скрипт гоняет три набора тестов:
@@ -173,10 +179,11 @@ gh pr merge --squash --delete-branch
 | Что поменял | Команда |
 |---|---|
 | Сайт (`prototype/`) | `scripts/deploy.sh` — в хранилище Яндекса и в резерв на GitHub Pages |
-| Миграции (`supabase/migrations/`) | `scripts/deploy-backend.sh` — накатит новые миграции, выложит функции, пересчитает таблицу |
+| Миграции (`supabase/migrations/`) | `scripts/deploy-backend.sh` — накатит новые миграции, выложит изменённые с прошлой выкладки функции, пересчитает таблицу |
 | Одну функцию (`tg-bot`, `tg-login`, `bath-location`, `sync-avatars`) | `scripts/deploy-backend.sh tg-bot` |
 | Правила очков (`_shared/scoring.js`) | `scripts/deploy-backend.sh recompute` — выложит движок и сразу пересчитает таблицу |
-| Общий код функций (`_shared/geo.ts`, `place.ts`, `greetings.ts`…) | `scripts/deploy-backend.sh` без аргументов — все функции |
+| Общий код функций (`_shared/geo.ts`, `place.ts`, `greetings.ts`…) | `scripts/deploy-backend.sh` без аргументов — изменился `_shared`, значит все функции |
+| Все функции в любом случае | `ALL=1 scripts/deploy-backend.sh` |
 | И сайт, и бэкенд | `scripts/deploy-all.sh [функция …]` — проверки один раз (~10 минут вместо 20+), потом бэкенд, потом сайт |
 
 **Порядок:**
