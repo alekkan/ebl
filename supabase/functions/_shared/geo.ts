@@ -192,22 +192,39 @@ function placeVariants(place: string): { variants: string[]; must: string[] } {
   };
 }
 
-// Google: итоговая ссылка на место — /maps/place/<Название, адрес, город, страна>/…; координат в ней может не быть
-async function googlePlace(url: string): Promise<string | null> {
-  let u = url;
-  if (!/\/maps\/place\//.test(u)) {
-    if (!/goo\.gl|google\./.test(u)) return null;
-    try {
-      const r = await fetch(u, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" } });
-      await r.body?.cancel();
-      u = r.url || u;
-    } catch { return null; }
-  }
+// Google: итоговая ссылка на место — /maps/place/<Название, адрес, город, страна>/…; координат в ней может не быть.
+// Делятся и иначе (30.10, ссылка Хвоста не нашлась): /maps/search/<запрос>, ?q=<название, адрес>, страница согласия с
+// исходной ссылкой в continue, а бывает, что адрес — только внутри страницы (/maps/preview/place?…&q=<адрес>)
+const GPLACE = /\/maps\/(?:place|search)\/([^/?#]+)/;
+function googleText(raw: string): string | null {
+  const t = raw.replace(/\+/g, " ");
+  try { return decodeURIComponent(t).trim() || null; } catch { return t.trim() || null; }
+}
+function googleFromUrl(u: string): string | null {
   // раскодируем только само место: «NO:1%2F1» (номер дома по-турецки) иначе резал адрес на «/» (30.10)
-  const m = u.match(/\/maps\/place\/([^/?]+)/);
-  if (!m) return null;
-  const place = m[1].replace(/\+/g, " ");
-  try { return decodeURIComponent(place).trim(); } catch { return place.trim(); }
+  const m = u.match(GPLACE);
+  if (m) return googleText(m[1]);
+  try {
+    const p = new URL(u).searchParams;
+    const cont = p.get("continue");
+    if (cont && cont !== u) return googleFromUrl(cont);
+    const q = p.get("q") ?? p.get("query");
+    if (q) return q.trim() || null;
+  } catch { /* не ссылка */ }
+  return null;
+}
+async function googlePlace(url: string): Promise<string | null> {
+  if (!/goo\.gl|google\./.test(url)) return null;
+  const direct = googleFromUrl(url);
+  if (direct) return direct;
+  try {
+    const r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; EBL-bot)" } });
+    const fromUrl = googleFromUrl(r.url || url);
+    if (fromUrl) { await r.body?.cancel(); return fromUrl; }
+    const html = (await r.text()).slice(0, 500_000);
+    const m = html.match(/\/maps\/preview\/place\?[^"']*?[?&;]q=([^"'&]+)/);
+    return m ? googleText(m[1]) : null;
+  } catch { return null; }
 }
 
 // заголовок страницы карточки организации: «Сандуновские бани, баня, Неглинная ул., 14, стр. 5, Москва — Яндекс Карты»
@@ -231,6 +248,8 @@ export async function locate(text: string, near?: Point | null, maxKm = 300): Pr
   const gurl = (text ?? "").match(/https?:\/\/[^\s<>"]+/)?.[0];
   const place = gurl ? await googlePlace(gurl) : null;
   if (place) {
+    const pc = await parseLocation(place);   // «?q=41.02,40.51» — координаты прямо в ссылке
+    if (pc) return pc;
     const { variants, must } = placeVariants(place);
     for (const q of variants) {
       const p = await geocodeAddress(q, near, maxKm, true, must);
