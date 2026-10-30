@@ -108,8 +108,8 @@ git switch -c fix/rejected-bath-on-map
 ### 4. Прогони проверки
 
 ```bash
-scripts/check.sh            # все наборы (~6 мин) — перед pull request и выкладкой
-scripts/check.sh changed    # пока правишь: только наборы, которые задевают правки ветки (бот — ~2,5 мин, сайт — ~3)
+scripts/check.sh            # все наборы (~4 мин) — перед pull request и выкладкой
+scripts/check.sh changed    # пока правишь: только наборы, которые задевают правки ветки (бот — ~1,5 мин, сайт — ~2,5)
 scripts/check.sh bot        # или явно: backend, bot, site
 ```
 
