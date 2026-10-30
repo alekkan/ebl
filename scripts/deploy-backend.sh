@@ -2,7 +2,7 @@
 # Выкладывает серверную часть в боевой Supabase: миграции и edge-функции, затем пересчёт таблицы.
 # Только из актуального main и только с зелёными проверками (как scripts/deploy.sh).
 # Запуск: scripts/deploy-backend.sh [функция ...]   — без аргументов функции, изменённые с прошлой выкладки этим скриптом
-#         (не знаем, что выкладывали, или менялись _shared/config.toml — все); ALL=1 — все функции в любом случае.
+#         (не знаем, что выкладывали, или менялись _shared/config.toml — все; .env.example не в счёт); ALL=1 — все функции в любом случае.
 # Первичная настройка проекта и загрузка данных из таблицы — docs/operations.md, здесь их нет.
 set -e
 cd "$(dirname "$0")/.."
@@ -18,7 +18,7 @@ else
   # 30.10: каждая правка бота перевыкладывала все восемь функций по очереди — выкладываем только изменённые
   if [ -z "$ALL" ] && [ -n "$last" ] && git merge-base --is-ancestor "$last" HEAD 2>/dev/null; then
     changed=$(git diff --name-only "$last" HEAD -- supabase/functions supabase/config.toml)
-    if echo "$changed" | grep -q -E '^supabase/(functions/_shared/|functions/[^/]+$|config\.toml)'; then
+    if echo "$changed" | grep -q -E '^supabase/(functions/_shared/|functions/[^/.][^/]*$|config\.toml)'; then
       funcs=$FUNCS
     else
       funcs=$(for f in $FUNCS; do echo "$changed" | grep -q "^supabase/functions/$f/" && printf '%s ' "$f"; done; true)
