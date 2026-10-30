@@ -1023,6 +1023,13 @@ check("следующий заход: Шурику — баня, где Ден �
 seen = len(TELEGRAM.calls)
 asks_run()
 check("…молчит — больше не шлём", not dms(seen, 909))
+ab4 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Кедровый дом', 'ok', 'public', 'Россия', 64.68631, 97.74531, 'country') returning id").splitlines()[0]
+sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ab4}, 2026, 'Ден', 1)")
+sql(f"insert into catalog_proposals (run, bath_id, match) values ('test-asks', {ab4}, 20)")
+asks_run()
+post("Баня Кедровый Дом\nБанковская ул., 53, село Архыз\nhttps://yandex.ru/maps/org/banya_kedrovy_dom/7743453001", 9407, who=901, chat=901, chat_type="private")
+check("адрес у бани с точкой «по стране» — ищем по всей стране, не только в 1500 км от её центра; «село» в адресе не мешает",
+      on_map(ab4) == "exact rejected own_point" and sql(f"select round(lat::numeric, 2) from baths where id = {ab4}") == "43.56", on_map(ab4))
 press(f"pa:s:{ask_of(ab2, 'Шурик')[0]}", 909, 9405)
 sql(f"update catalog_proposals set status = 'new' where bath_id = {ab1}"); sql(f"update baths set precision = 'country' where id = {ab1}")
 sql(f"delete from point_asks where bath_id = {ab1}")
@@ -1031,8 +1038,8 @@ asks_run()
 check("«🔕 Больше не спрашивай» — больше не пишем", sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
 sql("update settings set value = '\"off\"' where key = 'point_asks'"); sql("update players set no_point_asks = false")
 sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_id in ({ab1}, {ab2}, {ab3})")
-sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3})"); sql(f"delete from legacy_visits where bath_id = {ab2}")
-sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3})"); sql("delete from player_accounts where tg_id = 909")
+sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4})")
+sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3}, {ab4})"); sql("delete from player_accounts where tg_id = 909")
 
 print("Действия бота по просьбе владельца (bot_actions)")
 from local import TELEGRAM

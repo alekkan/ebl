@@ -272,6 +272,7 @@ with sync_playwright() as pw:
         s.close()
         s = Site(browser, url, config=cfg2(API, dead), name="fallback-main")
         check("шлюз отвечает — работаем через него, прямой путь не нужен", s.js("() => document.querySelectorAll('#list .item').length > 0"))
+        check("на главной при старте — все бани, не только 2026 (30.10)", s.js("() => document.querySelector('#fSeason [aria-pressed=true]').dataset.v") == "all")
         s.close()
         # 08.10: в плохую минуту связи Яндекса с Cloudflare шлюз на первый же запрос ответил 503, сайт счёл его недоступным
         # и ушёл напрямую — а без VPN там режутся большие ответы, и сайт висел на заставке. Отдельной проверки шлюза с 15.10 нет:

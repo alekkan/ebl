@@ -1236,6 +1236,13 @@ async function linked(accountId: string, judge?: string): Promise<boolean> {
   return !!(taken?.length || stash);
 }
 
+// где искать присланный адрес: рядом с примерной точкой бани. Точка «по стране» — центр страны (у России — Красноярский край,
+// 30.10 Архыз в 3500 км не нашёлся) — расстояние не проверяем
+function searchNear(b: Any): { near: { lat: number; lng: number } | null; maxKm: number } {
+  if (b?.lat == null || b.precision === "exact" || b.precision === "country") return { near: null, maxKm: 0 };
+  return { near: { lat: b.lat, lng: b.lng }, maxKm: { city: 80, region: 400 }[b.precision as string] ?? 400 };
+}
+
 // ---------- Сверка: «где была баня?» в личку тем, кто был (30.10, docs/catalog.md) ----------
 // Каждый час с 10 до 22 МСК (cron → ?asks=1) — по одной бане из «Не нашли», чтобы не пугать списком: следующую — только тем, кто
 // ответил на прошлую (30.10). Кому слать — settings.point_asks.
@@ -1319,8 +1326,7 @@ async function pointAsks(): Promise<number> {
 async function askAnswer(msg: Any, ask: Any, me: Any) {
   const { data: b } = await sb.from("baths").select("lat, lng, precision").eq("id", ask.bath_id).single();
   const loc = msg.location ?? msg.venue?.location;
-  const near = b?.lat != null && b.precision !== "exact" ? { lat: b.lat, lng: b.lng } : null;
-  const maxKm = { city: 80, region: 400, country: 1500 }[b?.precision as string] ?? 400;
+  const { near, maxKm } = searchNear(b);
   const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", near, maxKm);
   if (!p) {
     await react(msg.chat.id, msg.message_id, "🤔");
@@ -1359,8 +1365,7 @@ async function geoAnswer(msg: Any, post: Any, me: Any) {
   const { data: b } = await sb.from("baths").select("id, name, lat, lng, precision").eq("id", post.bath_id).single();
   const loc = msg.location ?? msg.venue?.location;
   // найденный адрес сверяем с примерной точкой бани, чтобы не поставить точку в другом городе
-  const near = b?.lat != null && b.precision !== "exact" ? { lat: b.lat, lng: b.lng } : null;
-  const maxKm = { city: 80, region: 400, country: 1500 }[b?.precision as string] ?? 400;
+  const { near, maxKm } = searchNear(b);
   const p = loc ? { lat: loc.latitude, lng: loc.longitude } : await locate(msg.text ?? msg.caption ?? "", near, maxKm);
   // живая карточка — ответ реакцией и правкой карточки; у старых походов (вопрос отдельным сообщением) — как раньше
   const living = await refreshable(post.visit_id);
