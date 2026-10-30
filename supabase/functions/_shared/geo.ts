@@ -108,9 +108,10 @@ const flat = (s: string) => (s ?? "").toLowerCase().replace(/[а-яё]/g, (c) =>
  *  must — слова, которые должны быть в найденном адресе (город, улица из ссылки Google): то же место, а не тёзка */
 export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300, specific = false, must: string[] = []): Promise<Point | null> {
   const clean = q.replace(/\s+/g, " ").trim();
-  const variants = [...new Set([clean,
-    clean.replace(/,?\s*(строение|стр\.?|корпус|корп\.?|к\.|с\.)\s*\d+\S*/gi, ""),
-    clean.replace(/,?\s*(строение|стр\.?|корпус|корп\.?|к\.|с\.)\s*\d+\S*/gi, "").replace(/\b(ул\.?|улица)\s*/gi, "")])].filter((v) => v.length > 4);
+  const noBuilding = clean.replace(/,?\s*(строение|стр\.?|корпус|корп\.?|к\.|с\.)\s*\d+\S*/gi, "");
+  // «село Архыз», «пос. Мозжинка»: с типом населённого пункта OpenStreetMap адрес не находит, без него — находит (30.10)
+  const noKind = noBuilding.replace(/(^|[\s,])(село|с\.|посёлок|поселок|пос\.|п\.|пгт|деревня|дер\.|станица|ст-ца|хутор|аул|город|г\.)\s*(?=\p{Lu})/gu, "$1");
+  const variants = [...new Set([clean, noBuilding, noBuilding.replace(/\b(ул\.?|улица)\s*/gi, ""), noKind])].filter((v) => v.length > 4);
   for (const v of variants) {
     for (const hit of (await nominatimSearch(v)) ?? []) {
       if (specific && (ADMIN.has(hit.addresstype) || hit.category === "boundary" || hit.class === "boundary")) continue;
