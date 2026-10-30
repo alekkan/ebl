@@ -48,6 +48,10 @@ SEARCH = {
     # «Банковская ул., 53, село Архыз» не находит, без «село» — находит улицу (дома 53 в OpenStreetMap нет)
     "Банковская ул., 53, Архыз": [{"lat": "43.5647", "lon": "41.2662", "addresstype": "residential", "category": "highway",
                                   "display_name": "Банковская улица, Архыз, Архызское сельское поселение, Карачаево-Черкесская Республика, Россия"}],
+    # 30.10 ссылка Хвоста: «Paradise Spa, Sherbhawan Building, Chaksibari, Kathmandu, Bagmati Province 44600, Непал» — целиком
+    # не находится, «район, город» — находит улицу
+    "Chaksibari, Kathmandu": [{"lat": "27.7155", "lon": "85.3103", "addresstype": "road", "category": "highway",
+                               "display_name": "Chaksibari Marg, Thamel, Kathmandu-26, Kathmandu Metropolitan City, Bagmati Province, 44600, Nepal"}],
     "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
 }
 

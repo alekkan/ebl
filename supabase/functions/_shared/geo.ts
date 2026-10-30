@@ -173,21 +173,28 @@ export async function geocodeAddress(q: string, near?: Point | null, maxKm = 300
 // Улица — по слову «улица» на любом языке; 30.10 в турецком адресе первой частью шло название дома («Yinsa Apartmanı»),
 // и его принимали за улицу. «NO:1/1» — номер дома по-турецки
 const STREET_WORD = /(^|[\s.])(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица|sokak|sokağı|sok|cadde|caddesi|cad|cd|bulvarı|calle|via|rua|straße|strasse)\.?(?![\p{L}])/iu;
+const ADMIN_WORD = /(province|region|state|oblast|област|край|county|prefecture|governorate|district)/i;
 function placeVariants(place: string): { variants: string[]; must: string[] } {
   const parts = place.split(",").map((s) => s.trim()).filter(Boolean);
   const [name, ...rest] = parts;
   const clean = (s: string) => s.replace(/\b\d{3,6}\b/g, " ").replace(/^\s*\d+[a-zа-я]?\s+/i, " ")
     .replace(/\b(str|st|ul|ulitsa|street|road|rd|ave|avenue|blvd|bul|ул|улица)\.?(?![\p{L}])/giu, " ").replace(/\s+/g, " ").trim();
   const cleaned = rest.map(clean).filter(Boolean);
-  // город — перед страной; «Rize Merkez/Rize» (район/провинция) — последнее
-  const city = (cleaned.length >= 2 ? cleaned[cleaned.length - 2] : cleaned[0] ?? "").split("/").pop()!.trim();
-  // сверка: в найденном должны быть город и улица из ссылки Google (если они там есть)
+  // город — последняя часть перед страной, но не провинция или область («Kathmandu, Bagmati Province 44600, Непал», 30.10);
+  // «Rize Merkez/Rize» (район/провинция) — последнее
+  const body = cleaned.length >= 2 ? cleaned.slice(0, -1) : cleaned;
+  let ci = body.length - 1;
+  while (ci > 0 && ADMIN_WORD.test(body[ci])) ci--;
+  const city = (body[ci] ?? "").split("/").pop()!.trim();
+  const area = ci > 0 ? body[ci - 1] : "";   // район или улица перед городом: «Chaksibari, Kathmandu» находится, когда весь адрес — нет
+  // сверка: в найденном должны быть город и улица из ссылки Google (если они там есть). Улица — только по слову «улица»:
+  // первой частью часто идёт здание («Yinsa Apartmanı», «Sherbhawan Building»)
   const streetRaw = rest.find((p) => STREET_WORD.test(p))?.replace(/\s*\b(no|nr|№)\s*[:.]?\s*[\d/]+.*$/i, "").trim() ?? "";
-  const street = streetRaw ? clean(streetRaw) : cleaned.length >= 3 ? cleaned[0] : "";
+  const street = streetRaw ? clean(streetRaw) : "";
   const must = [city, street].filter((w) => w && flat(w).length >= 3);
   return {
     variants: [...new Set([place, rest.join(", "), cleaned.join(", "), cleaned.slice(0, -1).join(", "), city && name ? `${name}, ${city}` : "",
-      streetRaw && city ? `${streetRaw}, ${city}` : ""])].filter((q) => q.length >= 5),
+      streetRaw && city ? `${streetRaw}, ${city}` : "", area && city ? `${area}, ${city}` : ""])].filter((q) => q.length >= 5),
     must,
   };
 }
