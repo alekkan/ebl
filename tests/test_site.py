@@ -1024,11 +1024,17 @@ with sync_playwright() as pw:
         s.page.keyboard.press("ArrowLeft")
         s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
         check("оценка в базе, дальше — цена, отзыв и фото по желанию", sql(f"select overall from bath_ratings where visit_id = {rtv}") == "4.00")
-        s.page.fill("#ratePrice", "1 500"); s.page.fill("#rateText", "Пар отличный, кухня так себе")
+        check("экран после оценки на одном экране: цены входа и пива рядом, валюта по стране (₽), кнопка видна",
+              s.js("() => !!document.getElementById('rateBeer') && document.getElementById('rateCur').value === 'RUB'"
+                   " && document.querySelector('#rateRv button[type=submit]').getBoundingClientRect().bottom <= innerHeight"))
+        s.page.fill("#ratePrice", "1 500"); s.page.fill("#rateBeer", "450")
+        s.page.click("#rateMore"); s.page.click('#rateWeekend [data-w="0"]'); s.page.fill("#rateBefore", "14:00")
+        s.page.fill("#rateText", "Пар отличный, кухня так себе")
         s.page.click("#rateRv button[type=submit]"); s.page.wait_for_selector("#rateBody .rate-done a", timeout=8000)
-        check("…цена (1500 ₽) и отзыв сохранились, «Готово» со ссылкой на баню",
-              sql(f"select count(*) from reviews where bath_id = {rtb}") == "1" and sql(f"select price || ' ' || currency from bath_prices where bath_id = {rtb}") == "1500 RUB",
-              sql(f"select price || ' ' || currency from bath_prices where bath_id = {rtb}"))
+        pr = sql(f"select price || ' ' || currency || ' ' || coalesce(is_weekend::text, '-') || ' ' || coalesce(to_char(before_time, 'HH24:MI'), '-') from bath_prices where bath_id = {rtb}")
+        check("…вход 1500 ₽ в будни со скидкой до 14:00, пиво 450 ₽ и отзыв сохранились, «Готово» со ссылкой на баню",
+              pr == "1500 RUB false 14:00" and sql(f"select price || ' ' || currency from bath_beer_prices where bath_id = {rtb}") == "450 RUB"
+              and sql(f"select count(*) from reviews where bath_id = {rtb}") == "1", pr)
         s.clean("страница оценки")
         s.close()
         s = Site(browser, url + f"#bath={rtb}", name="rate-card")
@@ -1040,7 +1046,7 @@ with sync_playwright() as pw:
         s.page.wait_for_url("**/rate.html?v=*", timeout=8000)
         check("старая ссылка #rate=<поход> ведёт на лёгкую страницу оценки", "rate.html?v=" in s.page.url)
         s.close()
-        sql(f"delete from reviews where bath_id = {rtb}"); sql(f"delete from bath_prices where bath_id = {rtb}"); sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}")
+        sql(f"delete from reviews where bath_id = {rtb}"); sql(f"delete from bath_prices where bath_id = {rtb}"); sql(f"delete from bath_beer_prices where bath_id = {rtb}"); sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}")
 
         print("Куда сходить за очками: «Я», «Не были в 2026», «Рядом»")
         s = Site(browser, url, sess=shurik, name="where-to-go")

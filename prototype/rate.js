@@ -125,36 +125,72 @@
     if (!blob) throw new Error("не сжалось");
     return { blob, w: c.width, h: c.height };
   }
+  // экран после оценки (01.11, макет Лехи): компактная шапка, цены как на сайте — вход и пиво рядом, валюта одна на обе;
+  // «ещё» раскрывает будни/выходной, сеанс и скидку до часа; ниже отзыв и фото. «Готово» сохраняет всё разом
+  const curSign = (c) => ({ RUB: "₽", EUR: "€", USD: "$" })[c] || c;
+  const money = (n) => Number(n).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+  const num = (raw) => { const t = raw.trim(); return t ? Number(t.replace(/[\s\u00a0]/g, "").replace(",", ".")) : null; };
+  async function lastPrice() {
+    try {
+      const { data } = await D.sb.from("bath_prices").select("price, currency").eq("bath_id", f.bath).order("price_date", { ascending: false }).limit(1);
+      return data?.[0] ?? null;
+    } catch { return null; }
+  }
   function thanks(overall) {
     const photos = [];
-    body.innerHTML = `<div class="rate-done">
-        <div class="rate-big"><b>${fmt(overall)}</b>${leaves(overall, "big")}<span>${WORD[Math.round(overall)]} · ${esc(f.name)}</span></div>
-        <p class="lead">Спасибо! Оценка уже в рейтинге бани. По желанию — цена, пара слов и фото.</p>
-      </div>
+    let weekend = null;   // null — любой день, false — будни, true — выходной
+    const cur0 = curOf(f.country);
+    body.innerHTML = `<header class="thx-head"><b>${fmt(overall)}</b>
+        <div><h1>${esc(f.name)}</h1>${leaves(overall)}<p>Спасибо! Уже в рейтинге</p></div></header>
       <form class="rate-rv" id="rateRv">
-        <label class="rate-price"><span>Цена входа</span><input class="inp" id="ratePrice" inputmode="decimal" placeholder="сколько заплатил" autocomplete="off">
-          <select class="sel" id="rateCur" aria-label="Валюта">${CUR.map((c) => `<option ${c === curOf(f.country) ? "selected" : ""}>${c}</option>`).join("")}</select></label>
-        <textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea>
-        <div class="rate-photos" id="ratePrev"></div>
-        <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label>
+        <div class="thx-sec"><span>Цены <small id="ratePrev"></small></span>
+          <div class="thx-prices">
+            <label class="thx-inp"><i aria-hidden="true">♨️</i><input id="ratePrice" inputmode="decimal" placeholder="Вход" autocomplete="off" aria-label="Цена входа"></label>
+            <label class="thx-inp"><i aria-hidden="true">🍺</i><input id="rateBeer" inputmode="decimal" placeholder="Пиво" autocomplete="off" aria-label="Цена пива"></label>
+            <select class="sel" id="rateCur" aria-label="Валюта">${CUR.map((c) => `<option value="${c}" ${c === cur0 ? "selected" : ""}>${curSign(c)}</option>`).join("")}</select>
+          </div>
+          <button type="button" class="linkbtn" id="rateMore" aria-expanded="false">ещё: сеанс · будни/выходной · скидка до часа</button>
+          <div class="thx-more" id="rateExtra" hidden>
+            <div class="seg" id="rateWeekend" role="radiogroup" aria-label="Будни или выходной">
+              <button type="button" data-w="" aria-pressed="true">Любой день</button><button type="button" data-w="0" aria-pressed="false">Будни</button><button type="button" data-w="1" aria-pressed="false">Выходной</button>
+            </div>
+            <div class="thx-two">
+              <label class="thx-inp"><i aria-hidden="true">⏱</i><input id="rateDur" inputmode="numeric" placeholder="Сеанс, мин" autocomplete="off"></label>
+              <label class="thx-inp"><span class="thx-lbl">Скидка до</span><input id="rateBefore" type="time" aria-label="Скидка до часа"></label>
+            </div>
+          </div>
+        </div>
+        <div class="thx-sec"><span>Отзыв <small>по желанию</small></span>
+          <textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea></div>
+        <div class="thx-photos"><span class="rate-photos" id="ratePhotoPrev"></span>
+          <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label></div>
         <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
           <button type="button" class="linkbtn" id="rateSkip">Без этого</button></div>
       </form>`;
+    lastPrice().then((p) => { if (p) $("#ratePrev", body).textContent = `по желанию · в прошлый раз ${money(p.price)} ${curSign(p.currency)}`; else $("#ratePrev", body).textContent = "по желанию"; });
     const done = () => say("Готово, спасибо!", `Оценка «${esc(f.name)}» — в рейтинге бани. <a href="./#bath=${f.bath}">Открыть баню на карте</a>`);
     $("#rateSkip", body).onclick = done;
+    $("#rateMore", body).onclick = (e) => { const x = $("#rateExtra", body); x.hidden = !x.hidden; e.currentTarget.setAttribute("aria-expanded", String(!x.hidden)); };
+    $$("#rateWeekend [data-w]", body).forEach((b) => (b.onclick = () => {
+      weekend = b.dataset.w === "" ? null : b.dataset.w === "1";
+      $$("#rateWeekend [data-w]", body).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    }));
     $("#ratePhotos", body).onchange = (e) => {
-      for (const file of e.target.files) { photos.push(file); $("#ratePrev", body).insertAdjacentHTML("beforeend", `<img alt="" src="${URL.createObjectURL(file)}">`); }
+      for (const file of e.target.files) { photos.push(file); $("#ratePhotoPrev", body).insertAdjacentHTML("beforeend", `<img alt="" src="${URL.createObjectURL(file)}">`); }
     };
     $("#rateRv", body).onsubmit = async (e) => {
       e.preventDefault();
       const btn = $("#rateRv button[type=submit]", body);
-      const text = $("#rateText", body).value.trim();
-      const raw = $("#ratePrice", body).value.trim(), cur = $("#rateCur", body).value;
-      const price = raw ? Number(raw.replace(/[\s ]/g, "").replace(",", ".")) : null;
-      if (raw && !(price > 0)) return toast("Цена — числом, например 1500 или 14,5");
+      const text = $("#rateText", body).value.trim(), cur = $("#rateCur", body).value;
+      const price = num($("#ratePrice", body).value), beer = num($("#rateBeer", body).value), dur = num($("#rateDur", body).value);
+      const before = $("#rateBefore", body).value || null;
+      if ((price !== null && !(price > 0)) || (beer !== null && !(beer > 0))) return toast("Цены — числом, например 1500 или 14,5");
+      if (dur !== null && !(dur > 0 && Number.isInteger(dur))) return toast("Сеанс — в минутах, целым числом");
+      const round = (n) => (cur === "RUB" ? Math.round(n) : Math.round(n * 100) / 100);
       btn.disabled = true;
       try {
-        if (price) await D.submitBathPrice(f.bath, cur === "RUB" ? Math.round(price) : Math.round(price * 100) / 100, cur);
+        if (price) await D.submitBathPrice(f.bath, round(price), cur, dur || null, weekend, before);
+        if (beer) await D.submitBeerPrice(f.bath, round(beer), cur);
         if (text) await D.addReview(f.bath, f.player, Math.min(5, Math.max(1, Math.round(overall))), text);
         if (photos.length) {
           const items = [];
