@@ -1065,10 +1065,7 @@ ${edit}
       if (openId && $("#dRateTile")) { $("#dRateTile").innerHTML = rateTile(openId); const box = $("#dRating"); box.innerHTML = rateRows(openId); box.hidden = !ratings[openId]; }
     }).catch(() => {});
   }
-  // о чём пункт — одной строкой под названием; слово к оценке — как в такси
-  const CRIT_HINT = { stove: "жар, дрова, держит ли", steam: "лёгкий, влажный, жаркий", aqua: "купель, бассейн, обливное",
-    outdoor: "двор, снег, воздух", kitchen: "чай, еда, где посидеть", atmosphere: "чисто, уютно, своя компания",
-    service: "банщики, веники, полотенца", prices: "за что платишь" };
+  // слово к оценке — как в такси
   const SCORE_WORD = ["", "плохо", "так себе", "норм", "хорошо", "огонь"];
   async function openRate(visitId) {
     const body = $("#rateBody"), modal = $("#rateModal");
@@ -1097,15 +1094,16 @@ ${edit}
       </div>
       <div class="rate-progress" aria-hidden="true"><i id="rBar"></i></div>
       <div class="rate-form">${CRIT.map(([k, t]) => `<div class="rate-line" data-line="${k}">
-          <div class="rl-t"><b>${t}</b><small>${CRIT_HINT[k]}</small></div>
-          <div class="rate" role="radiogroup" aria-label="${t}">${[1, 2, 3, 4, 5].map((n) =>
-            `<button type="button" data-k="${k}" data-r="${n}" role="radio" aria-checked="false" aria-label="${t}: ${n} из 5">${leafSvg(false).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
-          <em class="rl-w"></em></div>`).join("")}</div>
+          <div class="rl-t"><b>${t}</b><em class="rl-w"></em></div>
+          <div class="rate-pill" role="radiogroup" aria-label="${t}" data-pill="${k}">${[1, 2, 3, 4, 5].map((n) =>
+            `<button type="button" data-k="${k}" data-r="${n}" role="radio" aria-checked="false" aria-label="${t}: ${n} из 5">${leafSvg(false)}</button>`).join("")}</div>
+          </div>`).join("")}</div>
       <div class="rate-foot"><button class="cta" type="button" id="rateSave">${icon("check")}<span></span></button></div>`;
     const save = $("#rateSave", body);
     const paint = () => {
       for (const [k] of CRIT) {
-        $$(`[data-k="${k}"]`, body).forEach((b) => { const on = +b.dataset.r <= (s[k] || 0); b.firstElementChild.classList.toggle("on", on); b.setAttribute("aria-checked", String(+b.dataset.r === s[k])); });
+        $$(`[data-k="${k}"]`, body).forEach((b) => { const on = +b.dataset.r <= (s[k] || 0); b.classList.toggle("on", on); b.firstElementChild.classList.toggle("on", on); b.setAttribute("aria-checked", String(+b.dataset.r === s[k])); });
+        $(`[data-pill="${k}"]`, body).dataset.v = s[k] || 0;
         $(`[data-line="${k}"] .rl-w`, body).textContent = s[k] ? SCORE_WORD[s[k]] : "";
         $(`[data-line="${k}"]`, body).classList.toggle("done", !!s[k]);
       }
@@ -1117,12 +1115,23 @@ ${edit}
       $("span", save).textContent = label; save.disabled = !full();
       if (tgApp) { const mb = tgApp.MainButton; mb.setText(label); full() ? mb.enable() : mb.disable(); mb.show(); }
     };
-    $$("[data-k]", body).forEach((b) => (b.onclick = () => {
-      s[b.dataset.k] = +b.dataset.r; tick(); paint();
-      // заполнил строку — следующая пустая сама подъезжает под палец
-      const next = CRIT.find(([k]) => !s[k]);
-      if (next && b.dataset.k !== next[0]) $(`[data-line="${next[0]}"]`, body)?.scrollIntoView({ block: "nearest", behavior: calm ? "auto" : "smooth" });
-    }));
+    // капсула на пять делений: нажать или провести пальцем, как ползунок; на каждом делении — вибрация
+    const set = (k, n) => { if (s[k] === n) return; s[k] = n; tick(); paint(); };
+    const nextUp = (k) => {   // заполнил строку — следующая пустая сама подъезжает под палец
+      const next = CRIT.find(([c]) => !s[c]);
+      if (next && k !== next[0]) $(`[data-line="${next[0]}"]`, body)?.scrollIntoView({ block: "nearest", behavior: calm ? "auto" : "smooth" });
+    };
+    $$("[data-pill]", body).forEach((pill) => {
+      const k = pill.dataset.pill;
+      const at = (x) => { const r = pill.getBoundingClientRect(); return Math.min(5, Math.max(1, Math.ceil(((x - r.left) / r.width) * 5))); };
+      let drag = false;
+      pill.addEventListener("pointerdown", (e) => { drag = true; pill.setPointerCapture?.(e.pointerId); set(k, at(e.clientX)); });
+      pill.addEventListener("pointermove", (e) => { if (drag) set(k, at(e.clientX)); });
+      const up = () => { if (drag) { drag = false; nextUp(k); } };
+      pill.addEventListener("pointerup", up); pill.addEventListener("pointercancel", up);
+      // клавиатура и программы чтения экрана — обычные кнопки
+      $$("[data-k]", pill).forEach((b) => (b.onclick = (e) => { if (e.detail === 0) { set(k, +b.dataset.r); nextUp(k); } }));
+    });
     const submit = async () => {
       if (!full() || save.dataset.busy) return;
       save.dataset.busy = "1"; save.disabled = true; tgApp?.MainButton.showProgress();

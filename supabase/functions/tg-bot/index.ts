@@ -289,9 +289,24 @@ function typeFromText(text: string): string | null {
 const curLabel = (code: string | null) => code ?? "₽";
 // цена — с центами, где они бывают (25.10: «9,5 €»): целые как есть, дробные — два знака с запятой.
 // Рубли — только целые (решение Лехи 25.10): валюта не выбрана или RUB — округляем
-const PRICE_TEXT = /^(?:\d{2,6}|\d{1,6}[.,]\d{1,2})$/;
+// цифра цены: «900», «14,4», а ещё со знаком или словом валюты и пробелами в тысячах — «14,4€», «1 500 ₽», «$12», «900 руб»
+// (01.11: Шурик ответил «14,4€» на вопрос в личке — бот принял это за новый поход). Валюта по знаку — в черновик
+const CUR_SIGN: [RegExp, string][] = [[/€|eur|евро/i, "EUR"], [/\$|usd|долл/i, "USD"], [/₽|руб|^\d[\d\s.,]*р\.?$/i, "RUB"],
+  [/¥|jpy|иен|йен/i, "JPY"], [/aed|дирх/i, "AED"]];
+function priceParts(text: string): { num: string; cur: string | null } | null {
+  const t = text.trim();
+  const num = t.replace(/€|\$|₽|¥|eur\w*|евро|usd|долл\w*|руб\w*|р\.?$|jpy|иен\w*|йен\w*|aed|дирх\w*/giu, "").replace(/[\s\u00a0]/g, "");
+  if (!/^(?:\d{2,6}|\d{1,6}[.,]\d{1,2})$/.test(num)) return null;
+  return { num, cur: CUR_SIGN.find(([re]) => re.test(t))?.[1] ?? null };
+}
+const isPriceText = (text: string) => !!priceParts(text);
+// валюта знаком в ответе («14,4€»), а в черновике её не выбирали (рубли по умолчанию) — берём из ответа
+function priceCurrency(st: Any, text: string) {
+  const cur = priceParts(text)?.cur;
+  if (cur && cur !== "RUB" && !st.currency) st.currency = cur;
+}
 const priceNum = (text: string, cur: string | null = null) => {
-  const n = Number(text.trim().replace(",", "."));
+  const n = Number((priceParts(text)?.num ?? text.trim()).replace(",", "."));
   return !cur || cur === "RUB" ? Math.round(n) : Math.round(n * 100) / 100;
 };
 const money = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
@@ -584,6 +599,7 @@ function priceAskLine(st: Any, label: string) {
 }
 // цифра пришла в личку, а черновик — в чате: ставим её в черновик и правим карточку там
 async function priceFromDm(msg: Any, st: Any, lg: Any) {
+  priceCurrency(st, msg.text ?? "");
   const n = priceNum(msg.text ?? "", st.currency);
   if (st.awaitPriceFor === "price") st.price = n; else st.beerPrice = n;
   await dropPriceAsk(st);
@@ -764,7 +780,8 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       if (c.ids.length) { st.company = [...new Set([...(st.company ?? []), ...c.ids])]; st.companyOk = true; st.picking = false; }
       // ответ на явный вопрос о цене — просто цифра; бот знает, чего именно ждёт (awaitPriceFor — после шагов
       // будни/скидка/валюта или кнопки «Пиво»), иначе это другая цифра взамен «как в прошлый раз»
-      if (PRICE_TEXT.test(text)) {
+      if (isPriceText(text)) {
+        priceCurrency(st, text);
         if (st.awaitPriceFor === "price" && st.price == null) { st.price = priceNum(text, st.currency); await dropPriceAsk(st); }
         else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = priceNum(text, st.currency); await dropPriceAsk(st); }
       }
@@ -1923,7 +1940,7 @@ async function onMessage(msg: Any) {
   if (msg.photo && (isPrivate || mentionsBot(msg)) && !(replyToCard && st) && isPhotoOnly(text)) return photoToRecent(msg, me);
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
   // цифра цены в личку — ответ на вопрос из черновика в чате (askPrice)
-  if (isPrivate && st?.priceInDm && st.awaitPriceFor && st.chat !== chat && PRICE_TEXT.test(text)) return priceFromDm(msg, st, await league());
+  if (isPrivate && st?.priceInDm && st.awaitPriceFor && st.chat !== chat && isPriceText(text)) return priceFromDm(msg, st, await league());
 
   const lg = await league();
   if (replyToCard && !mentionsBot(msg)) return continueDraft(msg, st, me, lg);
