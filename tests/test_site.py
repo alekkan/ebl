@@ -1256,6 +1256,10 @@ with sync_playwright() as pw:
               and "2ГИС" in card and "Яндекс Карты" in card, card)
         s.page.click("#back")
         check("«← К списку» возвращает список", s.js("() => !!document.querySelector('#pane .it')"))
+        # 02.11: нажатие на точку открывало карточку и тут же закрывало её — клик доходил до карты
+        pt = s.js("() => { const m = window.radarMap; m.setView([55.70, 37.60], 15, { animate: false }); return m.latLngToContainerPoint([55.70, 37.60]); }")
+        s.page.wait_for_timeout(300); s.page.mouse.click(pt["x"], pt["y"]); s.page.wait_for_timeout(400)
+        check("нажатие на точку на карте открывает карточку бани", "Тест-Радар Общественная" in s.js("() => document.querySelector('#pane .card h2')?.textContent || ''"))
         s.close()
         sql("delete from radar_places where key like 'view-test:%'"); sql("delete from radar_view_keys where key = 'view-test-key'")
 

@@ -47,6 +47,7 @@
   const wide = matchMedia("(min-width: 900px)");
   const map = L.map("map", { zoomControl: false, preferCanvas: true, attributionControl: true }).setView([55.75, 37.62], wide.matches ? 9 : 10);
   map.attributionControl.setPrefix(false);
+  window.radarMap = map;   // тестам — найти точку бани на карте
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
   const dots = L.layerGroup().addTo(map);
@@ -60,7 +61,8 @@
     const order = { rent: 0, spa: 1, nodata: 2, doubt: 3, likely: 4, sure: 5, league: 6 };
     for (const p of shown().sort((a, b) => order[a.cat] - order[b.cat])) {
       L.circleMarker([p.lat, p.lng], { radius: p.cat === "league" ? 6 : p.cat === "sure" || p.cat === "likely" ? 5 : 4, color: "#fff", weight: 1.2,
-        fillColor: color[p.cat], fillOpacity: 0.95 }).on("click", () => show(p, false)).addTo(dots);
+        fillColor: color[p.cat], fillOpacity: 0.95, bubblingMouseEvents: false })   // иначе клик дойдёт до карты и закроет карточку
+        .on("click", () => show(p, false)).addTo(dots);
     }
     $("#total").textContent = "· " + num(shown().length);
   }
