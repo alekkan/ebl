@@ -1062,7 +1062,8 @@ ${edit}
     const b = byId.get(id);
     const mine = visits.filter((v) => v.bathId === id && v.status === "ok" && (v.player === myNick || v.companions.includes(myNick)))
       .map((v) => v.date).sort().pop();
-    const year = Object.keys(b?.histBy || {}).filter((y) => b.histBy[y]?.[myNick] > 0).sort().pop();
+    // походы 2026 из таблицы лежат в v26, прошлых лет — в histBy
+    const year = b?.v26?.[myNick] > 0 ? "2026" : Object.keys(b?.histBy || {}).filter((y) => b.histBy[y]?.[myNick] > 0).sort().pop();
     if (!mine && !year) return "";
     const when = mine ? (["сегодня", "вчера"].includes(dayLabel(mine)) ? dayLabel(mine)
       : new Date(mine.slice(0, 10) + "T00:00:00Z").toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })) : `в ${year}`;
