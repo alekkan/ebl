@@ -55,6 +55,8 @@ SEARCH = {
     # 30.10 ссылка Google на пивоварню: «ул. Медовеевская» у Google и «Медовеевская улица» в OSM — то же место
     "ул. Медовеевская, 17, Медовеевка, Краснодарский край, 354390": [{"lat": "43.6646", "lon": "40.0723", "addresstype": "craft",
         "category": "craft", "display_name": "Горная пивоварня Endemic, 17, Медовеевская улица, Медовеевка, Адлерский район, Сочи, Краснодарский край, 354390, Россия"}],
+    # 01.11: опорный город для короткого Plus Code («CWC8+R9 Mountain View»)
+    "Mountain View": [{"lat": "37.3861", "lon": "-122.0839", "addresstype": "city", "category": "place", "display_name": "Mountain View, California, USA"}],
     "Центр, Банско, Болгария": [{"lat": "41.8380", "lon": "23.4880", "addresstype": "town", "category": "place"}],
 }
 

@@ -961,6 +961,11 @@ gd = req("POST", f"/functions/v1/tg-bot?geodebug={did}", {})[1]
 check("?geodebug: точка и журнал шагов (что ответил каждый геокодер и что взяли)",
       (gd.get("point") or {}).get("lat") == 41.8296 and any("взяли" in t for t in gd.get("trail") or []), gd)
 check("…и в geo_debug записан результат", sql(f"select result->'point'->>'lat' from geo_debug where id = {did}") == "41.8296")
+for txt, want, what in (("849VCWC8+R9", "37.42206,-122.08406", "полный Plus Code"), ("CWC8+R9 Mountain View", "37.42206,-122.08406", "короткий Plus Code с городом")):
+    did = sql(f"insert into geo_debug (text) values ('{txt}') returning id").splitlines()[0]
+    gd = req("POST", f"/functions/v1/tg-bot?geodebug={did}", {})[1]
+    pt = gd.get("point") or {}
+    check(f"{what} («{txt}») — точка формулой Google", f"{pt.get('lat', 0):.5f},{pt.get('lng', 0):.5f}" == want, gd)
 sql("delete from geo_debug")
 # 30.10: «поделиться» из Яндекс Карт — название, адрес по-русски, ссылка без координат; адрес находит Геокодер Яндекса
 reply_geo("Elit Club SPA Merkezi\nпровинция Ризе, район Ризе Меркез, Пиричелеби, улица 2 Парк, 1\nhttps://yandex.ru/maps/org/elit_club_spa_merkezi/191362709121/", 85)
