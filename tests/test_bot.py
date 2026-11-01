@@ -219,8 +219,12 @@ for _ in range(20):
     if sql(f"select count(*) from bot_posts where visit_id = {vbg}") == "1": break
     time.sleep(0.3)
 check("…и после ответа пост в чате лиги всё-таки написан", sql(f"select count(*) from bot_posts where visit_id = {vbg}") == "1")
-sql(f"delete from bot_posts where visit_id = {vbg}"); sql(f"delete from bot_notifications where visit_id = {vbg}")
-sql(f"update visits set created_at = now() - interval '3 minutes' where id = {vbg}")
+sql(f"delete from visits where id = {vbg}")
+# потерянное уведомление: триггер на время выключен (без адреса функций) — бот о походе не узнал
+furl = sql("select value::text from settings where key = 'functions_url'")
+sql("update settings set value = 'null'::jsonb where key = 'functions_url'")
+vbg = sql("insert into visits (bath_id, entered_at, duration_min, created_by, created_at) select 6, now() - interval '1 hour', 120, id, now() - interval '3 minutes' from players where nick='Махмуд' returning id").splitlines()[0]
+sql(f"update settings set value = '{furl}'::jsonb where key = 'functions_url'")
 seen_sw = len(TELEGRAM.calls)
 sw = req("POST", "/functions/v1/tg-bot?sweep=1", {})[1]
 check("потерянное уведомление (поход с сайта без поста) — проверка досылает в чат и Комиссии",
