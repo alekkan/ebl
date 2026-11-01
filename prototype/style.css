@@ -373,11 +373,13 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .rate-score b { display: block; font: 800 52px/.9 var(--display); color: var(--oak); font-variant-numeric: tabular-nums; }
 .rate-score .leaves { margin-top: 6px; }
 .rate-score small { display: block; margin-top: 6px; font-size: 12.5px; color: var(--ink-3); }
-.rate-form { display: grid; gap: 14px; margin-top: 4px; }
-.rate-line { display: grid; gap: 4px; scroll-margin: 90px; }
-.rl-t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.rl-t b { font-size: 16px; }
-.rl-w { font-style: normal; font-size: 13.5px; color: var(--ink-3); }
+/* восемь строк делят высоту экрана поровну: слева название и слово, справа ползунок — без прокрутки (01.11) */
+.rate-form { display: grid; grid-template-rows: repeat(8, minmax(44px, 1fr)); align-content: stretch; min-height: 0; }
+.rate-line { display: grid; grid-template-columns: minmax(96px, 36%) 1fr; align-items: center; column-gap: 10px; border-bottom: 1px solid var(--line); }
+.rate-line:last-child { border-bottom: 0; }
+.rl-t { display: grid; gap: 1px; min-width: 0; }
+.rl-t b { font-size: 15px; line-height: 1.15; }
+.rl-w { font-style: normal; font-size: 12.5px; color: var(--ink-3); }
 .rl-w[data-v="1"], .rl-w[data-v="2"], .rl-w[data-v="3"], .rl-w[data-v="4"] { color: var(--oak); font-weight: 600; }
 .rl-w[data-v="5"] { color: var(--ember); font-weight: 600; }
 /* «градусник» (Б2): полоска жара, пять точек-делений, ручка с цифрой в цвет жара */
@@ -414,6 +416,17 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .rate-photos:empty { display: none; }
 .rate-photos img { width: 68px; height: 68px; object-fit: cover; border-radius: 12px; }
 .rate-add { justify-self: start; cursor: pointer; }
+/* отдельная страница оценки rate.html: на весь экран телефона, шапка — сверху, кнопка — внизу, между ними восемь строк */
+.rate-solo-body { margin: 0; background: var(--panel); }
+.rate-solo { box-sizing: border-box; height: 100vh; height: 100dvh; max-width: 560px; margin: 0 auto; gap: 8px;
+  grid-template-rows: auto 1fr auto; padding: calc(14px + env(safe-area-inset-top, 0px)) 18px calc(10px + env(safe-area-inset-bottom, 0px)); }
+.rate-solo .rate-head { padding-right: 0; }
+.rate-solo .rate-title { font-size: clamp(20px, 5.6vw, 28px); }
+.rate-solo .rate-score b { font-size: 46px; }
+.rate-solo .rate-foot { position: static; margin: 0; padding: 4px 0 0; background: none; }
+.rate-solo:has(.rate-rv), .rate-solo:has(.rate-done:only-child) { grid-template-rows: auto; align-content: start; height: auto; min-height: 100dvh; }
+.rate-solo .rate-done a { color: var(--oak); font-weight: 600; }
+@media (max-height: 620px) { .rate-solo .rate-score b { font-size: 36px; } .rl-t b { font-size: 14px; } .rate-solo .rate-foot .cta { min-height: 46px; } }
 /* в Telegram: кнопка «Оценить» — своя у Telegram, окно — на весь экран, карта за ним не нужна */
 .in-tg .rate-modal { padding: 0; background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
 .in-tg .rate-modal .sheet { width: 100%; height: 100%; max-height: none; border-radius: 0; box-shadow: none; animation: none; }

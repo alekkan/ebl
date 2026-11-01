@@ -43,6 +43,7 @@ async function validTelegram(data: Record<string, string>) {
 // мини-приложение: initData — строка запроса; подпись — hex HMAC-SHA256 от отсортированных «ключ=значение» (кроме hash)
 // с ключом HMAC-SHA256("WebAppData", bot_token). Данные живут сутки: кнопку в боте открывают и назавтра
 const WEBAPP_FRESH_SEC = 86400;
+const RATE_LINK_DAYS = 7;
 async function validWebApp(initData: string): Promise<Record<string, unknown> | null> {
   const p = new URLSearchParams(initData), hash = p.get("hash") ?? "";
   if (!BOT_TOKEN || !/^[0-9a-f]{64}$/i.test(hash)) return null;
@@ -79,6 +80,17 @@ Deno.serve(async (req) => {
   try {
     if (mode === "new") return await newCode(sb, req.headers.get("User-Agent") ?? "", ok, fail);
     if (mode === "poll") return await pollCode(sb, String(body.code ?? ""), String(body.secret ?? ""), ok, fail);
+    // личная ссылка на оценку из бота (01.11): ключ приглашения — вход под тем, кого пригласили; ключ живёт 7 дней
+    if (new URL(req.url).searchParams.get("rate")) {
+      const token = String(body.token ?? "");
+      if (!/^[0-9a-f]{32,64}$/.test(token)) return fail(400, "Ссылка не та — открой её из бота");
+      const { data: ask } = await sb.from("rating_asks").select("visit_id, player_id, created_at").eq("token", token).maybeSingle();
+      if (!ask || Date.now() - Date.parse(ask.created_at) > RATE_LINK_DAYS * 864e5) return fail(401, "Ссылка устарела — открой последнюю из бота");
+      const { data: acc } = await sb.from("player_accounts").select("tg_id, tg_username, tg_name").eq("player_id", ask.player_id)
+        .not("tg_id", "is", null).limit(1).maybeSingle();
+      if (!acc) return fail(401, "Не нашёл твой Telegram — войди на сайте через бота");
+      return ok({ ...(await issue(sb, Number(acc.tg_id), acc.tg_username ?? null, acc.tg_name ?? "")), visit: ask.visit_id });
+    }
     if (new URL(req.url).searchParams.get("webapp")) {
       const u = await validWebApp(String(body.initData ?? ""));
       if (!u?.id) return fail(401, "Telegram не подтвердил вход — открой кнопку в боте ещё раз");
