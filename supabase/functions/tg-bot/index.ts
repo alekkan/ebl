@@ -1406,7 +1406,12 @@ async function askAnswer(msg: Any, ask: Any, me: Any) {
   if (!p) {
     await geoFail(`ask ${ask.id}`);
     await react(msg.chat.id, msg.message_id, "🤔");
-    return send(msg.chat.id, "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с городом и улицей или геопозицию (📎 → Геопозиция).",
+    // ссылка Google на место без координат, а карты это место по адресу не знают (01.11: сауна Шурика в Корее) — подсказываем,
+    // как прислать точку наверняка
+    const google = /goo\.gl|google\./.test(msg.text ?? msg.caption ?? "");
+    return send(msg.chat.id, google
+      ? "Ссылка Google без координат, а по адресу карты это место не знают. Зажми точку на бане в Google Картах — внизу появятся координаты, пришли их. Или 📎 → Геопозиция."
+      : "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с городом и улицей или геопозицию (📎 → Геопозиция).",
       undefined, msg.message_id);
   }
   const done = await setBathPoint(ask.bath_id, p);
@@ -1905,7 +1910,7 @@ async function onMessage(msg: Any) {
       let { data: ask } = await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("tg_chat", chat).eq("tg_msg", replyTo).maybeSingle();
       const me = (await whoIs(tgId))?.players as Any;
       // ответ на переспрос «Не нашёл, где это…» — это всё ещё ответ на последний вопрос (01.11: ссылку Шурика бот пропустил)
-      if (!ask && me && /^Не нашёл, где это/.test(msg.reply_to_message.text ?? "")) {
+      if (!ask && me && /^(Не нашёл, где это|Ссылка Google без координат)/.test(msg.reply_to_message.text ?? "")) {
         ({ data: ask } = await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("player_id", me.id)
           .in("status", ["sent", "skipped"]).gte("sent_at", new Date(Date.now() - ASK_LATE).toISOString()).order("sent_at", { ascending: false }).limit(1).maybeSingle());
       }
