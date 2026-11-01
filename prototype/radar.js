@@ -11,14 +11,16 @@
 
   // категории: в лиге — всё, что Комиссия завела или привязала; дальше по виду. Аренда (частные) по умолчанию спрятана —
   // её полторы тысячи, и она забивает карту
-  const CAT = [["pub", "Общественные", "--c-pub"], ["maybe", "Возможно", "--c-maybe"], ["spa", "Хуитнесы", "--c-spa"],
-    ["league", "В лиге", "--c-league"], ["rent", "Аренда", "--c-rent"]];
+  const CAT = [["sure", "Точно общественная", "--c-sure"], ["likely", "Скорее общественная", "--c-likely"], ["doubt", "Под вопросом", "--c-doubt"],
+    ["nodata", "Нет данных", "--c-nodata"], ["spa", "Хуитнес", "--c-spa"], ["rent", "Аренда", "--c-rent"], ["league", "В лиге", "--c-league"]];
+  // подписи — как во вкладке «Радар» у Комиссии (radarVerdict в app.js): общественные делятся по индексу 90 / 70
   const catOf = (p) => p.status === "added" || p.status === "matched" ? "league"
-    : p.kind === "public" ? "pub" : p.kind === "unknown" || !p.kind ? "maybe" : p.kind === "spa" ? "spa" : "rent";
+    : p.kind === "public" ? (p.index >= 90 ? "sure" : p.index >= 70 ? "likely" : "doubt")
+    : p.kind === "spa" ? "spa" : p.kind === "private" || p.kind === "other" ? "rent" : "nodata";
   const css = getComputedStyle(document.documentElement);
   const color = Object.fromEntries(CAT.map(([k, , v]) => [k, css.getPropertyValue(v).trim()]));
   const title = Object.fromEntries(CAT.map(([k, t]) => [k, t]));
-  const on = new Set(["pub", "maybe", "spa", "league"]);
+  const on = new Set(["sure", "likely", "doubt", "nodata", "spa", "league"]);
 
   const seg = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
   const key = seg && !seg.endsWith(".html") ? seg : decodeURIComponent(location.hash.slice(1));
@@ -55,9 +57,9 @@
   function draw() {
     dots.clearLayers();
     // в лиге — сверху и крупнее, уверенные общественные — чуть крупнее остальных
-    const order = { rent: 0, spa: 1, maybe: 2, pub: 3, league: 4 };
+    const order = { rent: 0, spa: 1, nodata: 2, doubt: 3, likely: 4, sure: 5, league: 6 };
     for (const p of shown().sort((a, b) => order[a.cat] - order[b.cat])) {
-      L.circleMarker([p.lat, p.lng], { radius: p.cat === "league" ? 6 : p.index >= 70 ? 5 : 4, color: "#fff", weight: 1.2,
+      L.circleMarker([p.lat, p.lng], { radius: p.cat === "league" ? 6 : p.cat === "sure" || p.cat === "likely" ? 5 : 4, color: "#fff", weight: 1.2,
         fillColor: color[p.cat], fillOpacity: 0.95 }).on("click", () => show(p, false)).addTo(dots);
     }
     $("#total").textContent = "· " + num(shown().length);
