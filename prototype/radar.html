@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#ffffff">
 <title>Радар бань · ЕБЛ</title>
 <!-- Радар для просмотра (01.11, Леха): все найденные бани списком и на карте по категориям, без входа и без действий.
@@ -16,7 +15,7 @@
 <link rel="stylesheet" href="vendor/leaflet.min.css">
 <style>
 :root{--bg:#f2f4ef;--panel:#fff;--line:#e3e8e0;--ink:#17211b;--ink2:#5d6b62;--ink3:#8b968f;--oak:#3f6b35;--shadow:0 2px 10px rgba(20,40,25,.14);
-  --c-pub:#2f7d4a;--c-maybe:#e3a332;--c-spa:#3a78b5;--c-league:#7a5bd6;--c-rent:#a4673a}
+  --c-sure:#2f7d4a;--c-likely:#7fb069;--c-doubt:#e3a332;--c-nodata:#9aa39d;--c-spa:#3a78b5;--c-rent:#a4673a;--c-league:#7a5bd6}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
 body{font-family:"Golos Text",system-ui,sans-serif;color:var(--ink);background:var(--bg);-webkit-text-size-adjust:100%}
@@ -33,7 +32,7 @@ a{color:inherit}
 .chip{flex:none;display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-radius:999px;background:var(--panel);font-weight:600;font-size:13px;box-shadow:var(--shadow)}
 .chip b{font-weight:500;color:var(--ink3)}
 .dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--c)}
-.chip[aria-pressed=false]{background:rgba(255,255,255,.72);color:var(--ink3)}
+.chip[aria-pressed=false]{color:var(--ink3);box-shadow:0 1px 4px rgba(20,40,25,.1)}
 .chip[aria-pressed=false] .dot{background:transparent;box-shadow:inset 0 0 0 2px var(--c)}
 .sheet{position:fixed;z-index:600;left:0;right:0;bottom:0;height:var(--h,42%);background:var(--panel);border-radius:22px 22px 0 0;box-shadow:0 -6px 24px rgba(20,40,25,.16);display:flex;flex-direction:column;transition:height .22s ease;padding-bottom:env(safe-area-inset-bottom)}
 .sheet.drag{transition:none}
