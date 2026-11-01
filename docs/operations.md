@@ -96,6 +96,16 @@ Telegram Web скриптом `scripts/seed-chat-members.sh <файл> --prod` (
 ответов), `anonymous` (по умолчанию да, как в Telegram); номер сообщения с опросом бот запишет в `message_id`:
 `supabase db query --linked "insert into bot_actions (kind, chat_id, payload) values ('poll', -1002192445671, '{\"question\": \"…\", \"options\": [\"…\", \"…\"], \"multiple\": true}')"`.
 
+## Радар для просмотра (секретная ссылка)
+
+Все места Радара списком и на карте по категориям, без входа и без действий: страница `prototype/radar.html`,
+данные — `radar_view(ключ)`. Репозиторий открытый, поэтому ключа нет ни в коде, ни в `settings`:
+- на бою ключ — строка в `radar_view_keys` (`insert into radar_view_keys (key) values ('<ключ>')`);
+- путь страницы — `RADAR_VIEW_PATH=<ключ>` в `~/.config/ebl/keys`; `scripts/deploy.sh` кладёт страницу в хранилище под этим путём.
+
+Сменить ссылку: новая строка в `radar_view_keys` и в `~/.config/ebl/keys`, выкладка, затем удалить старую строку
+и объект в хранилище.
+
 ## Домен ebl.su
 
 Сайт живёт в Yandex Cloud: облако `cloud-cumulus-511`, каталог `ebl` (владелец — Леха). Переезд с GitHub Pages — 27.09.2026:
