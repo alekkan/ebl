@@ -294,7 +294,8 @@ const curLabel = (code: string | null) => code ?? "₽";
 const CUR_SIGN: [RegExp, string][] = [[/€|eur|евро/i, "EUR"], [/\$|usd|долл/i, "USD"], [/₽|руб|^\d[\d\s.,]*р\.?$/i, "RUB"],
   [/¥|jpy|иен|йен/i, "JPY"], [/aed|дирх/i, "AED"]];
 function priceParts(text: string): { num: string; cur: string | null } | null {
-  const t = text.trim();
+  // «Вход 19,5€», «Пиво: 450», «было 900» — слово перед цифрой не мешает (01.11, Шурик)
+  const t = text.trim().replace(/^(вход|пиво|цена|было|стоил[оа]?|за вход)\s*[:—–-]?\s*/iu, "");
   const num = t.replace(/€|\$|₽|¥|eur\w*|евро|usd|долл\w*|руб\w*|р\.?$|jpy|иен\w*|йен\w*|aed|дирх\w*/giu, "").replace(/[\s\u00a0]/g, "");
   if (!/^(?:\d{2,6}|\d{1,6}[.,]\d{1,2})$/.test(num)) return null;
   return { num, cur: CUR_SIGN.find(([re]) => re.test(t))?.[1] ?? null };
@@ -590,6 +591,20 @@ function priceAskLine(st: Any, label: string) {
   if (st.chatType === "private") return `${label}? Напиши цифру.`;
   return st.priceInDm ? `${label} — спросил в личке, ответь там цифрой.` : `${label} — ответь цифрой на вопрос ниже.`;
 }
+// ответ на старый вопрос о цене: баня — по названию из вопроса (ровно одна такая), валюта — по знаку, иначе рубли в России;
+// за границей без знака валюты — переспрашиваем, а не пишем рубли
+async function oldPriceAnswer(msg: Any, me: Any, what: "price" | "beer", bathName: string) {
+  const { data: baths } = await sb.from("baths").select("id, country").eq("name", bathName).limit(2);
+  if (baths?.length !== 1) return send(msg.chat.id, "Не понял, к какой бане цена — впиши её в карточке бани на ebl.su.", undefined, msg.message_id);
+  const sign = priceParts(msg.text ?? "")?.cur ?? null;
+  const cur = sign ?? (!baths[0].country || baths[0].country === "Россия" ? "RUB" : null);
+  if (!cur) return send(msg.chat.id, "В какой валюте? Напиши с ней, например «14,4€».", undefined, msg.message_id);
+  const n = priceNum(msg.text ?? "", cur);
+  await recordPrice(what === "beer" ? "bath_beer_prices" : "bath_prices", baths[0].id, n, cur, {}, me.id);
+  await react(msg.chat.id, msg.message_id, "👍");
+  return send(msg.chat.id, `Записал: ${what === "beer" ? "пиво" : "вход"} в «${esc(bathName)}» — ${money(n)} ${curLabel(cur === "RUB" ? null : cur)}.`, undefined, msg.message_id);
+}
+
 // цифра пришла в личку, а черновик — в чате: ставим её в черновик и правим карточку там
 async function priceFromDm(msg: Any, st: Any, lg: Any) {
   priceCurrency(st, msg.text ?? "");
@@ -1887,9 +1902,21 @@ async function onMessage(msg: Any) {
   if (replyTo && msg.reply_to_message.from?.username?.toLowerCase() === BOT) {
     // ответ на «где была баня?» из Сверки
     if (isPrivate) {
-      const { data: ask } = await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("tg_chat", chat).eq("tg_msg", replyTo).maybeSingle();
-      const me = ask ? (await whoIs(tgId))?.players as Any : null;
+      let { data: ask } = await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("tg_chat", chat).eq("tg_msg", replyTo).maybeSingle();
+      const me = (await whoIs(tgId))?.players as Any;
+      // ответ на переспрос «Не нашёл, где это…» — это всё ещё ответ на последний вопрос (01.11: ссылку Шурика бот пропустил)
+      if (!ask && me && /^Не нашёл, где это/.test(msg.reply_to_message.text ?? "")) {
+        ({ data: ask } = await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("player_id", me.id)
+          .in("status", ["sent", "skipped"]).gte("sent_at", new Date(Date.now() - ASK_LATE).toISOString()).order("sent_at", { ascending: false }).limit(1).maybeSingle());
+      }
       if (ask && me?.id === ask.player_id) return askAnswer(msg, ask, me);
+      // ответ на старый вопрос о цене из лички («💰 Сколько стоил вход в «…»?») — черновик похода уже закрыт, цену всё равно
+      // записываем в баню по названию из вопроса (01.11: «Вход 19,5€», «Вход 14,4€» Шурика терялись; бот цену больше не спрашивает)
+      const pq = (msg.reply_to_message.text ?? "").match(/^(💰|🍺) Сколько сто(?:ил вход|ило пиво) в «(.+?)»/u);
+      const live = pq ? await getState(tgId) : null;   // черновик ещё ждёт эту цифру — его ведёт priceFromDm ниже
+      if (pq && me && isPriceText(text) && !(live?.priceInDm && live.awaitPriceFor && live.bathName === pq[2])) {
+        return oldPriceAnswer(msg, me, pq[1] === "🍺" ? "beer" : "price", pq[2]);
+      }
     }
     // у живой карточки оба вопроса — сама карточка: ссылка, адрес или геопозиция — это про точку, остальное — про долгую
     const { data: post } = await sb.from("bot_posts").select("visit_id, chat_id, bath_id, ask_msg, geo_msg, card_msg, long_note").eq("chat_id", chat)
