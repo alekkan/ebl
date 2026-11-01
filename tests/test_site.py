@@ -1222,6 +1222,43 @@ with sync_playwright() as pw:
         check("…и в другом браузере того же человека уже не показывается", s.js("() => !/Комиссия (засчитала|решила)/.test(document.querySelector('.toast')?.innerText || '')"))
         s.close(); sql(f"delete from visits where id = {dv}")
 
+        print("Радар для просмотра по секретной ссылке")
+        # 01.11: все места Радара по категориям, без входа и без действий; ключ ссылки — только в radar_view_keys
+        sql("delete from radar_places where key like 'view-test:%'"); sql("delete from radar_view_keys where key = 'view-test-key'")
+        sql("""insert into radar_places (key, name, city, region, address, lat, lng, kind, public_index, status, note, price_example) values
+          ('view-test:1', 'Тест-Радар Общественная', 'Москва', 'Москва', 'Люблинская улица, 60, Москва, Москва', 55.70, 37.60, 'public', 93, 'new', 'Муниципальная баня с оплатой за 1,5 часа', '1000 ₽ за 3 часа'),
+          ('view-test:2', 'Тест-Радар Возможно', 'Москва', 'Москва', null, 55.71, 37.61, 'unknown', 40, 'new', null, null),
+          ('view-test:3', 'Тест-Радар Аренда', 'Москва', 'Москва', null, 55.72, 37.62, 'private', 10, 'new', null, null),
+          ('view-test:4', 'Тест-Радар Скрытая', 'Москва', 'Москва', null, 55.73, 37.63, 'public', 90, 'hidden', null, null),
+          ('view-test:5', 'Тест-Радар Закрытая', 'Москва', 'Москва', null, 55.74, 37.64, 'closed', 50, 'new', null, null)""")
+        pg = browser.new_page(); pg.route(EXTERNAL, lambda r: r.abort()); pg.route("**/config.js*", lambda r: r.fulfill(body=LIVE_CONFIG, content_type="application/javascript"))
+        pg.goto(url + "radar.html#wrong-key"); pg.wait_for_function("() => document.getElementById('boot')?.classList.contains('err')", timeout=10000)
+        check("с чужим ключом Радар не открывается: «Ссылка не подходит»", "Ссылка не подходит" in pg.inner_text("#boot"))
+        check("…и база без ключа ничего не отдаёт", sql("select public.radar_view('wrong-key') is null") == "t")
+        pg.close()
+        sql("insert into radar_view_keys (key) values ('view-test-key')")
+        s = Site(browser, url + "radar.html#view-test-key", mobile=True, name="radar-view")
+        s.page.wait_for_selector("#pane .it", timeout=8000)
+        names = s.js("() => [...document.querySelectorAll('#pane .it b')].map((b) => b.textContent)")
+        check("в списке — общественная и «возможно», аренда спрятана по умолчанию, скрытых и закрытых нет",
+              "Тест-Радар Общественная" in names and "Тест-Радар Возможно" in names
+              and not any(n in names for n in ("Тест-Радар Аренда", "Тест-Радар Скрытая", "Тест-Радар Закрытая")), names)
+        check("на странице нет кнопок действий (завести, в лигу, скрыть)",
+              not s.js("() => /Завести|Скрыть|Привязать|В лигу/.test(document.body.innerText)"))
+        s.page.click('.chip[data-cat="rent"]'); s.page.wait_for_timeout(300)
+        check("чип «Аренда» показывает аренду", "Тест-Радар Аренда" in s.js("() => document.getElementById('pane').innerText"))
+        s.page.fill("#q", "общественная тест"); s.page.wait_for_timeout(600)
+        check("поиск находит по словам в любом порядке", s.js("() => [...document.querySelectorAll('#pane .it b')].map((b) => b.textContent)") == ["Тест-Радар Общественная"])
+        s.page.click("#pane .it")
+        card = s.js("() => document.querySelector('#pane .card')?.innerText || ''")
+        check("карточка: сводка Радара, цена, адрес без повторов, ссылки на 2ГИС и Яндекс",
+              "Муниципальная баня с оплатой за 1,5 часа" in card and "1000 ₽ за 3 часа" in card and "Москва, Москва" not in card
+              and "2ГИС" in card and "Яндекс Карты" in card, card)
+        s.page.click("#back")
+        check("«← К списку» возвращает список", s.js("() => !!document.querySelector('#pane .it')"))
+        s.close()
+        sql("delete from radar_places where key like 'view-test:%'"); sql("delete from radar_view_keys where key = 'view-test-key'")
+
         print("Режим витрины (пустой config.js)")
         s = Site(browser, url, config=SHOWCASE_CONFIG, name="showcase")
         all_views(s, "витрина")

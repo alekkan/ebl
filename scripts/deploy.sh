@@ -16,8 +16,8 @@ cp -R prototype/. "$tmp/"
 find "$tmp" -name .DS_Store -delete
 # версия скрипта или стиля — по его содержимому: не поменялся файл — тот же адрес, и браузер берёт его из кэша
 # даже после следующих выкладок (кэш на год, см. ниже); поменялся — новый адрес, старое из кэша не подхватится
-ASSETS="style.css app.js db.js rate.js config.js vendor/leaflet.min.css vendor/MarkerCluster.min.css vendor/leaflet.min.js vendor/leaflet.markercluster.min.js vendor/supabase.js vendor/qrcode.js"
-PAGES="index.html rate.html"
+ASSETS="style.css app.js db.js rate.js radar.js config.js vendor/leaflet.min.css vendor/MarkerCluster.min.css vendor/leaflet.min.js vendor/leaflet.markercluster.min.js vendor/supabase.js vendor/qrcode.js"
+PAGES="index.html rate.html radar.html"
 # новый скрипт или стиль, которого нет в списке, ниже не зальётся вовсе (сайт сломается молча) — останавливаемся сразу
 for f in $(cd "$tmp" && find . -type f \( -name "*.js" -o -name "*.css" \) | sed 's#^\./##'); do
   case " $ASSETS " in *" $f "*) ;; *) echo "Новый файл $f — допиши его в ASSETS в scripts/deploy.sh (версия, сжатие, кэш)" >&2; exit 1 ;; esac
@@ -27,7 +27,7 @@ for f in $ASSETS; do
   re=$(printf '%s' "$f" | sed 's/[.]/\\./g')
   # страницы: index.html и лёгкая страница оценки rate.html (01.11) — версия всем, кто ссылается на файл
   for pg in $PAGES; do sed -i '' -E "s#\"$re(\\?v=[0-9a-z]+)?\"#\"$f?v=$h\"#g" "$tmp/$pg"; done
-  case "$f" in rate.js) pg=rate.html ;; *) pg=index.html ;; esac
+  case "$f" in rate.js) pg=rate.html ;; radar.js) pg=radar.html ;; *) pg=index.html ;; esac
   grep -q "\"$f?v=$h\"" "$tmp/$pg" || { echo "В $pg нет ссылки на $f — версия не проставлена" >&2; exit 1; }
 done
 
@@ -44,6 +44,11 @@ up --recursive --exclude "*.html" --exclude "CNAME" --exclude ".nojekyll" --excl
   --cache-control "public, max-age=600" "$tmp/" s3://ebl.su/
 up --recursive --exclude "*" --include "data/*.json" --content-encoding gzip --cache-control "public, max-age=600" "$gz/" s3://ebl.su/
 up --content-encoding gzip --cache-control "no-cache" "$gz/rate.html" s3://ebl.su/rate.html
+# Радар для просмотра (01.11) — по секретной ссылке ebl.su/<ключ>: путь только в ~/.config/ebl/keys (репозиторий открытый),
+# тот же ключ — в radar_view_keys на бою. Без ключа в файле страница просто не выкладывается под секретным путём
+rv=$(sed -n 's/^RADAR_VIEW_PATH=//p' "$HOME/.config/ebl/keys" 2>/dev/null | head -1)
+if [ -n "$rv" ]; then up --content-encoding gzip --content-type "text/html; charset=utf-8" --cache-control "no-cache" "$gz/radar.html" "s3://ebl.su/$rv"
+else echo "RADAR_VIEW_PATH нет в ~/.config/ebl/keys — Радар для просмотра не выложен" >&2; fi
 up --content-encoding gzip --cache-control "no-cache" "$gz/index.html" s3://ebl.su/index.html
 
 # 2) GitHub Pages — резерв. gh-pages — только сборка; GitHub сам коммитит туда CNAME, поэтому перезаписываем
