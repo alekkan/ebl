@@ -369,33 +369,38 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .rate-page { padding: 22px 20px calc(14px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 14px; }
 .rate-head { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; padding-right: 44px; }
 .rate-title { font: 800 clamp(22px, 6.2vw, 30px)/1.08 var(--display); margin: 6px 0 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
-.rate-score { text-align: center; min-width: 88px; }
-.rate-score b { display: block; font: 800 44px/1 var(--display); color: var(--oak); font-variant-numeric: tabular-nums; }
-.rate-score span { display: block; margin-top: 4px; font-size: 12.5px; color: var(--ink-2); }
-.rate-progress { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
-.rate-progress i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--oak); transition: width .25s var(--ease); }
-.rate-form { display: grid; }
-.rate-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
-  padding: 10px 0; border-bottom: 1px solid var(--line); scroll-margin: 90px; }
-.rate-line:last-child { border-bottom: 0; }
-.rl-t { display: grid; gap: 2px; min-width: 0; }
-.rl-t b { font-size: 16.5px; }
-.rl-w { font-style: normal; font-size: 12.5px; color: var(--oak); min-height: 16px; }
-/* капсула на пять делений: заполненные — зелёные с белым веником, пустые — светлые с бледным */
-.rate-pill { --h: 42px; display: grid; grid-template-columns: repeat(5, 36px); gap: 2px; padding: 3px; border-radius: 999px;
-  background: color-mix(in srgb, var(--oak) 9%, var(--panel)); touch-action: none; user-select: none; -webkit-user-select: none; }
-.rate-pill button { height: var(--h); display: grid; place-items: center; padding: 0; border: 0; border-radius: 10px; background: transparent;
-  cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color .18s var(--ease); }
-.rate-pill button:first-child { border-radius: 999px 10px 10px 999px; }
-.rate-pill button:last-child { border-radius: 10px 999px 999px 10px; }
-.rate-pill button.on { background: var(--oak); }
-.rate-pill button.on + button:not(.on) { background: transparent; }
-.rate-pill .leaf { width: 18px; height: 24px; transition: transform .18s var(--ease), fill .18s var(--ease); }
-.rate-pill .leaf:not(.on) { fill: color-mix(in srgb, var(--oak) 28%, var(--panel)); }
-.rate-pill button.on .leaf { fill: var(--oak-ink); }
-.rate-pill[data-v="5"] button.on .leaf { transform: rotate(-10deg) scale(1.08); }   /* «огонь» — веники чуть пляшут */
-.rate-pill button:active .leaf { transform: scale(1.25) rotate(-8deg); }
-@media (max-width: 360px) { .rate-pill { grid-template-columns: repeat(5, 34px); } }
+.rate-score { text-align: right; min-width: 96px; }
+.rate-score b { display: block; font: 800 52px/.9 var(--display); color: var(--oak); font-variant-numeric: tabular-nums; }
+.rate-score .leaves { margin-top: 6px; }
+.rate-score small { display: block; margin-top: 6px; font-size: 12.5px; color: var(--ink-3); }
+.rate-form { display: grid; gap: 14px; margin-top: 4px; }
+.rate-line { display: grid; gap: 4px; scroll-margin: 90px; }
+.rl-t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.rl-t b { font-size: 16px; }
+.rl-w { font-style: normal; font-size: 13.5px; color: var(--ink-3); }
+.rl-w[data-v="1"], .rl-w[data-v="2"], .rl-w[data-v="3"], .rl-w[data-v="4"] { color: var(--oak); font-weight: 600; }
+.rl-w[data-v="5"] { color: var(--ember); font-weight: 600; }
+/* «градусник» (Б2): полоска жара, пять точек-делений, ручка с цифрой в цвет жара */
+.heat { --p: 0; --c: #b9c7b3; position: relative; height: 34px; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent; outline: none; }
+.heat[data-v="1"] { --c: #8fb47d; } .heat[data-v="2"] { --c: #a9b663; } .heat[data-v="3"] { --c: var(--honey); }
+.heat[data-v="4"] { --c: #e8892e; } .heat[data-v="5"] { --c: var(--ember); }
+.heat::before { content: ""; position: absolute; left: 0; right: 0; top: 14px; height: 6px; border-radius: 3px; background: var(--line); }
+.heat-fill { position: absolute; left: 0; top: 14px; height: 6px; border-radius: 3px; width: calc(15px + var(--p) * (100% - 30px));
+  background: linear-gradient(90deg, #a9c79a, var(--honey) 70%, var(--ember)); background-size: calc(100% / max(var(--p), .001)) 100%;
+  transition: width .18s var(--ease); }
+.heat[data-v="0"] .heat-fill { display: none; }
+.heat-dots { position: absolute; left: 15px; right: 15px; top: 15px; display: flex; justify-content: space-between; pointer-events: none; }
+.heat-dots i { width: 4px; height: 4px; margin: 0 -2px; border-radius: 50%; background: color-mix(in srgb, var(--panel) 85%, transparent); }
+.heat-knob { position: absolute; top: 2px; left: calc(var(--p) * (100% - 30px)); width: 30px; height: 30px; border-radius: 50%;
+  background: var(--panel); box-shadow: 0 2px 8px rgba(20, 40, 25, .28), 0 0 0 3px var(--c); display: grid; place-items: center;
+  font: 800 13px/1 var(--display); color: var(--c); transition: left .18s var(--ease), transform .15s var(--ease); }
+.heat[data-v="0"] .heat-knob { box-shadow: 0 2px 8px rgba(20, 40, 25, .2); }
+.heat[data-v="0"] .heat-knob::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.heat.drag .heat-knob { transform: scale(1.18); transition: transform .15s var(--ease); }
+.heat:focus-visible .heat-knob { outline: 2px solid var(--oak); outline-offset: 3px; }
+.rate-price { display: grid; grid-template-columns: 1fr 96px; gap: 8px; align-items: center; }
+.rate-price span { grid-column: 1 / -1; font-weight: 600; font-size: 14px; }
 .rate-foot { position: sticky; bottom: calc(-14px - env(safe-area-inset-bottom, 0px)); margin: 0 -20px -14px; padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(transparent, var(--panel) 28%); display: flex; gap: 16px; align-items: center; }
 .rate-foot .cta { flex: 1; justify-content: center; min-height: 52px; font-size: 16px; }

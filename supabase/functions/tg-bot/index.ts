@@ -474,24 +474,23 @@ async function renderCard(st: Any, lg: Any) {
   // (скидка — до какого часа) → валюта → цифра ответом на карточку. С историей — цена уже стоит, «✏️ Изменить» её сбрасывает и заводит тот же мастер.
   // Цифру спрашиваем строкой в карточке, а не отдельным сообщением: «Сколько стоил вход?» в чате — мусор (30.09, 🤡 от Комиссии)
   const priceStep = st.priceStep;
-  const askSched = st.price != null && st.priceWeekend == null && st.priceBefore == null;
   if (priceStep === "sched") lines.push("💰 Цена входа — будни, выходной, скидка до часа или одна на все дни?");
   else if (priceStep === "before") lines.push("💰 Скидка — до какого часа?");
   else if (priceStep === "currency") lines.push(`💰 Цена входа${schedLabel(st)} — в какой валюте?`);
   else if (st.awaitPriceFor === "price") lines.push(priceAskLine(st, "💰 Цена входа"));
   else if (st.priceFromHistory) {
     const list = (st.knownPrices ?? []).map((p: Any) => `${money(p.price)} ${curLabel(p.currency)}${priceDimLabel(p)}`).join(" / ");
-    lines.push(`💰 ${list} — как в прошлый раз, ✏️ можно поменять`);
+    lines.push(`💰 ${list} — как в прошлый раз`);
   }
   else if (st.price) lines.push(`💰 ${money(st.price)} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
-  else lines.push("💰 Цена входа? Кнопкой ниже.");
+  // цены нет — не спрашиваем (01.11): её вписывают на сайте вместе с оценкой бани
   if (st.awaitPriceFor === "beer") lines.push(priceAskLine(st, "🍺 Цена пива"));
   else if (st.beerFromHistory) {
     const list = (st.knownBeerPrices ?? []).map((p: Any) => `${money(p.price)} ${curLabel(p.currency)}`).join(" / ");
-    lines.push(`🍺 ${list} — как в прошлый раз, ✏️ можно поменять`);
+    lines.push(`🍺 ${list} — как в прошлый раз`);
   }
   else if (st.beerPrice) lines.push(`🍺 ${money(st.beerPrice)} ${curLabel(st.currency)} — со слов автора`);
-  else if (st.price != null || st.priceFromHistory) lines.push("🍺 Цена пива? Кнопкой ниже.");
+
   if (st.hint) lines.push(`\n${st.hint}`);
   if (st.awaiting === "company") lines.push("\nКто был? Отметь кнопками или ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nДолгая или экспресс? По регламенту важно только, была ли дольше 2,5 часа.");
@@ -507,14 +506,8 @@ async function renderCard(st: Any, lg: Any) {
     : priceStep === "currency"
     ? [...chunk(CUR_BTNS.map(([c, l]) => btn(l, `pc:${c}`)), 2), [btn("Пропустить", "pz")]]
     : [...pick, ...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
-      // цена этой бани уже стоит по истории — кнопка только чтобы поменять, если в этот раз другая
-      ...(st.priceFromHistory ? [[btn("✏️ Изменить цену входа", "pe")]] : []),
-      // истории нет — спрашиваем по шагам (будни/выходной/скидка/валюта), потом цифру ответом на карточку
-      ...(st.price == null && !st.priceFromHistory ? [[btn("💰 Цена", "ap")]] : []),
-      ...(st.beerFromHistory ? [[btn("✏️ Изменить цену пива", "be")]] : []),
-      ...((st.price != null || st.priceFromHistory) && st.beerPrice == null && !st.beerFromHistory && st.awaitPriceFor !== "beer" ? [[btn("🍺 Пиво", "ab")]] : []),
-      // будни/выходной у цены — необязательная кнопка, как и тип бани (если уже пришли по шагам — не переспрашиваем)
-      ...(askSched ? [Object.entries(SCHED_RU).map(([s, l]) => btn(`${st.priceWeekend === s ? "✓ " : ""}${l}`, `pw:${s}`))] : []),
+      // цену входа и пива бот больше не спрашивает (01.11, Леха): её вписывают на сайте вместе с оценкой бани, отзывом и фото.
+      // Кнопки «💰 Цена», «🍺 Пиво», «будни/выходной» убраны; старые карточки с ними ещё работают (обработчики ниже)
       // экспресс или долгая — выбор виден прямо на кнопках (галочка), как у типа бани
       [btn(`${st.dur == null || st.dur <= LONG ? "✓ " : ""}⚡ Экспресс`, "d:120"), btn(`${st.dur != null && st.dur > LONG ? "✓ " : ""}🔥 Долгая`, "d:180")],
       // ждём цифру цены — отправить можно только без неё, явно

@@ -45,7 +45,7 @@ grant all on public.rating_asks to service_role;
 -- что показать на странице оценки: баня, можно ли оценивать и прежняя оценка этого похода
 create function public.rating_form(p_visit bigint) returns json
 language sql stable security definer set search_path = public as $$
-  select json_build_object('visit', v.id, 'bath', v.bath_id, 'name', b.name, 'entered_at', v.entered_at,
+  select json_build_object('visit', v.id, 'bath', v.bath_id, 'name', b.name, 'country', b.country, 'entered_at', v.entered_at,
     'allowed', public.me() is not null and v.status = 'ok' and exists (select 1 from visit_players vp where vp.visit_id = v.id and vp.player_id = public.me())
       and v.entered_at >= (select (value #>> '{}')::date from settings where key = 'rating_since'),
     'why', case when public.me() is null then 'login'

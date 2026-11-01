@@ -299,7 +299,9 @@ check("однозначная баня, тип со слов автора — и
       st.get("bathName") == "Amalienbad" and st.get("type") == "spa" and st.get("companyOk") is True
       and st.get("price") is None and not st.get("priceFromHistory"), st)
 data, _ = card_kb(who=ME)
-check("кнопка «💰 Цена» есть, «✏️ Изменить» нет — истории нет", "ap" in data and not any(d == "pe" for d in data), data)
+check("01.11: бот цену больше не спрашивает — кнопок «💰 Цена» и «✏️ Изменить» в карточке нет (цену вписывают на сайте с оценкой)",
+      not any(d in ("ap", "pe", "ab", "be") or (d or "").startswith("pw:") for d in data), data)
+# дальше — старые карточки, где кнопки ещё были: мастер цены по нажатию работает как раньше
 card("ap", who=ME, chat=ME, chat_type="private", cid="ap1")
 data, _ = card_kb(who=ME)
 check("шаг 1 мастера цены — будни/выходной/скидка до часа/одна цена", {"pw:weekday", "pw:weekend", "pkb", "pw:any"} <= set(data), data)
@@ -316,7 +318,7 @@ check("после валюты — вопрос про цену строкой �
 st = post("6000", 188, chat=ME, chat_type="private")
 check("цифра принята как цена входа", st.get("price") == 6000 and st.get("awaitPriceFor") is None, st)
 data, _ = card_kb(who=ME)
-check("после цены входа — кнопка «🍺 Пиво» (истории пива нет)", "ab" in data, data)
+check("после цены входа — кнопки «🍺 Пиво» в новой карточке нет", "ab" not in data, data)
 seen = len(TELEGRAM.calls)
 card("ab", who=ME, chat=ME, chat_type="private", cid="ab1")
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessage"]
@@ -347,8 +349,8 @@ seen = len(TELEGRAM.calls)
 post("Dublinger 2ч один", 191, chat=ME, chat_type="private")
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
 data, _ = card_kb(who=ME)
-check("цена и пиво уже известны (с сайта) — подставлены сразу, кнопка только «✏️ Изменить»",
-      "pe" in data and "be" in data and "ap" not in data and "ab" not in data
+check("цена и пиво уже известны (с сайта) — подставлены строкой, кнопок цены нет (01.11)",
+      not any(d in ("pe", "be", "ap", "ab") for d in data)
       and any("6000 ₽ — как в прошлый раз" in t for t in sent) and any("350 ₽ — как в прошлый раз" in t for t in sent), sent)
 seen = len(TELEGRAM.calls)
 card("send", who=ME, chat=ME, chat_type="private", cid="j2")
@@ -390,7 +392,7 @@ data, _ = card_kb(who=ME)
 check("несколько действующих цен сразу (будни/выходной) — показаны обе, автор их не выбирает",
       st.get("price") is None and st.get("priceFromHistory") is True
       and any("400 ₽ · будни" in t and "600 ₽ · выходной" in t for t in sent)
-      and "pe" in data and "ap" not in data, sent)
+      and "ap" not in data and not any("Кнопкой ниже" in t for t in sent), sent)
 seen = len(TELEGRAM.calls)
 post("да", 196, chat=ME, chat_type="private")
 sent = [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]

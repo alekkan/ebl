@@ -1065,6 +1065,10 @@ ${edit}
       if (openId && $("#dRateTile")) { $("#dRateTile").innerHTML = rateTile(openId); const box = $("#dRating"); box.innerHTML = rateRows(openId); box.hidden = !ratings[openId]; }
     }).catch(() => {});
   }
+  // цена входа на экране после оценки (01.11: бот её больше не спрашивает) — валюта по стране бани
+  const RATE_CUR = ["RUB", "EUR", "USD", "KZT", "BYN", "GEL", "AMD", "TRY", "AED", "JPY", "THB", "CNY"];
+  const curOf = (country) => ({ "Россия": "RUB", "Казахстан": "KZT", "Беларусь": "BYN", "Грузия": "GEL", "Армения": "AMD", "Турция": "TRY",
+    "ОАЭ": "AED", "Япония": "JPY", "Таиланд": "THB", "Китай": "CNY", "США": "USD" })[country] || (country && country !== "Россия" ? "EUR" : "RUB");
   // слово к оценке — как в такси
   const SCORE_WORD = ["", "плохо", "так себе", "норм", "хорошо", "огонь"];
   async function openRate(visitId) {
@@ -1088,49 +1092,54 @@ ${edit}
     const filled = () => CRIT.filter(([k]) => s[k]).length;
     const avg = () => { const v = CRIT.map(([k]) => s[k]).filter(Boolean); return v.length ? v.reduce((a, x) => a + x, 0) / v.length : 0; };
     const full = () => filled() === CRIT.length;
+    // «Градусник» (01.11, вариант Б2): у пункта — полоска жара и ручка с цифрой 1–5 в цвет жара; сверху — общая листьями,
+    // как в рейтинге на карте. Провести пальцем или нажать в нужное место; стрелки на клавиатуре — тоже
     body.innerHTML = `<div class="rate-head">
         <div><div class="eyebrow">Оценка бани · ${dayLabel(mskIso(f.entered_at))}</div><h2 class="rate-title">${esc(f.name)}</h2></div>
-        <div class="rate-score" aria-live="polite"><b id="rScore">—</b><span id="rWord">тапай по веникам</span></div>
+        <div class="rate-score" aria-live="polite"><b id="rScore">—</b><span id="rLeaves"></span></div>
       </div>
-      <div class="rate-progress" aria-hidden="true"><i id="rBar"></i></div>
       <div class="rate-form">${CRIT.map(([k, t]) => `<div class="rate-line" data-line="${k}">
           <div class="rl-t"><b>${t}</b><em class="rl-w"></em></div>
-          <div class="rate-pill" role="radiogroup" aria-label="${t}" data-pill="${k}">${[1, 2, 3, 4, 5].map((n) =>
-            `<button type="button" data-k="${k}" data-r="${n}" role="radio" aria-checked="false" aria-label="${t}: ${n} из 5">${leafSvg(false)}</button>`).join("")}</div>
+          <div class="heat" role="slider" tabindex="0" aria-label="${t}" aria-valuemin="1" aria-valuemax="5" data-heat="${k}">
+            <span class="heat-fill"></span><span class="heat-dots"><i></i><i></i><i></i><i></i><i></i></span><span class="heat-knob"></span></div>
           </div>`).join("")}</div>
       <div class="rate-foot"><button class="cta" type="button" id="rateSave">${icon("check")}<span></span></button></div>`;
     const save = $("#rateSave", body);
     const paint = () => {
       for (const [k] of CRIT) {
-        $$(`[data-k="${k}"]`, body).forEach((b) => { const on = +b.dataset.r <= (s[k] || 0); b.classList.toggle("on", on); b.firstElementChild.classList.toggle("on", on); b.setAttribute("aria-checked", String(+b.dataset.r === s[k])); });
-        $(`[data-pill="${k}"]`, body).dataset.v = s[k] || 0;
-        $(`[data-line="${k}"] .rl-w`, body).textContent = s[k] ? SCORE_WORD[s[k]] : "";
-        $(`[data-line="${k}"]`, body).classList.toggle("done", !!s[k]);
+        const v = s[k] || 0, h = $(`[data-heat="${k}"]`, body);
+        h.style.setProperty("--p", v ? (v - 1) / 4 : 0); h.dataset.v = v;
+        $(".heat-knob", h).textContent = v || "";
+        h.setAttribute("aria-valuenow", v || 1); h.setAttribute("aria-valuetext", v ? `${v} — ${SCORE_WORD[v]}` : "не оценено");
+        const w = $(`[data-line="${k}"] .rl-w`, body);
+        w.textContent = v ? SCORE_WORD[v] : "проведи пальцем"; w.dataset.v = v;
       }
       const a = avg(), n = filled();
       $("#rScore", body).textContent = n ? fmt(Math.round(a * 10) / 10) : "—";
-      $("#rWord", body).textContent = !n ? "тапай по веникам" : full() ? SCORE_WORD[Math.round(a)] : `${n} из 8`;
-      $("#rBar", body).style.width = `${(n / CRIT.length) * 100}%`;
+      $("#rLeaves", body).innerHTML = n ? leaves(a) : `<small>0 из 8</small>`;
       const label = full() ? `${f.scores ? "Сохранить" : "Оценить"} · ${fmt(Math.round(a * 100) / 100)}` : `Осталось ${CRIT.length - n} из 8`;
       $("span", save).textContent = label; save.disabled = !full();
       if (tgApp) { const mb = tgApp.MainButton; mb.setText(label); full() ? mb.enable() : mb.disable(); mb.show(); }
     };
-    // капсула на пять делений: нажать или провести пальцем, как ползунок; на каждом делении — вибрация
+    // провести пальцем или нажать в нужное место; на каждом делении — вибрация
     const set = (k, n) => { if (s[k] === n) return; s[k] = n; tick(); paint(); };
     const nextUp = (k) => {   // заполнил строку — следующая пустая сама подъезжает под палец
       const next = CRIT.find(([c]) => !s[c]);
       if (next && k !== next[0]) $(`[data-line="${next[0]}"]`, body)?.scrollIntoView({ block: "nearest", behavior: calm ? "auto" : "smooth" });
     };
-    $$("[data-pill]", body).forEach((pill) => {
-      const k = pill.dataset.pill;
-      const at = (x) => { const r = pill.getBoundingClientRect(); return Math.min(5, Math.max(1, Math.ceil(((x - r.left) / r.width) * 5))); };
+    $$("[data-heat]", body).forEach((h) => {
+      const k = h.dataset.heat;
+      // деления — по центрам пяти точек: ручка шириной 30 px ходит от края до края
+      const at = (x) => { const r = h.getBoundingClientRect(); return Math.min(5, Math.max(1, Math.round(((x - r.left - 15) / (r.width - 30)) * 4) + 1)); };
       let drag = false;
-      pill.addEventListener("pointerdown", (e) => { drag = true; pill.setPointerCapture?.(e.pointerId); set(k, at(e.clientX)); });
-      pill.addEventListener("pointermove", (e) => { if (drag) set(k, at(e.clientX)); });
-      const up = () => { if (drag) { drag = false; nextUp(k); } };
-      pill.addEventListener("pointerup", up); pill.addEventListener("pointercancel", up);
-      // клавиатура и программы чтения экрана — обычные кнопки
-      $$("[data-k]", pill).forEach((b) => (b.onclick = (e) => { if (e.detail === 0) { set(k, +b.dataset.r); nextUp(k); } }));
+      h.addEventListener("pointerdown", (e) => { drag = true; h.setPointerCapture?.(e.pointerId); h.classList.add("drag"); set(k, at(e.clientX)); });
+      h.addEventListener("pointermove", (e) => { if (drag) set(k, at(e.clientX)); });
+      const up = () => { if (drag) { drag = false; h.classList.remove("drag"); nextUp(k); } };
+      h.addEventListener("pointerup", up); h.addEventListener("pointercancel", up);
+      h.addEventListener("keydown", (e) => {
+        const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+        if (d) { e.preventDefault(); set(k, Math.min(5, Math.max(1, (s[k] || (d > 0 ? 0 : 2)) + d))); }
+      });
     });
     const submit = async () => {
       if (!full() || save.dataset.busy) return;
@@ -1150,7 +1159,10 @@ ${edit}
           <div class="rate-big"><b>${fmt(overall)}</b>${leaves(overall, "big")}<span>${SCORE_WORD[Math.round(overall)]} · ${esc(f.name)}</span></div>
           <p class="lead">Спасибо! Оценка уже в рейтинге бани. Хочешь — пару слов и фото, это тоже увидит вся лига.</p>
         </div>
-        <form class="rvform rate-rv" id="rateRv"><textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea>
+        <form class="rvform rate-rv" id="rateRv">
+          <label class="rate-price"><span>Цена входа</span><input class="inp" id="ratePrice" inputmode="decimal" placeholder="сколько заплатил" autocomplete="off">
+            <select class="sel" id="rateCur" aria-label="Валюта">${RATE_CUR.map((c) => `<option ${c === curOf(f.country) ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+          <textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea>
           <div class="rate-photos" id="ratePrev"></div>
           <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label>
           <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
@@ -1164,10 +1176,14 @@ ${edit}
       $("#rateRv", body).onsubmit = async (e) => {
         e.preventDefault();
         const text = $("#rateText", body).value.trim();
+        const rawPrice = $("#ratePrice", body).value.trim(), cur = $("#rateCur", body).value;
+        const price = rawPrice ? Number(rawPrice.replace(/[\s\u00a0]/g, "").replace(",", ".")) : null;
+        if (rawPrice && !(price > 0)) return toast("Цена — числом, например 1500 или 14,5");
         try {
+          if (price) await D.submitBathPrice(f.bath, cur === "RUB" ? Math.round(price) : Math.round(price * 100) / 100, cur);
           if (text) await D.submitReview(f.bath, me.nick, Math.min(5, Math.max(1, Math.round(overall))), text);
           if (photos.length) await uploadPhotos(visitId, f.bath, photos);
-          if (text || photos.length) await refreshData();
+          if (text || photos.length || price) await refreshData();
         } catch (err) { return toast("Не сохранилось: " + err.message); }
         tick("ok"); toast("Спасибо — всё в карточке бани"); done();
       };
