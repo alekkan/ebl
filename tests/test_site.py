@@ -1064,6 +1064,15 @@ with sync_playwright() as pw:
         check("гостю приглашения нет", s.js("() => !document.querySelector('#dRateInvite .rate-invite')"))
         s.close()
         sql(f"delete from baths where id = {ib}")
+        # 01.11, баг Витька: поход 2026 года из таблицы (без отметки на портале) — тоже «Ты тут был в 2026»
+        ib = sql("insert into baths (name, status, type, lat, lng, precision) values ('Тест-Приглашение-2026', 'ok', 'public', 55.7, 37.6, 'exact') returning id").splitlines()[0]
+        sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ib}, 2026, 'Шурик', 1)")
+        s = Site(browser, url + f"#bath={ib}", sess=shurik, name="rate-invite-2026")
+        s.page.wait_for_selector("#dRateInvite .rate-invite", timeout=8000)
+        check("в карточке бани, где был в 2026 по таблице, — «Ты тут был в 2026»",
+              s.js("() => document.querySelector('#dRateInvite').innerText.replace(/\\s+/g, ' ')").startswith("Ты тут был в 2026"))
+        s.close()
+        sql(f"delete from baths where id = {ib}")
         s = Site(browser, url + f"#rate={rtv}", name="rate-old-link")
         s.page.wait_for_url("**/rate.html?v=*", timeout=8000)
         check("старая ссылка #rate=<поход> ведёт на лёгкую страницу оценки", "rate.html?v=" in s.page.url)
