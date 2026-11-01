@@ -498,7 +498,8 @@
     const bv = beerPrices[id] || [];
     const lastBeer = bv[bv.length - 1], olderBeer = bv.slice(0, -1).reverse();
     const rv = reviews[id] || [];
-    // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); в средней — последняя оценка каждого
+    // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); средней по ним больше нет — рейтинг бани
+    // считается по восьми пунктам (bath_ratings, 01.11)
     const myRate = 4, iWrote = rv.some((r) => r.mine);
     const pending = visits.filter((v) => v.bathId === id && v.status === "pending").length;
     // последний засчитанный поход с портала — журнал видят только участники, гостю строки нет

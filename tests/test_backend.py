@@ -565,8 +565,8 @@ req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv2, "p_scores": S(stove=2)},
 rv5 = rvisit("2026-11-02T18:00:00+03")
 req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv5, "p_scores": S(stove=3, steam=3, prices=3)}, token=shurik)
 ra = req("POST", "/rest/v1/rpc/bath_rating_all", {})[1].get(str(rb)) or {}
-check("рейтинг бани — по последней оценке каждого: Шурик 3.63 (свежая), Витёк 3.75 → 3.69, две оценки, печь 2.5",
-      ra.get("n") == 2 and abs(float(ra["overall"]) - 3.69) < 0.01 and abs(float(ra["stove"]) - 2.5) < 0.01, ra)
+check("рейтинг бани — по всем оценкам (каждый поход — своя): Шурик 4.0 и 3.63, Витёк 3.75 → 3.79, три оценки, печь 3.3",
+      ra.get("n") == 3 and abs(float(ra["overall"]) - 3.79) < 0.01 and abs(float(ra["stove"]) - 3.3) < 0.01, ra)
 f1 = req("POST", "/rest/v1/rpc/rating_form", {"p_visit": rv1}, token=shurik)[1]
 check("форма показывает прежнюю оценку похода — можно поправить", f1["allowed"] and f1["scores"]["stove"] == 5, f1)
 check("гостю рейтинг виден", str(rb) in (req("POST", "/rest/v1/rpc/bath_rating_all", {})[1] or {}))
