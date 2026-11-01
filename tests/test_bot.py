@@ -209,6 +209,25 @@ for _ in range(10):   # пост и уведомление уходят не м�
 check("поход внесла Комиссия — в чате «(внёс Витёк)», Комиссии — «· внёс Витёк»",
       any("Махмуд</b> (внёс Витёк)" in t for t in texts) and any("· внёс Витёк" in t for t in texts), texts)
 sql(f"delete from visits where id = {vby}")
+# 01.11: бот рассылал дольше 30 секунд — база не дождалась, в ОУД и Комиссии пришло с опозданием. Триггер теперь зовёт с
+# &bg=1 (бот отвечает сразу), а потерянное досылает проверка ?sweep (cron ebl-notify-sweep)
+vbg = sql("insert into visits (bath_id, entered_at, duration_min, created_by) select 6, now() - interval '1 hour', 120, id from players where nick='Махмуд' returning id").splitlines()[0]
+sql(f"delete from bot_posts where visit_id = {vbg}")   # триггер мог успеть — делаем вид, что уведомление потерялось
+s_bg, r_bg = req("POST", f"/functions/v1/tg-bot?new={vbg}&bg=1", {})
+check("вызов из триггера (&bg=1) — бот отвечает сразу «принял», рассылает после ответа", s_bg == 202 and r_bg == {"accepted": True}, (s_bg, r_bg))
+for _ in range(20):
+    if sql(f"select count(*) from bot_posts where visit_id = {vbg}") == "1": break
+    time.sleep(0.3)
+check("…и после ответа пост в чате лиги всё-таки написан", sql(f"select count(*) from bot_posts where visit_id = {vbg}") == "1")
+sql(f"delete from bot_posts where visit_id = {vbg}"); sql(f"delete from bot_notifications where visit_id = {vbg}")
+sql(f"update visits set created_at = now() - interval '3 minutes' where id = {vbg}")
+seen_sw = len(TELEGRAM.calls)
+sw = req("POST", "/functions/v1/tg-bot?sweep=1", {})[1]
+check("потерянное уведомление (поход с сайта без поста) — проверка досылает в чат и Комиссии",
+      sw.get("sent", 0) >= 1 and sql(f"select count(*) from bot_posts where visit_id = {vbg}") == "1"
+      and sum(1 for m, p in TELEGRAM.calls[seen_sw:] if m == "sendMessage" and "Поход с сайта" in (p.get("text") or "")) >= 1, sw)
+check("…повторная проверка ничего не дублирует", req("POST", "/functions/v1/tg-bot?sweep=1", {})[1].get("sent") == 0)
+sql(f"delete from visits where id = {vbg}")
 sql(f"update visits set status = 'rejected', moderated_by = (select id from players where nick='Леха') where id = {vid}")
 check("решение — в чат лиги, ответом на этот пост", wait_announced("rejected")
       and sql(f"select chat_id from bot_posts where visit_id = {vid}") == sql("select value #>> '{}' from settings where key = 'league_chat'"), announced())

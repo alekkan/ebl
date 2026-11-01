@@ -1048,7 +1048,9 @@ async function siteVisit(visitId: number): Promise<boolean> {
   const summary = `🧖 <b>${esc(vv.baths?.name)}</b>\n⏱ ${durLabel(v.duration_min)}\n👥 ${company.length ? esc(company.join(", ")) : "один"}`
     + (vv.baths?.type ? `\n🏷 ${TYPE_RU[vv.baths.type]}` : "")
     + repeatLine(await sameDayRepeat(visitId));
-  if (chat) {
+  // в ОУД и каждому из Комиссии — одновременно, а не по очереди: медленный Telegram задерживает меньше (01.11)
+  const toChat = async () => {
+    if (!chat) return;
     const greeting = greetLine(author);
     const head = by ? `🌐 На сайте отмечена баня: <b>${esc(author)}</b> (внёс ${esc(by)})` : `🌐 <b>${esc(author)}</b> отметил баню на сайте`;
     const cardText = `${head}${greeting ? `\n${greeting}` : ""}\n\n${summary}`;
@@ -1059,14 +1061,17 @@ async function siteVisit(visitId: number): Promise<boolean> {
       await react(chat, r.result.message_id, "👀");
     }
     if (vv.baths?.type === "spa") await send(chat, pick(SPA_JOKES));
-  }
-  const note = `🔔 Поход с сайта от <b>${esc(author)}</b>${by ? ` · внёс ${esc(by)}` : ""}\n\n${summary}` + await placeNote(v.bath_id);
-  const lg = await league();
-  const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
-  for (const c of commission) {
-    const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visitId}`), btn("❌ Отклонить", `no:${visitId}`)]]);
-    if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visitId, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
-  }
+  };
+  const toCommission = async () => {
+    const note = `🔔 Поход с сайта от <b>${esc(author)}</b>${by ? ` · внёс ${esc(by)}` : ""}\n\n${summary}` + await placeNote(v.bath_id);
+    const lg = await league();
+    const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
+    await Promise.all(commission.map(async (c: Any) => {
+      const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visitId}`), btn("❌ Отклонить", `no:${visitId}`)]]);
+      if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visitId, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
+    }));
+  };
+  await Promise.all([toChat(), toCommission()]);
   return true;
 }
 
@@ -1632,6 +1637,38 @@ async function rollFix(id: number): Promise<boolean> {
   for (let i = 0; i < Math.min(parts.length, rc.msgs.length); i++) await edit(rc.chat_id, rc.msgs[i], parts[i]);
   return true;
 }
+// вызов из триггера базы (&bg=1, 01.11): отвечаем сразу «принял», работаем после ответа — база ждёт не больше 30 секунд,
+// а медленный Telegram мог не уложиться (поход Лехи с сайта: в ОУД и Комиссии пришло с опозданием). Без &bg — как раньше,
+// с ответом по итогу (проверки, ручной вызов)
+async function respond(url: URL, key: string, work: () => Promise<unknown>): Promise<Response> {
+  const headers = { "Content-Type": "application/json" };
+  const rt = (globalThis as Any).EdgeRuntime;
+  if (url.searchParams.get("bg") === "1" && rt?.waitUntil) {
+    later(work());
+    return new Response(JSON.stringify({ accepted: true }), { status: 202, headers });
+  }
+  return new Response(JSON.stringify({ [key]: await work() }), { headers });
+}
+
+// страховка (cron ebl-notify-sweep, каждые 2 минуты): свежий поход с сайта без поста в ОУД и свежее решение Комиссии
+// без объявления — досылаем. Окно — с минуты до 14 минут назад: раньше ещё работает первый вызов, позже бот не объявляет
+// (15 минут — защита от старых походов). Повторов нет — отправку бот сначала отмечает в bot_posts
+async function sweep(): Promise<number> {
+  const since = new Date(Date.now() - 14 * 60e3).toISOString(), until = new Date(Date.now() - 60e3).toISOString();
+  const one = (x: Any) => (Array.isArray(x) ? x[0] : x) ?? null;
+  const [{ data: fresh }, { data: judged }] = await Promise.all([
+    sb.from("visits").select("id, bot_posts(visit_id)").eq("source", "site").eq("status", "pending").gte("created_at", since).lte("created_at", until),
+    sb.from("visits").select("id, status, source, bot_posts(announced)").in("status", ["ok", "rejected"]).gte("moderated_at", since).lte("moderated_at", until),
+  ]);
+  let n = 0;
+  for (const v of (fresh ?? []) as Any[]) if (!one(v.bot_posts) && await siteVisit(v.id)) n++;
+  for (const v of (judged ?? []) as Any[]) {
+    const bp = one(v.bot_posts);
+    if ((bp ? bp.announced !== v.status : v.source === "site") && await announce(v.id)) n++;
+  }
+  return n;
+}
+
 // фоновая работа после ответа вебхуку (в Supabase Edge — EdgeRuntime.waitUntil)
 function later(p: Promise<unknown>) {
   const rt = (globalThis as Any).EdgeRuntime;
@@ -2095,15 +2132,18 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ notified: await pointRequestNotice(Number(url.searchParams.get("pointreq"))) }), { headers: { "Content-Type": "application/json" } });
   }
   if (url.searchParams.get("new")) {
-    return new Response(JSON.stringify({ notified: await siteVisit(Number(url.searchParams.get("new"))) }), { headers: { "Content-Type": "application/json" } });
+    return await respond(url, "notified", () => siteVisit(Number(url.searchParams.get("new"))));
   }
   if (url.searchParams.get("verdict")) {
-    return new Response(JSON.stringify({ announced: await announce(Number(url.searchParams.get("verdict"))) }), { headers: { "Content-Type": "application/json" } });
+    return await respond(url, "announced", () => announce(Number(url.searchParams.get("verdict"))));
+  }
+  // страховка: досылает потерянные уведомления (cron ebl-notify-sweep)
+  if (url.searchParams.get("sweep")) {
+    return new Response(JSON.stringify({ sent: await sweep() }), { headers: { "Content-Type": "application/json" } });
   }
   // поход поправили — зовёт триггер на visits/visit_players; сайт меняет компанию несколькими запросами — ждём, пока закончит
   if (url.searchParams.get("refresh")) {
-    await new Promise((r) => setTimeout(r, 1500));
-    return new Response(JSON.stringify({ refreshed: await refreshVisit(Number(url.searchParams.get("refresh"))) }), { headers: { "Content-Type": "application/json" } });
+    return await respond(url, "refreshed", async () => { await new Promise((r) => setTimeout(r, 1500)); return refreshVisit(Number(url.searchParams.get("refresh"))); });
   }
   // у бани поменяли название, тип, регион или страну (триггер baths_notify_changed): пересчитать таблицу и обновить
   // сообщения бота о свежих походах в неё — сводку (тип) и строку решения (очки)
