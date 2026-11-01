@@ -59,6 +59,59 @@ async function fromRedirect(url: string): Promise<Point | null> {
   }
 }
 
+// ---------- Plus Code (Open Location Code, 01.11): Google показывает его у каждого места — «8Q99WXCJ+7Q» или короткий
+// «WXCJ+7Q Dongducheon-si». Полный переводим в точку формулой; короткий — относительно города, названного рядом
+const OLC = "23456789CFGHJMPQRVWX";
+const PLUS = /(?:^|[\s(])([23456789CFGHJMPQRVWX]{2,8}\+[23456789CFGHJMPQRVWX]{0,7})(?=$|[\s,)])/i;
+function olcDecode(code: string): Point | null {
+  const c = code.toUpperCase().replace("+", "").replace(/0+$/, "");
+  if (c.length < 2 || [...c].some((x) => !OLC.includes(x))) return null;
+  let lat = -90, lng = -180, res = 20;
+  for (let i = 0; i < Math.min(c.length, 10); i += 2) {
+    lat += OLC.indexOf(c[i]) * res;
+    lng += OLC.indexOf(c[i + 1] ?? "2") * res;
+    if (i + 2 < Math.min(c.length, 10)) res /= 20;
+  }
+  let latRes = res, lngRes = res;
+  for (let i = 10; i < c.length; i++) {
+    latRes /= 5; lngRes /= 4;
+    const d = OLC.indexOf(c[i]);
+    lat += Math.floor(d / 4) * latRes; lng += (d % 4) * lngRes;
+  }
+  return valid(lat + latRes / 2, lng + lngRes / 2);
+}
+function olcEncodePrefix(p: Point, len: number): string {
+  let lat = Math.min(Math.max(p.lat + 90, 0), 179.999999), lng = ((p.lng + 180) % 360 + 360) % 360, out = "", res = 20;
+  for (let i = 0; i < len; i += 2) {
+    const a = Math.floor(lat / res), b = Math.floor(lng / res);
+    out += OLC[a] + OLC[b]; lat -= a * res; lng -= b * res; res /= 20;
+  }
+  return out.slice(0, len);
+}
+// короткий код восстанавливаем ближайшей к опорной точке ячейкой (как в библиотеке Google: recoverNearest)
+function olcRecover(code: string, ref: Point): Point | null {
+  const pad = 8 - code.indexOf("+");
+  if (pad <= 0) return olcDecode(code);
+  const res = Math.pow(20, 2 - pad / 2), half = res / 2;
+  const p = olcDecode(olcEncodePrefix(ref, pad) + code.toUpperCase());
+  if (!p) return null;
+  let { lat, lng } = p;
+  if (ref.lat + half < lat && lat - res >= -90) lat -= res; else if (ref.lat - half > lat && lat + res <= 90) lat += res;
+  if (ref.lng + half < lng) lng -= res; else if (ref.lng - half > lng) lng += res;
+  return valid(lat, lng);
+}
+async function plusCode(text: string, near?: Point | null): Promise<Point | null> {
+  const m = (text ?? "").match(PLUS);
+  if (!m) return null;
+  const code = m[1].toUpperCase();
+  if (code.indexOf("+") === 8) { const p = olcDecode(code); note(`Plus Code ${code}: ${p ? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}` : "не разобрался"}`); return p; }
+  // короткий — опора: город из того же текста, иначе примерная точка бани
+  const place = (text ?? "").replace(m[1], " ").replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ").trim().replace(/^[,\s]+|[,\s]+$/g, "");
+  const ref = (place.length > 2 ? await geocodeAddress(place) : null) ?? near ?? null;
+  note(`Plus Code ${code}, опора «${place}»: ${ref ? `${ref.lat.toFixed(3)}, ${ref.lng.toFixed(3)}` : "нет"}`);
+  return ref ? olcRecover(code, ref) : null;
+}
+
 export async function parseLocation(input: string): Promise<Point | null> {
   const s = (input ?? "").trim();
   const url = s.match(/https?:\/\/[^\s<>"]+/)?.[0];
@@ -271,6 +324,8 @@ export async function locate(text: string, near?: Point | null, maxKm = 300): Pr
   trail = [];
   const direct = await parseLocation(text);
   if (direct) return direct;
+  const pc = await plusCode(text, near);
+  if (pc) return pc;
   // ссылка Google на место без координат: «St George Ski and Holiday Hotel, 12 Asanitsa Str, 2770 Bansko, Bulgaria» —
   // ищем целиком, потом без названия (адрес), потом без индекса (07.10 бот не принял такую ссылку Шурика)
   const gurl = (text ?? "").match(/https?:\/\/[^\s<>"]+/)?.[0];

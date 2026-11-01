@@ -961,6 +961,11 @@ gd = req("POST", f"/functions/v1/tg-bot?geodebug={did}", {})[1]
 check("?geodebug: точка и журнал шагов (что ответил каждый геокодер и что взяли)",
       (gd.get("point") or {}).get("lat") == 41.8296 and any("взяли" in t for t in gd.get("trail") or []), gd)
 check("…и в geo_debug записан результат", sql(f"select result->'point'->>'lat' from geo_debug where id = {did}") == "41.8296")
+for txt, want, what in (("849VCWC8+R9", "37.42206,-122.08406", "полный Plus Code"), ("CWC8+R9 Mountain View", "37.42206,-122.08406", "короткий Plus Code с городом")):
+    did = sql(f"insert into geo_debug (text) values ('{txt}') returning id").splitlines()[0]
+    gd = req("POST", f"/functions/v1/tg-bot?geodebug={did}", {})[1]
+    pt = gd.get("point") or {}
+    check(f"{what} («{txt}») — точка формулой Google", f"{pt.get('lat', 0):.5f},{pt.get('lng', 0):.5f}" == want, gd)
 sql("delete from geo_debug")
 # 30.10: «поделиться» из Яндекс Карт — название, адрес по-русски, ссылка без координат; адрес находит Геокодер Яндекса
 reply_geo("Elit Club SPA Merkezi\nпровинция Ризе, район Ризе Меркез, Пиричелеби, улица 2 Парк, 1\nhttps://yandex.ru/maps/org/elit_club_spa_merkezi/191362709121/", 85)
@@ -1137,6 +1142,31 @@ sql("update settings set value = '\"off\"' where key = 'point_asks'"); sql("upda
 sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_id in ({ab1}, {ab2}, {ab3})")
 sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3}, {ab6})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4}, {ab5})")
 sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3}, {ab4}, {ab5}, {ab6})"); sql("delete from player_accounts where tg_id = 909")
+
+print("Ответы Шурика 01.11: старые вопросы о цене и переспрос «Не нашёл»")
+sql("delete from player_accounts where tg_id = 909 or (tg_id <> 909 and player_id = (select id from players where nick = 'Шурик'))")
+sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
+sql("delete from bot_sessions where tg_id = 909")
+hb = sql("insert into baths (name, status, type, country) values ('Тест-Хюттельдорф', 'ok', 'public', 'Австрия') returning id").splitlines()[0]
+def dm_reply(mid, text, to_text, to_mid=7001):
+    req("POST", "/functions/v1/tg-bot", {"update_id": 9800 + mid, "message": {"message_id": mid, "date": now(), "chat": {"id": 909, "type": "private"},
+        "from": {"id": 909, "is_bot": False, "first_name": "Шурик"}, "text": text,
+        "reply_to_message": {"message_id": to_mid, "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"}, "chat": {"id": 909, "type": "private"}, "text": to_text}}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+dm_reply(9801, "Вход 14,4€", "💰 Сколько стоил вход в «Тест-Хюттельдорф»? Напиши цифру — поставлю в карточку поста в чате.")
+check("ответ «Вход 14,4€» на старый вопрос о цене (черновик закрыт) — цена записана в баню из вопроса",
+      sql(f"select price || ' ' || currency from bath_prices where bath_id = {hb}") == "14.4 EUR", sql(f"select price || ' ' || currency from bath_prices where bath_id = {hb}"))
+seen = len(TELEGRAM.calls)
+dm_reply(9802, "450", "🍺 Сколько стоило пиво в «Тест-Хюттельдорф»? Напиши цифру — поставлю в карточку поста в чате.")
+check("…за границей без знака валюты — переспрашивает валюту, рубли не пишет",
+      sql(f"select count(*) from bath_beer_prices where bath_id = {hb}") == "0"
+      and any("В какой валюте" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:] if m == "sendMessage"))
+kb = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Корея', 'ok', 'public', 'Корея', 37.5, 127.0, 'city') returning id").splitlines()[0]
+ka = sql(f"insert into point_asks (bath_id, player_id, tg_chat, tg_msg, status, sent_at) select {kb}, id, 909, 7100, 'skipped', now() - interval '4 hours' from players where nick = 'Шурик' returning id").splitlines()[0]
+dm_reply(9803, "55.7558, 37.6173", "Не нашёл, где это. Пришли ссылку, где на карте видна точка, адрес с городом и улицей или геопозицию (📎 → Геопозиция).", to_mid=7101)
+check("ответ на переспрос «Не нашёл…» — это ответ на последний вопрос «где была баня?» (ссылка Шурика терялась)",
+      sql(f"select status from point_asks where id = {ka}") == "point" and sql(f"select precision from baths where id = {kb}") == "exact")
+sql(f"delete from point_asks where id = {ka}"); sql(f"delete from baths where id in ({hb}, {kb})"); sql("delete from player_accounts where tg_id = 909")
 
 print("Рейтинг бани — «оцени баню» после «засчитано»")
 # 01.11: приглашение со ссылкой на страницу оценки, напоминания через 3 и 12 часов, оценил — тишина
