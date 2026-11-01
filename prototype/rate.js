@@ -46,12 +46,14 @@
     catch (e) { return say("Ссылка не открылась", `${esc(e.message)}. Самая свежая — в личке у бота ЕБЛ.`); }
     history.replaceState(null, "", `rate.html?v=${visit}`);
   }
-  if (!visit) return say("Оценка бани", "Открой ссылку «⭐ Оценить» из личных сообщений бота ЕБЛ.");
+  // из карточки бани (01.11): rate.html?b=<баня> — оценка по бане, где был (любой поход, с портала или из таблицы)
+  const bathId = Number(qs.get("b")) || null;
+  if (!visit && !bathId) return say("Оценка бани", "Открой ссылку «⭐ Оценить» из личных сообщений бота ЕБЛ.");
   let f;
-  try { f = await D.ratingForm(visit); } catch (e) { return say("Не открылось", esc(e.message)); }
+  try { f = bathId ? await D.ratingFormBath(bathId) : await D.ratingForm(visit); } catch (e) { return say("Не открылось", esc(e.message)); }
   if (!f) return say("Поход не найден", "Возможно, его удалили. Самые свежие ссылки — в личке у бота ЕБЛ.");
   if (!f.allowed) {
-    const why = { login: "Открой ссылку «⭐ Оценить» из личных сообщений бота ЕБЛ — она сама тебя впустит.",
+    const why = { login: bathId ? 'Оценивают участники лиги — <a href="./">войди на сайте</a> и открой баню ещё раз.' : "Открой ссылку «⭐ Оценить» из личных сообщений бота ЕБЛ — она сама тебя впустит.",
       stranger: "Оценивает тот, кто был в этом походе.", pending: "Поход ещё ждёт Комиссию — оценить можно после «засчитано».",
       old: "Рейтинг собираем с недавних походов." }[f.why] || "";
     return say(f.name, why);
@@ -62,7 +64,7 @@
   const avg = () => { const v = CRIT.map(([k]) => s[k]).filter(Boolean); return v.length ? v.reduce((a, x) => a + x, 0) / v.length : 0; };
   const full = () => filled() === CRIT.length;
   body.innerHTML = `<header class="rate-head">
-      <div><div class="eyebrow">Оценка бани · ${dayLabel(f.entered_at)}</div><h1 class="rate-title">${esc(f.name)}</h1></div>
+      <div><div class="eyebrow">Оценка бани · ${f.entered_at ? dayLabel(f.entered_at) : f.year ? `был в ${f.year}` : ""}</div><h1 class="rate-title">${esc(f.name)}</h1></div>
       <div class="rate-score"><b id="rScore">—</b><span id="rLeaves"></span></div>
     </header>
     <div class="rate-form">${CRIT.map(([k, t]) => `<div class="rate-line" data-line="${k}">
@@ -107,7 +109,7 @@
     if (!full() || save.dataset.busy) return;
     save.dataset.busy = "1"; save.disabled = true;
     let overall;
-    try { overall = +(await D.rateVisit(visit, s)); }
+    try { overall = +(bathId ? await D.rateBath(bathId, s) : await D.rateVisit(visit, s)); }
     catch (e) { delete save.dataset.busy; save.disabled = false; return toast("Не сохранилось: " + e.message); }
     buzz(); thanks(overall);
   };
@@ -162,8 +164,8 @@
         </div>
         <div class="thx-sec"><span>Отзыв <small>по желанию</small></span>
           <textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea></div>
-        <div class="thx-photos"><span class="rate-photos" id="ratePhotoPrev"></span>
-          <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label></div>
+        ${visit ? `<div class="thx-photos"><span class="rate-photos" id="ratePhotoPrev"></span>
+          <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label></div>` : ""}
         <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
           <button type="button" class="linkbtn" id="rateSkip">Без этого</button></div>
       </form>`;
@@ -175,7 +177,7 @@
       weekend = b.dataset.w === "" ? null : b.dataset.w === "1";
       $$("#rateWeekend [data-w]", body).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
     }));
-    $("#ratePhotos", body).onchange = (e) => {
+    if (visit) $("#ratePhotos", body).onchange = (e) => {
       for (const file of e.target.files) { photos.push(file); $("#ratePhotoPrev", body).insertAdjacentHTML("beforeend", `<img alt="" src="${URL.createObjectURL(file)}">`); }
     };
     $("#rateRv", body).onsubmit = async (e) => {

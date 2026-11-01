@@ -1042,6 +1042,28 @@ with sync_playwright() as pw:
         check("в карточке бани — рейтинг: общая, одна оценка и восемь пунктов",
               s.js("() => /4.*1 оценка/s.test(document.getElementById('dRateTile').innerText) && document.querySelectorAll('#dRating .rate-rows > div').length === 8"))
         s.close()
+        # 01.11: в карточке бани — «Ты тут был … · Оцени баню — 1 минута», если был и ещё не оценивал
+        ib = sql("insert into baths (name, status, type, lat, lng, precision) values ('Тест-Приглашение', 'ok', 'public', 55.7, 37.6, 'exact') returning id").splitlines()[0]
+        sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ib}, 2025, 'Шурик', 1)")
+        s = Site(browser, url + f"#bath={ib}", sess=shurik, name="rate-invite")
+        s.page.wait_for_selector("#dRateInvite .rate-invite", timeout=8000)
+        check("в карточке бани, где был по таблице, — «Ты тут был в 2025 · Оцени баню — 1 минута»",
+              s.js("() => document.querySelector('#dRateInvite').innerText.replace(/\\s+/g, ' ')") .startswith("Ты тут был в 2025 Оцени баню — 1 минута"),
+              s.js("() => document.querySelector('#dRateInvite').innerText"))
+        s.page.click("#dRateInvite .rate-invite"); s.page.wait_for_selector("#rateBody [data-heat]", timeout=8000)
+        check("…ведёт на страницу оценки этой бани, в шапке — «был в 2025»", "rate.html?b=" in s.page.url and "был в 2025" in s.js("() => document.querySelector('.rate-head').textContent"))
+        for k in ("stove", "steam", "aqua", "outdoor", "kitchen", "atmosphere", "service", "prices"):
+            heat(s, k, 4)
+        s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
+        check("…оценка по бане сохранилась, фото без похода не предлагаем",
+              sql(f"select overall from bath_ratings where bath_id = {ib} and visit_id is null") == "4.00" and not s.js("() => !!document.getElementById('ratePhotos')"))
+        s.page.goto(url + f"#bath={ib}"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000); s.page.wait_for_timeout(1200)
+        check("…после оценки приглашения в карточке нет", s.js("() => !document.querySelector('#dRateInvite .rate-invite')"))
+        s.close()
+        s = Site(browser, url + f"#bath={ib}", name="rate-invite-guest"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000); s.page.wait_for_timeout(800)
+        check("гостю приглашения нет", s.js("() => !document.querySelector('#dRateInvite .rate-invite')"))
+        s.close()
+        sql(f"delete from baths where id = {ib}")
         s = Site(browser, url + f"#rate={rtv}", name="rate-old-link")
         s.page.wait_for_url("**/rate.html?v=*", timeout=8000)
         check("старая ссылка #rate=<поход> ведёт на лёгкую страницу оценки", "rate.html?v=" in s.page.url)
