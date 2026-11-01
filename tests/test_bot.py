@@ -1098,6 +1098,35 @@ sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_
 sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3}, {ab6})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4}, {ab5})")
 sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3}, {ab4}, {ab5}, {ab6})"); sql("delete from player_accounts where tg_id = 909")
 
+print("Рейтинг бани — «оцени баню» после «засчитано»")
+# 01.11: приглашение со ссылкой на страницу оценки, напоминания через 3 и 12 часов, оценил — тишина
+sql("delete from player_accounts where tg_id = 909 or (tg_id <> 909 and player_id = (select id from players where nick = 'Шурик'))")
+sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
+sql("delete from rating_asks")
+rtb = sql("insert into baths (name, status, type) values ('Тест-Оценка', 'ok', 'public') returning id").splitlines()[0]
+rtv = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by, source) select {rtb}, '2026-11-01T18:00:00+03', 120, 'pending', id, 'bot' from players where nick = 'Шурик' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {rtv}, id from players where nick in ('Шурик', 'Леха')")
+sql(f"update visits set status = 'ok' where id = {rtv}")
+rate_run = lambda: req("POST", "/functions/v1/tg-bot?rateasks=1", {})[1].get("sent")
+rdm = lambda seen, who: [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == who]
+seen = len(TELEGRAM.calls)
+n = rate_run()
+q9, q0 = rdm(seen, 909), rdm(seen, ME)
+check("«засчитано» — обоим из компании «оцени баню» с кнопкой-ссылкой на страницу оценки",
+      n == 2 and len(q9) == 1 and len(q0) == 1 and "Тест-Оценка" in q9[0]["text"] and f"#rate={rtv}" in json.dumps(q9[0].get("reply_markup")), (n, q9))
+check("…повторный запуск сразу — ничего (напоминание через три часа)", rate_run() == 0)
+sql(f"update rating_asks set next_at = now() - interval '1 minute' where visit_id = {rtv}")
+sql(f"insert into bath_ratings (visit_id, bath_id, player_id, stove, steam, aqua, outdoor, kitchen, atmosphere, service, prices) select {rtv}, {rtb}, id, 4, 4, 4, 4, 4, 4, 4, 4 from players where nick = 'Шурик'")
+seen = len(TELEGRAM.calls)
+rate_run()
+check("через три часа — напоминание тому, кто не оценил; оценившему — тишина",
+      not rdm(seen, 909) and len(rdm(seen, ME)) == 1 and "Напоминаю" in rdm(seen, ME)[0]["text"])
+for _ in range(3):
+    sql(f"update rating_asks set next_at = now() - interval '1 minute' where visit_id = {rtv}"); rate_run()
+check("всего три сообщения — приглашение и два напоминания, дальше не пишем",
+      sql(f"select stage from rating_asks where visit_id = {rtv} and player_id = (select id from players where nick = 'Леха')") == "3")
+sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}"); sql("delete from player_accounts where tg_id = 909")
+
 print("Действия бота по просьбе владельца (bot_actions)")
 from local import TELEGRAM
 seen = len(TELEGRAM.calls)

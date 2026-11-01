@@ -988,6 +988,38 @@ with sync_playwright() as pw:
               "сегодня" not in s.js(first_row) and s.js("() => /видны участникам/.test(document.getElementById('playerBody').innerText)"))
         s.close()
 
+        print("Рейтинг бани: страница оценки по ссылке из бота")
+        # 01.11: восемь пунктов по пять веников, «Оценить» — только когда все восемь; потом — по желанию отзыв и фото
+        rtb = sql("insert into baths (name, status, type, lat, lng, precision) values ('Тест-Рейтинг-Сайт', 'ok', 'public', 55.75, 37.6, 'exact') returning id").splitlines()[0]
+        rtv = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by) select {rtb}, '2026-11-01T18:00:00+03', 120, 'pending', id from players where nick = 'Шурик' returning id").splitlines()[0]
+        sql(f"insert into visit_players (visit_id, player_id) select {rtv}, id from players where nick = 'Шурик'")
+        sql(f"update visits set status = 'ok' where id = {rtv}")
+        s = Site(browser, url + f"#rate={rtv}", name="rate-guest")
+        s.page.wait_for_selector("#rateModal:not([hidden]) #rateLogin", timeout=8000)
+        check("гостю по ссылке на оценку — «войди через Telegram»", s.js("() => /войди/.test(document.getElementById('rateBody').innerText)"))
+        s.close()
+        s = Site(browser, url + f"#rate={rtv}", sess=shurik, name="rate")
+        s.page.wait_for_selector("#rateModal:not([hidden]) [data-k]", timeout=8000)
+        check("участник похода — восемь пунктов по пять веников, «Оценить» пока выключена",
+              s.js("() => document.querySelectorAll('#rateBody .rate-line').length") == 8 and s.js("() => document.getElementById('rateSave').disabled"))
+        for k, n in (("stove", 5), ("steam", 5), ("aqua", 3), ("outdoor", 4), ("kitchen", 2), ("atmosphere", 5), ("service", 4), ("prices", 4)):
+            s.page.click(f'#rateBody [data-k="{k}"][data-r="{n}"]')
+        check("все восемь — общая на виду (4) и «Оценить» включилась",
+              "4" in s.js("() => document.querySelector('.rate-total').innerText") and not s.js("() => document.getElementById('rateSave').disabled"))
+        s.no_clip("страница оценки", "#rateModal .sheet")
+        s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
+        check("оценка в базе, дальше — отзыв и фото по желанию",
+              sql(f"select overall from bath_ratings where visit_id = {rtv}") == "4.00" and s.js("() => !!document.getElementById('rateText')"))
+        s.page.fill("#rateText", "Пар отличный, кухня так себе"); s.page.click("#rateRv button[type=submit]"); s.page.wait_for_timeout(800)
+        check("…отзыв сохранился, окно закрылось", sql(f"select count(*) from reviews where bath_id = {rtb}") == "1" and s.js("() => document.getElementById('rateModal').hidden"))
+        s.js(f"() => location.hash = '#bath={rtb}'"); s.page.reload(); s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000)
+        s.page.wait_for_timeout(800)
+        check("в карточке бани — рейтинг: общая, одна оценка и восемь пунктов",
+              s.js("() => /4.*1 оценка/s.test(document.getElementById('dRateTile').innerText) && document.querySelectorAll('#dRating .rate-rows > div').length === 8"))
+        s.clean("рейтинг бани")
+        s.close()
+        sql(f"delete from reviews where bath_id = {rtb}"); sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}")
+
         print("Куда сходить за очками: «Я», «Не были в 2026», «Рядом»")
         s = Site(browser, url, sess=shurik, name="where-to-go")
         s.ctx.grant_permissions(["geolocation"]); s.ctx.set_geolocation({"latitude": 55.7558, "longitude": 37.6176})

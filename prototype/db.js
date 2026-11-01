@@ -435,6 +435,19 @@ window.EBLData = (() => {
       if (!live) return null;
       return check(await sb.rpc("bath_facts", { p_bath: bathId }));
     },
+    // рейтинг бани (01.11): восемь пунктов по 1–5; по всем баням одним json — общая, число оценок и по пунктам
+    async bathRatings() {
+      if (!live) return {};
+      return check(await sb.rpc("bath_rating_all")) || {};
+    },
+    // страница оценки похода: баня, можно ли оценивать (why: login / stranger / pending / old) и прежняя оценка
+    async ratingForm(visitId) {
+      if (!live) return null;
+      return check(await sb.rpc("rating_form", { p_visit: visitId }));
+    },
+    async rateVisit(visitId, scores) {
+      return check(await sb.rpc("rate_visit", { p_visit: visitId, p_scores: scores }));
+    },
     // Сверка каталога (19.10) — только Комиссии: что агенты нашли по баням лиги (точка, адрес, ссылки, факты) и её решения
     async catalog() {
       if (!live) return [];

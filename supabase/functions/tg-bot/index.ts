@@ -1243,6 +1243,43 @@ function searchNear(b: Any): { near: { lat: number; lng: number } | null; maxKm:
   return { near: { lat: b.lat, lng: b.lng }, maxKm: { city: 80, region: 400 }[b.precision as string] ?? 400 };
 }
 
+// ---------- рейтинг бани: «оцени баню» после «засчитано» (01.11, docs/bot.md) ----------
+// Очередь rating_asks ставит база (триггер на «засчитано»); cron днём каждые 10 минут → ?rateasks=1. Приглашение, потом
+// напоминания через 3 и через 12 часов; оценил — больше не пишем. Ночью cron молчит — отложенное уйдёт утром
+const RATE_NEXT = [3 * 3600e3, 12 * 3600e3];
+const rateUrl = (visitId: number) => `${SITE.replace(/\/?(#.*)?$/, "/")}#rate=${visitId}`;
+async function rateAsks(): Promise<number> {
+  const { data: rows } = await sb.from("rating_asks").select("visit_id, player_id, stage, visits(baths(name))")
+    .eq("done", false).lt("stage", 3).lte("next_at", new Date().toISOString()).limit(50);
+  if (!rows?.length) return 0;
+  const visitIds = [...new Set(rows.map((r: Any) => r.visit_id))], playerIds = [...new Set(rows.map((r: Any) => r.player_id))];
+  const [{ data: rated }, { data: accs }] = await Promise.all([
+    sb.from("bath_ratings").select("visit_id, player_id").in("visit_id", visitIds),
+    sb.from("player_accounts").select("player_id, tg_id").in("player_id", playerIds).not("tg_id", "is", null),
+  ]);
+  const done = new Set((rated ?? []).map((r: Any) => `${r.visit_id}:${r.player_id}`));
+  const tgOf = new Map((accs ?? []).map((a: Any) => [a.player_id, a.tg_id]));
+  let sent = 0;
+  for (const r of rows as Any[]) {
+    const key = { visit_id: r.visit_id, player_id: r.player_id };
+    const tgId = tgOf.get(r.player_id);
+    if (done.has(`${r.visit_id}:${r.player_id}`) || !tgId) { await sb.from("rating_asks").update({ done: true }).match(key); continue; }
+    // шаг отмечаем до отправки: два запуска разом не пришлют два сообщения
+    const next = r.stage < RATE_NEXT.length ? new Date(Date.now() + RATE_NEXT[r.stage]).toISOString() : new Date().toISOString();
+    const { data: claimed } = await sb.from("rating_asks").update({ stage: r.stage + 1, next_at: next }).match({ ...key, stage: r.stage }).select("stage");
+    if (!claimed?.length) continue;
+    const name = esc(r.visits?.baths?.name ?? "баню");
+    const text = r.stage === 0
+      ? `⭐ Оцени баню <b>${name}</b>: печь, пар, аквазона, выход на улицу, кухня, атмосфера, сервис, цены — по пять веников. Минута, а лиге — рейтинг бань.`
+      : `Напоминаю: оцени <b>${name}</b> — минута, восемь пунктов.`;
+    const m = await tg("sendMessage", { chat_id: tgId, text, parse_mode: "HTML", disable_web_page_preview: true,
+      reply_markup: { inline_keyboard: [[{ text: "⭐ Оценить", url: rateUrl(r.visit_id) }]] } });
+    if (m.ok) sent++;
+    else await sb.from("rating_asks").update({ done: true }).match(key);   // личка закрыта — писать некуда
+  }
+  return sent;
+}
+
 // ---------- Сверка: «где была баня?» в личку тем, кто был (30.10, docs/catalog.md) ----------
 // Каждый час с 10 до 22 МСК (cron → ?asks=1) — по одной бане из «Не нашли», чтобы не пугать списком: следующую — только тем, кто
 // ответил на прошлую (30.10). Кому слать — settings.point_asks.
@@ -2035,6 +2072,9 @@ Deno.serve(async (req) => {
     const result = { point, trail: geoTrail(), at: new Date().toISOString() };
     await sb.from("geo_debug").update({ result }).eq("id", id);
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+  }
+  if (url.searchParams.get("rateasks")) {
+    return new Response(JSON.stringify({ sent: await rateAsks() }), { headers: { "Content-Type": "application/json" } });
   }
   if (url.searchParams.get("asks")) {
     return new Response(JSON.stringify({ sent: await pointAsks() }), { headers: { "Content-Type": "application/json" } });

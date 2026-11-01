@@ -496,9 +496,6 @@
     const lastBeer = bv[bv.length - 1], olderBeer = bv.slice(0, -1).reverse();
     const rv = reviews[id] || [];
     // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); в средней — последняя оценка каждого
-    const lastRate = new Map();
-    for (const r of rv) if (!lastRate.has(r.author)) lastRate.set(r.author, r.rate);
-    const avg = lastRate.size ? [...lastRate.values()].reduce((a, x) => a + x, 0) / lastRate.size : 0;
     const myRate = 4, iWrote = rv.some((r) => r.mine);
     const pending = visits.filter((v) => v.bathId === id && v.status === "pending").length;
     // последний засчитанный поход с портала — журнал видят только участники, гостю строки нет
@@ -564,8 +561,9 @@
         <div class="facts">
           <div><b>${b.n26}</b><span>${plural(b.n26, "поход", "похода", "походов")} в 2026</span></div>
           <div><b>${who.length}</b><span>${plural(who.length, "участник", "участника", "участников")}</span></div>
-          <div><b>${avg ? fmt(avg) : "—"}</b><span>${avg ? leaves(avg) : "нет оценок"}</span></div>
+          <div id="dRateTile">${rateTile(id)}</div>
         </div>
+        <section class="d-rating" id="dRating" ${ratings[id] ? "" : "hidden"}>${rateRows(id)}</section>
         ${(() => {
           const who = $("#fPlayer").value || myNick; if (!who) return "";
           const parts = potentialFor(who)(b); if (!parts) return "";
@@ -1040,6 +1038,79 @@ ${edit}
     if (!blob) throw new Error("не сжалось");
     return { blob, w: c.width, h: c.height };
   }
+  // ---------- рейтинг бани (01.11): восемь пунктов по 1–5 веников, общая — среднее; оценивает тот, кто был в походе ----------
+  // Ссылку на оценку похода (#rate=<поход>) присылает бот после «засчитано». В карточке — общая, число оценок и по пунктам;
+  // средняя по старым отзывам больше не показывается (рейтинг начали с нуля, отзывы остались)
+  const CRIT = [["stove", "Печь"], ["steam", "Пар"], ["aqua", "Аквазона"], ["outdoor", "Выход на улицу"], ["kitchen", "Кухня"],
+    ["atmosphere", "Атмосфера"], ["service", "Сервис"], ["prices", "Цены"]];
+  let ratings = {};
+  const rateTile = (id) => { const r = ratings[id];
+    return r ? `<b>${fmt(+r.overall)}</b><span>${leaves(+r.overall)}<br>${r.n} ${plural(r.n, "оценка", "оценки", "оценок")}</span>` : "<b>—</b><span>нет оценок</span>"; };
+  const rateRows = (id) => { const r = ratings[id]; if (!r) return "";
+    return `<h3>Рейтинг · ${fmt(+r.overall)}</h3><div class="rate-rows">${CRIT.map(([k, t]) =>
+      `<div><span>${t}</span><i style="--w:${(+r[k] / 5) * 100}%"></i><b>${fmt(+r[k])}</b></div>`).join("")}</div>`; };
+  function loadRatings() {
+    return D.bathRatings().then((r) => {
+      ratings = r || {};
+      if (openId && $("#dRateTile")) { $("#dRateTile").innerHTML = rateTile(openId); const box = $("#dRating"); box.innerHTML = rateRows(openId); box.hidden = !ratings[openId]; }
+    }).catch(() => {});
+  }
+  async function openRate(visitId) {
+    const body = $("#rateBody"), modal = $("#rateModal");
+    modal.hidden = false;
+    body.innerHTML = '<p class="hint">Открываю…</p>';
+    let f;
+    try { f = await D.ratingForm(visitId); } catch (e) { body.innerHTML = `<p class="lead">Не открылось: ${esc(e.message)}</p>`; return; }
+    if (!f) { body.innerHTML = '<h2>Поход не найден</h2>'; return; }
+    if (!f.allowed) {
+      const why = { login: "Оценивают участники лиги — войди через Telegram, и я верну тебя сюда.", stranger: "Оценивает тот, кто был в этом походе.",
+        pending: "Поход ещё ждёт Комиссию — оценить можно после «засчитано».", old: "Рейтинг собираем с походов с 1 ноября." }[f.why] || "";
+      body.innerHTML = `<div class="eyebrow">Рейтинг бани</div><h2>${esc(f.name)}</h2><p class="lead">${why}</p>
+        ${f.why === "login" ? '<button class="cta" type="button" id="rateLogin">Войти через Telegram</button>' : ""}`;
+      $("#rateLogin")?.addEventListener("click", () => { modal.hidden = true; openLogin(); });
+      return;
+    }
+    const s = { ...(f.scores || {}) };
+    const total = () => { const v = CRIT.map(([k]) => s[k]).filter(Boolean); return v.length ? v.reduce((a, x) => a + x, 0) / CRIT.length : 0; };
+    const full = () => CRIT.every(([k]) => s[k]);
+    const draw = () => {
+      body.innerHTML = `<div class="eyebrow">Рейтинг бани</div><h2>${esc(f.name)}</h2>
+        <p class="hint">${dayLabel(mskIso(f.entered_at))} · все восемь пунктов, от 1 до 5 веников</p>
+        <div class="rate-form">${CRIT.map(([k, t]) => `<div class="rate-line"><span>${t}</span>
+          <div class="rate" role="radiogroup" aria-label="${t}">${[1, 2, 3, 4, 5].map((n) =>
+            `<button type="button" data-k="${k}" data-r="${n}" role="radio" aria-checked="${s[k] === n}" aria-label="${t}: ${n} из 5">${leafSvg(n <= (s[k] || 0)).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div></div>`).join("")}</div>
+        <p class="rate-total">${full() ? `Общая — <b>${fmt(Math.round(total() * 100) / 100)}</b>` : `Осталось ${CRIT.filter(([k]) => !s[k]).length} из 8`}</p>
+        <button class="cta" type="button" id="rateSave" ${full() ? "" : "disabled"}>${icon("check")}<span>${f.scores ? "Сохранить" : "Оценить"}</span></button>`;
+      $$("[data-k]", body).forEach((b) => (b.onclick = () => { s[b.dataset.k] = +b.dataset.r; draw(); }));
+      $("#rateSave", body).onclick = save;
+    };
+    const save = async () => {
+      const btn = $("#rateSave", body); btn.disabled = true;
+      let overall;
+      try { overall = await D.rateVisit(visitId, s); } catch (e) { btn.disabled = false; return toast("Не сохранилось: " + e.message); }
+      loadRatings();
+      // дальше — по желанию: отзыв и фото к этому походу
+      body.innerHTML = `<div class="eyebrow">Спасибо!</div><h2>${esc(f.name)} — ${fmt(+overall)}</h2>
+        <p class="lead">Если хочется — пару слов и фото, это тоже увидит вся лига.</p>
+        <form class="rvform" id="rateRv"><textarea id="rateText" class="inp" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea>
+          <label class="btn"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label>
+          <div class="row"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
+          <button type="button" class="linkbtn" data-close-rate>Без отзыва</button></div></form>`;
+      $("[data-close-rate]", body).onclick = () => { modal.hidden = true; };
+      $("#ratePhotos", body).onchange = (e) => e.target.files.length && uploadPhotos(visitId, f.bath, [...e.target.files]);
+      $("#rateRv", body).onsubmit = async (e) => {
+        e.preventDefault();
+        const text = $("#rateText", body).value.trim();
+        if (text) {
+          try { await D.submitReview(f.bath, me.nick, Math.min(5, Math.max(1, Math.round(+overall))), text); await refreshData(); }
+          catch (err) { return toast("Отзыв не сохранился: " + err.message); }
+        }
+        modal.hidden = true; toast("Спасибо — оценка в рейтинге бани");
+      };
+    };
+    draw();
+  }
+
   async function uploadPhotos(visitId, bathId, files) {
     files = files.slice(0, 10);
     const items = [];
@@ -3084,6 +3155,9 @@ ${edit}
   render("home");
   setTimeout(announceDecisions, 600);   // после первой отрисовки — не поверх заставки
   const h = location.hash.slice(1);
+  loadRatings();
+  const rateLink = h.match(/^rate=(\d+)$/);   // ссылка из бота «оцени баню» — страница оценки похода
+  if (rateLink) openRate(+rateLink[1]);
   const linked = h.match(/^bath=(\d+)$/);   // ссылка на баню — сразу её карточка на карте
   if (linked && byId.has(+linked[1])) { show("map"); openBath(+linked[1], true); }
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);

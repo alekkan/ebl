@@ -359,6 +359,17 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .d-foot .cta, .d-foot .btn { justify-content: center; }
 /* цифры бани — одной строкой с тонкими разделителями, без плиток */
 .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+/* рейтинг бани (01.11): в карточке — восемь пунктов тонкими полосками; страница оценки — строка на пункт */
+.rate-rows { display: grid; gap: 6px; }
+.rate-rows > div { display: grid; grid-template-columns: 9.5em 1fr 2.2em; align-items: center; gap: 10px; font-size: 14px; }
+.rate-rows i { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--oak) var(--w), var(--line) var(--w)); }
+.rate-rows b { text-align: right; font-weight: 600; }
+.rate-page { padding: 24px 22px; display: grid; gap: 10px; }
+.rate-form { display: grid; gap: 4px; margin-top: 6px; }
+.rate-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--line); }
+.rate-line > span { font-weight: 600; }
+.rate-total { margin: 4px 0 0; }
+.rate-page .cta[disabled] { opacity: .45; cursor: default; }
 .facts > div { display: grid; gap: 5px; align-content: start; padding: 13px 0 13px 14px; }
 .facts > div:first-child { padding-left: 0; }
 .facts > div + div { border-left: 1px solid var(--line); }
