@@ -1247,7 +1247,9 @@ function searchNear(b: Any): { near: { lat: number; lng: number } | null; maxKm:
 // Очередь rating_asks ставит база (триггер на «засчитано»); cron днём каждые 10 минут → ?rateasks=1. Приглашение, потом
 // напоминания через 3 и через 12 часов; оценил — больше не пишем. Ночью cron молчит — отложенное уйдёт утром
 const RATE_NEXT = [3 * 3600e3, 12 * 3600e3];
-const rateUrl = (visitId: number) => `${SITE.replace(/\/?(#.*)?$/, "/")}#rate=${visitId}`;
+// кнопка открывает страницу оценки мини-приложением прямо в Telegram (вход без кодов — tg-login ?webapp); номер похода —
+// в адресе запроса, а не после «#»: туда Telegram кладёт свои данные
+const rateUrl = (visitId: number) => `${SITE.replace(/\/?(#.*)?$/, "/")}?rate=${visitId}`;
 async function rateAsks(): Promise<number> {
   const { data: rows } = await sb.from("rating_asks").select("visit_id, player_id, stage, visits(baths(name))")
     .eq("done", false).lt("stage", 3).lte("next_at", new Date().toISOString()).limit(50);
@@ -1273,7 +1275,7 @@ async function rateAsks(): Promise<number> {
       ? `⭐ Оцени баню <b>${name}</b>: печь, пар, аквазона, выход на улицу, кухня, атмосфера, сервис, цены — по пять веников. Минута, а лиге — рейтинг бань.`
       : `Напоминаю: оцени <b>${name}</b> — минута, восемь пунктов.`;
     const m = await tg("sendMessage", { chat_id: tgId, text, parse_mode: "HTML", disable_web_page_preview: true,
-      reply_markup: { inline_keyboard: [[{ text: "⭐ Оценить", url: rateUrl(r.visit_id) }]] } });
+      reply_markup: { inline_keyboard: [[{ text: "⭐ Оценить", web_app: { url: rateUrl(r.visit_id) } }]] } });
     if (m.ok) sent++;
     else await sb.from("rating_asks").update({ done: true }).match(key);   // личка закрыта — писать некуда
   }

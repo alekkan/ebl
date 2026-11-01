@@ -30,6 +30,15 @@
   const boot = (html) => { const el = $("#boot"); if (el) { el.innerHTML = html; el.classList.add("err"); } };
   if (D.broken) { boot("Не загрузилась связь с базой. Проверь интернет и обнови страницу."); return; }
   let data;
+  // мини-приложение Telegram (01.11): кнопка «⭐ Оценить» из бота открывает сайт прямо в Telegram. Он сам говорит, кто
+  // открыл, — входим без кодов (tg-login ?webapp); кнопка внизу, вибрация и цвета шапки — Telegram
+  const tgApp = window.Telegram?.WebApp?.initData ? window.Telegram.WebApp : null;
+  if (tgApp) {
+    tgApp.ready(); tgApp.expand();
+    document.documentElement.classList.add("in-tg");
+    try { await D.loginWebApp(tgApp.initData); } catch { /* не вышло — страница оценки предложит обычный вход */ }
+  }
+  const tick = (kind) => { try { kind === "ok" ? tgApp?.HapticFeedback.notificationOccurred("success") : tgApp?.HapticFeedback.selectionChanged(); } catch { /* не Telegram */ } };
   const loading = D.load();
   // ---------- шторка на телефоне (18.10, отзыв из чата: «карте мало места, сделайте как в Яндекс Картах») ----------
   // Карта — на весь экран, панель с поиском и списком — шторка снизу. Три остановки: «поиск» (peek — видно только поле
@@ -1044,6 +1053,7 @@ ${edit}
   const CRIT = [["stove", "Печь"], ["steam", "Пар"], ["aqua", "Аквазона"], ["outdoor", "Выход на улицу"], ["kitchen", "Кухня"],
     ["atmosphere", "Атмосфера"], ["service", "Сервис"], ["prices", "Цены"]];
   let ratings = {};
+  const rateLink = +(new URLSearchParams(location.search).get("rate") || location.hash.match(/^#rate=(\d+)$/)?.[1] || 0) || null;
   const rateTile = (id) => { const r = ratings[id];
     return r ? `<b>${fmt(+r.overall)}</b><span>${leaves(+r.overall)}<br>${r.n} ${plural(r.n, "оценка", "оценки", "оценок")}</span>` : "<b>—</b><span>нет оценок</span>"; };
   const rateRows = (id) => { const r = ratings[id]; if (!r) return "";
@@ -1055,9 +1065,16 @@ ${edit}
       if (openId && $("#dRateTile")) { $("#dRateTile").innerHTML = rateTile(openId); const box = $("#dRating"); box.innerHTML = rateRows(openId); box.hidden = !ratings[openId]; }
     }).catch(() => {});
   }
+  // о чём пункт — одной строкой под названием; слово к оценке — как в такси
+  const CRIT_HINT = { stove: "жар, дрова, держит ли", steam: "лёгкий, влажный, жаркий", aqua: "купель, бассейн, обливное",
+    outdoor: "двор, снег, воздух", kitchen: "чай, еда, где посидеть", atmosphere: "чисто, уютно, своя компания",
+    service: "банщики, веники, полотенца", prices: "за что платишь" };
+  const SCORE_WORD = ["", "плохо", "так себе", "норм", "хорошо", "огонь"];
   async function openRate(visitId) {
     const body = $("#rateBody"), modal = $("#rateModal");
-    modal.hidden = false;
+    modal.hidden = false; modal.classList.add("rate-modal");
+    const shut = () => { modal.hidden = true; tgApp?.MainButton.hide(); if (rateLink) history.replaceState(null, "", location.pathname + "#map"); };
+    $("[data-close]", modal).onclick = () => (tgApp ? tgApp.close() : shut());
     body.innerHTML = '<p class="hint">Открываю…</p>';
     let f;
     try { f = await D.ratingForm(visitId); } catch (e) { body.innerHTML = `<p class="lead">Не открылось: ${esc(e.message)}</p>`; return; }
@@ -1065,50 +1082,88 @@ ${edit}
     if (!f.allowed) {
       const why = { login: "Оценивают участники лиги — войди через Telegram, и я верну тебя сюда.", stranger: "Оценивает тот, кто был в этом походе.",
         pending: "Поход ещё ждёт Комиссию — оценить можно после «засчитано».", old: "Рейтинг собираем с походов с 1 ноября." }[f.why] || "";
-      body.innerHTML = `<div class="eyebrow">Рейтинг бани</div><h2>${esc(f.name)}</h2><p class="lead">${why}</p>
+      body.innerHTML = `<div class="eyebrow">Оценка бани</div><h2 class="rate-title">${esc(f.name)}</h2><p class="lead">${why}</p>
         ${f.why === "login" ? '<button class="cta" type="button" id="rateLogin">Войти через Telegram</button>' : ""}`;
       $("#rateLogin")?.addEventListener("click", () => { modal.hidden = true; openLogin(); });
       return;
     }
     const s = { ...(f.scores || {}) };
-    const total = () => { const v = CRIT.map(([k]) => s[k]).filter(Boolean); return v.length ? v.reduce((a, x) => a + x, 0) / CRIT.length : 0; };
-    const full = () => CRIT.every(([k]) => s[k]);
-    const draw = () => {
-      body.innerHTML = `<div class="eyebrow">Рейтинг бани</div><h2>${esc(f.name)}</h2>
-        <p class="hint">${dayLabel(mskIso(f.entered_at))} · все восемь пунктов, от 1 до 5 веников</p>
-        <div class="rate-form">${CRIT.map(([k, t]) => `<div class="rate-line"><span>${t}</span>
+    const filled = () => CRIT.filter(([k]) => s[k]).length;
+    const avg = () => { const v = CRIT.map(([k]) => s[k]).filter(Boolean); return v.length ? v.reduce((a, x) => a + x, 0) / v.length : 0; };
+    const full = () => filled() === CRIT.length;
+    body.innerHTML = `<div class="rate-head">
+        <div><div class="eyebrow">Оценка бани · ${dayLabel(mskIso(f.entered_at))}</div><h2 class="rate-title">${esc(f.name)}</h2></div>
+        <div class="rate-score" aria-live="polite"><b id="rScore">—</b><span id="rWord">тапай по веникам</span></div>
+      </div>
+      <div class="rate-progress" aria-hidden="true"><i id="rBar"></i></div>
+      <div class="rate-form">${CRIT.map(([k, t]) => `<div class="rate-line" data-line="${k}">
+          <div class="rl-t"><b>${t}</b><small>${CRIT_HINT[k]}</small></div>
           <div class="rate" role="radiogroup" aria-label="${t}">${[1, 2, 3, 4, 5].map((n) =>
-            `<button type="button" data-k="${k}" data-r="${n}" role="radio" aria-checked="${s[k] === n}" aria-label="${t}: ${n} из 5">${leafSvg(n <= (s[k] || 0)).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div></div>`).join("")}</div>
-        <p class="rate-total">${full() ? `Общая — <b>${fmt(Math.round(total() * 100) / 100)}</b>` : `Осталось ${CRIT.filter(([k]) => !s[k]).length} из 8`}</p>
-        <button class="cta" type="button" id="rateSave" ${full() ? "" : "disabled"}>${icon("check")}<span>${f.scores ? "Сохранить" : "Оценить"}</span></button>`;
-      $$("[data-k]", body).forEach((b) => (b.onclick = () => { s[b.dataset.k] = +b.dataset.r; draw(); }));
-      $("#rateSave", body).onclick = save;
+            `<button type="button" data-k="${k}" data-r="${n}" role="radio" aria-checked="false" aria-label="${t}: ${n} из 5">${leafSvg(false).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
+          <em class="rl-w"></em></div>`).join("")}</div>
+      <div class="rate-foot"><button class="cta" type="button" id="rateSave">${icon("check")}<span></span></button></div>`;
+    const save = $("#rateSave", body);
+    const paint = () => {
+      for (const [k] of CRIT) {
+        $$(`[data-k="${k}"]`, body).forEach((b) => { const on = +b.dataset.r <= (s[k] || 0); b.firstElementChild.classList.toggle("on", on); b.setAttribute("aria-checked", String(+b.dataset.r === s[k])); });
+        $(`[data-line="${k}"] .rl-w`, body).textContent = s[k] ? SCORE_WORD[s[k]] : "";
+        $(`[data-line="${k}"]`, body).classList.toggle("done", !!s[k]);
+      }
+      const a = avg(), n = filled();
+      $("#rScore", body).textContent = n ? fmt(Math.round(a * 10) / 10) : "—";
+      $("#rWord", body).textContent = !n ? "тапай по веникам" : full() ? SCORE_WORD[Math.round(a)] : `${n} из 8`;
+      $("#rBar", body).style.width = `${(n / CRIT.length) * 100}%`;
+      const label = full() ? `${f.scores ? "Сохранить" : "Оценить"} · ${fmt(Math.round(a * 100) / 100)}` : `Осталось ${CRIT.length - n} из 8`;
+      $("span", save).textContent = label; save.disabled = !full();
+      if (tgApp) { const mb = tgApp.MainButton; mb.setText(label); full() ? mb.enable() : mb.disable(); mb.show(); }
     };
-    const save = async () => {
-      const btn = $("#rateSave", body); btn.disabled = true;
+    $$("[data-k]", body).forEach((b) => (b.onclick = () => {
+      s[b.dataset.k] = +b.dataset.r; tick(); paint();
+      // заполнил строку — следующая пустая сама подъезжает под палец
+      const next = CRIT.find(([k]) => !s[k]);
+      if (next && b.dataset.k !== next[0]) $(`[data-line="${next[0]}"]`, body)?.scrollIntoView({ block: "nearest", behavior: calm ? "auto" : "smooth" });
+    }));
+    const submit = async () => {
+      if (!full() || save.dataset.busy) return;
+      save.dataset.busy = "1"; save.disabled = true; tgApp?.MainButton.showProgress();
       let overall;
-      try { overall = await D.rateVisit(visitId, s); } catch (e) { btn.disabled = false; return toast("Не сохранилось: " + e.message); }
-      loadRatings();
-      // дальше — по желанию: отзыв и фото к этому походу
-      body.innerHTML = `<div class="eyebrow">Спасибо!</div><h2>${esc(f.name)} — ${fmt(+overall)}</h2>
-        <p class="lead">Если хочется — пару слов и фото, это тоже увидит вся лига.</p>
-        <form class="rvform" id="rateRv"><textarea id="rateText" class="inp" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea>
-          <label class="btn"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label>
-          <div class="row"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
+      try { overall = await D.rateVisit(visitId, s); }
+      catch (e) { delete save.dataset.busy; save.disabled = false; tgApp?.MainButton.hideProgress(); return toast("Не сохранилось: " + e.message); }
+      tick("ok"); loadRatings(); tgApp?.MainButton.hideProgress();
+      thanks(+overall);
+    };
+    save.onclick = submit;
+    if (tgApp) { tgApp.MainButton.offClick(tgApp._rateSubmit || (() => {})); tgApp._rateSubmit = submit; tgApp.MainButton.onClick(submit); }
+    // дальше — по желанию: пара слов и фото к этому походу
+    const thanks = (overall) => {
+      const photos = [];
+      body.innerHTML = `<div class="rate-done">
+          <div class="rate-big"><b>${fmt(overall)}</b>${leaves(overall, "big")}<span>${SCORE_WORD[Math.round(overall)]} · ${esc(f.name)}</span></div>
+          <p class="lead">Спасибо! Оценка уже в рейтинге бани. Хочешь — пару слов и фото, это тоже увидит вся лига.</p>
+        </div>
+        <form class="rvform rate-rv" id="rateRv"><textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea>
+          <div class="rate-photos" id="ratePrev"></div>
+          <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label>
+          <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
           <button type="button" class="linkbtn" data-close-rate>Без отзыва</button></div></form>`;
-      $("[data-close-rate]", body).onclick = () => { modal.hidden = true; };
-      $("#ratePhotos", body).onchange = (e) => e.target.files.length && uploadPhotos(visitId, f.bath, [...e.target.files]);
+      const done = () => { tgApp ? tgApp.close() : shut(); };
+      if (tgApp) { tgApp.MainButton.offClick(submit); tgApp.MainButton.hide(); }
+      $("[data-close-rate]", body).onclick = done;
+      $("#ratePhotos", body).onchange = (e) => {
+        for (const file of e.target.files) { photos.push(file); $("#ratePrev", body).insertAdjacentHTML("beforeend", `<img alt="" src="${URL.createObjectURL(file)}">`); }
+      };
       $("#rateRv", body).onsubmit = async (e) => {
         e.preventDefault();
         const text = $("#rateText", body).value.trim();
-        if (text) {
-          try { await D.submitReview(f.bath, me.nick, Math.min(5, Math.max(1, Math.round(+overall))), text); await refreshData(); }
-          catch (err) { return toast("Отзыв не сохранился: " + err.message); }
-        }
-        modal.hidden = true; toast("Спасибо — оценка в рейтинге бани");
+        try {
+          if (text) await D.submitReview(f.bath, me.nick, Math.min(5, Math.max(1, Math.round(overall))), text);
+          if (photos.length) await uploadPhotos(visitId, f.bath, photos);
+          if (text || photos.length) await refreshData();
+        } catch (err) { return toast("Не сохранилось: " + err.message); }
+        tick("ok"); toast("Спасибо — всё в карточке бани"); done();
       };
     };
-    draw();
+    paint();
   }
 
   async function uploadPhotos(visitId, bathId, files) {
@@ -3156,8 +3211,8 @@ ${edit}
   setTimeout(announceDecisions, 600);   // после первой отрисовки — не поверх заставки
   const h = location.hash.slice(1);
   loadRatings();
-  const rateLink = h.match(/^rate=(\d+)$/);   // ссылка из бота «оцени баню» — страница оценки похода
-  if (rateLink) openRate(+rateLink[1]);
+  // ссылка из бота «оцени баню» — страница оценки похода: ?rate=<поход> (мини-приложение Telegram) или #rate=<поход>
+  if (rateLink) openRate(rateLink);
   const linked = h.match(/^bath=(\d+)$/);   // ссылка на баню — сразу её карточка на карте
   if (linked && byId.has(+linked[1])) { show("map"); openBath(+linked[1], true); }
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);

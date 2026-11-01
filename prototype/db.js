@@ -220,6 +220,13 @@ window.EBLData = (() => {
       check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
       return body;
     },
+    // вход из мини-приложения Telegram (01.11): initData подписаны Telegram — без кодов; уже вошёл — ничего не делаем
+    async loginWebApp(initData) {
+      if (!live || !initData || sessionUser() !== "guest") return null;
+      const body = await tgLogin("?webapp=1", { initData });
+      check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
+      return body;
+    },
     // вход кодом из бота (16.10): код и секрет опроса; сам код человек подтверждает в боте
     loginCode: () => tgLogin("?code=new", {}),
     // null — в боте ещё не подтвердили; ошибка со status: 410 — код устарел, 403 — «Нет» в боте

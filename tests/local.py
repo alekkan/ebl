@@ -176,3 +176,14 @@ def check(label, cond, detail=""):
     print(("  ✓ " if cond else "  ✗ ") + label + (f" — {detail}" if detail and not cond else ""))
     if not cond:
         raise SystemExit(1)
+
+
+def webapp_init(tg_id, username, first_name="Тест", age=0):
+    """initData мини-приложения Telegram, подписанные как у Telegram: ключ — HMAC("WebAppData", bot_token)."""
+    import urllib.parse
+    user = json.dumps({"id": tg_id, "first_name": first_name, "username": username}, ensure_ascii=False, separators=(",", ":"))
+    d = {"auth_date": str(int(time.time()) - age), "query_id": "AAtest", "user": user}
+    check = "\n".join(f"{k}={d[k]}" for k in sorted(d))
+    secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    d["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+    return urllib.parse.urlencode(d)

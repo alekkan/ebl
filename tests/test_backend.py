@@ -517,6 +517,14 @@ check("Комиссия отмечает «закрыта» месяцем — �
       s in (200, 204) and any(b["id"] == bc and b["closed_on"] == "2026-09-01" for b in req("POST", "/rest/v1/rpc/baths_all", {})[1]), s)
 sql(f"delete from baths where id = {bc}")
 
+print("Вход из мини-приложения Telegram")
+from local import webapp_init
+s, r = req("POST", "/functions/v1/tg-login?webapp=1", {"initData": webapp_init(2002, "Shurik_TG")})
+check("подписанные Telegram данные мини-приложения — вход без кодов", s == 200 and r.get("token_hash") and r.get("nick") == "Шурик", (s, r))
+bad = webapp_init(2002, "Shurik_TG").replace("Shurik_TG", "Vitek_TG")
+check("подделанные данные (чужой username) — не пускаем", req("POST", "/functions/v1/tg-login?webapp=1", {"initData": bad})[0] == 401)
+check("старые данные (двое суток) — не пускаем", req("POST", "/functions/v1/tg-login?webapp=1", {"initData": webapp_init(2002, "Shurik_TG", age=2 * 86400)})[0] == 401)
+
 print("Рейтинг бани — восемь пунктов, оценивает тот, кто был")
 # 01.11: печь, пар, аквазона, выход на улицу, кухня, атмосфера, сервис, цены — по 1–5, общая — среднее; с rating_since
 rb = sql("insert into baths (name, status, type) values ('Тест-Рейтинг', 'ok', 'public') returning id").splitlines()[0]

@@ -10,7 +10,7 @@
 import base64, functools, http.server, json, pathlib, re, threading, time, urllib.error, urllib.parse, urllib.request
 from playwright.sync_api import sync_playwright
 import stub
-from local import API, KEY, TELEGRAM, check, link, player_id, session, sql
+from local import API, KEY, TELEGRAM, check, link, player_id, session, sql, webapp_init
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ART = ROOT / "tests" / "artifacts"
@@ -1004,8 +1004,9 @@ with sync_playwright() as pw:
               s.js("() => document.querySelectorAll('#rateBody .rate-line').length") == 8 and s.js("() => document.getElementById('rateSave').disabled"))
         for k, n in (("stove", 5), ("steam", 5), ("aqua", 3), ("outdoor", 4), ("kitchen", 2), ("atmosphere", 5), ("service", 4), ("prices", 4)):
             s.page.click(f'#rateBody [data-k="{k}"][data-r="{n}"]')
-        check("все восемь — общая на виду (4) и «Оценить» включилась",
-              "4" in s.js("() => document.querySelector('.rate-total').innerText") and not s.js("() => document.getElementById('rateSave').disabled"))
+        check("все восемь — общая крупно (4, «хорошо») и «Оценить · 4» включилась",
+              s.js("() => document.getElementById('rScore').innerText") == "4" and s.js("() => document.getElementById('rWord').innerText") == "хорошо"
+              and not s.js("() => document.getElementById('rateSave').disabled") and "4" in s.js("() => document.getElementById('rateSave').innerText"))
         s.no_clip("страница оценки", "#rateModal .sheet")
         s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
         check("оценка в базе, дальше — отзыв и фото по желанию",
@@ -1017,6 +1018,28 @@ with sync_playwright() as pw:
         check("в карточке бани — рейтинг: общая, одна оценка и восемь пунктов",
               s.js("() => /4.*1 оценка/s.test(document.getElementById('dRateTile').innerText) && document.querySelectorAll('#dRating .rate-rows > div').length === 8"))
         s.clean("рейтинг бани")
+        s.close()
+        # мини-приложение Telegram: без входа на сайте, данные подписаны Telegram — входит сам, кнопка «Оценить» — у Telegram
+        sql(f"delete from bath_ratings where visit_id = {rtv}")
+        tg_mock = """window.Telegram = { WebApp: { initData: %s, ready() {}, expand() {}, close() { window.__tgClosed = true; },
+          HapticFeedback: { selectionChanged() {}, notificationOccurred() {} },
+          MainButton: { text: "", enabled: true, visible: false, cbs: [], setText(t) { this.text = t; }, enable() { this.enabled = true; }, disable() { this.enabled = false; },
+            show() { this.visible = true; }, hide() { this.visible = false; }, showProgress() {}, hideProgress() {}, onClick(f) { this.cbs.push(f); },
+            offClick(f) { this.cbs = this.cbs.filter((x) => x !== f); } } } };""" % json.dumps(webapp_init(2002, "Shurik_TG"))
+        s = Site(browser, url + f"?rate={rtv}", name="rate-tg", mobile=True, init=tg_mock)
+        s.page.wait_for_selector("#rateModal:not([hidden]) [data-k]", timeout=10000)
+        check("мини-приложение: вошёл сам (без кодов), форма оценки, кнопка Telegram «Осталось 8 из 8» выключена",
+              s.js("() => Telegram.WebApp.MainButton.visible && !Telegram.WebApp.MainButton.enabled && /8 из 8/.test(Telegram.WebApp.MainButton.text)")
+              and s.js("() => getComputedStyle(document.getElementById('rateSave')).display") == "none")
+        for k in ("stove", "steam", "aqua", "outdoor", "kitchen", "atmosphere", "service", "prices"):
+            s.page.click(f'#rateBody [data-k="{k}"][data-r="5"]')
+        check("…все восемь — кнопка Telegram «Оценить · 5» включилась", s.js("() => Telegram.WebApp.MainButton.enabled && /Оценить · 5/.test(Telegram.WebApp.MainButton.text)"))
+        s.js("() => Telegram.WebApp.MainButton.cbs.forEach((f) => f())"); s.page.wait_for_selector("#rateRv", timeout=8000)
+        check("…нажал кнопку Telegram — оценка в базе, дальше отзыв и фото", sql(f"select overall from bath_ratings where visit_id = {rtv}") == "5.00")
+        s.no_clip("мини-приложение: страница оценки", "#rateModal .sheet")
+        s.page.click("[data-close-rate]")
+        check("…«Без отзыва» закрывает мини-приложение", s.js("() => window.__tgClosed === true"))
+        s.clean("мини-приложение")
         s.close()
         sql(f"delete from reviews where bath_id = {rtb}"); sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}")
 
