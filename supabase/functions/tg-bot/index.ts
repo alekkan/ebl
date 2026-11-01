@@ -1246,7 +1246,9 @@ function searchNear(b: Any): { near: { lat: number; lng: number } | null; maxKm:
 // ---------- Сверка: «где была баня?» в личку тем, кто был (30.10, docs/catalog.md) ----------
 // Каждый час с 10 до 22 МСК (cron → ?asks=1) — по одной бане из «Не нашли», чтобы не пугать списком: следующую — только тем, кто
 // ответил на прошлую (30.10). Кому слать — settings.point_asks.
-const ASK_WAIT = 3 * 864e5;   // молчит три дня — баню спросим у другого, его — о следующей
+// молчит три часа — баню спросим у другого, его — о следующей (01.11, Леха: «не прерываемся, пока не отвечают»; было три дня)
+const ASK_WAIT = 3 * 3600e3;
+const ASK_LATE = 3 * 864e5;   // а точку на пропущенный вопрос без «Ответить» ещё три дня принимаем — вдруг ответил позже
 // «🔕 Больше не спрашивай» убрали (30.10: Леха нажал случайно) — у старых сообщений кнопка ещё работает
 const ASK_KB = (id: number) => [[btn("🤷 Не помню", `pa:f:${id}`), btn("🙅 Не был там", `pa:n:${id}`)]];
 const mskDay = (t: number) => new Date(t + 3 * 3600e3).toISOString().slice(0, 10);
@@ -1269,7 +1271,7 @@ const askText = (b: Any, n: number, date: string | null, year: number | null) =>
   + `у тебя там ${n} ${visitsWord(n)}${when ? `, ${n > 1 ? "последний — " : ""}${when}` : ""}.\n`
   + `На карте у неё пока примерная точка, а по картам агенты её не нашли.\n\n`
   + `Пришли сюда геопозицию (📎 → Геопозиция), ссылку на Яндекс Карты, Google или 2ГИС или адрес. `
-  + `Не помнишь — нажми кнопку, спрошу других. Ответишь — через час пришлю следующую, нет — не тороплю.`;
+  + `Не помнишь — нажми кнопку, спрошу других. Ответишь — через час пришлю следующую, нет времени — через три часа спрошу про другую.`;
 };
 
 async function pointAsks(): Promise<number> {
@@ -1830,7 +1832,7 @@ async function onMessage(msg: Any) {
   if (isPrivate && !replyTo && (msg.location || msg.venue || /https?:\/\//.test(text) || looksLikeAddress(text) || hasLocationHint(text))) {
     const me = (await whoIs(tgId))?.players as Any;
     const { data: ask } = me ? await sb.from("point_asks").select("id, bath_id, player_id, tg_chat, tg_msg").eq("player_id", me.id)
-      .eq("status", "sent").gte("sent_at", new Date(Date.now() - ASK_WAIT).toISOString()).order("sent_at", { ascending: false }).limit(1).maybeSingle()
+      .in("status", ["sent", "skipped"]).gte("sent_at", new Date(Date.now() - ASK_LATE).toISOString()).order("sent_at", { ascending: false }).limit(1).maybeSingle()
       : { data: null };
     if (ask) return askAnswer(msg, ask, me);
   }
