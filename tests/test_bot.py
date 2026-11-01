@@ -1061,6 +1061,17 @@ check("следующий заход: Шурику — баня, где Ден �
 seen = len(TELEGRAM.calls)
 asks_run()
 check("…молчит — больше не шлём", not dms(seen, 909))
+# 01.11: молчит больше трёх часов — его баню отпускаем, ему — следующая (было — ждали три дня)
+ab6 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Шерегеш', 'ok', 'public', 'Россия', 52.9, 87.9, 'city') returning id").splitlines()[0]
+v6 = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by, source) select {ab6}, now() - interval '2 day', 60, 'ok', id, 'bot' from players where nick = 'Шурик' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {v6}, id from players where nick = 'Шурик'")
+sql(f"insert into catalog_proposals (run, bath_id, match) values ('test-asks', {ab6}, 20)")
+sql("update point_asks set sent_at = now() - interval '4 hours' where status = 'sent' and player_id = (select id from players where nick = 'Шурик')")
+seen = len(TELEGRAM.calls)
+asks_run()
+q = dms(seen, 909)
+check("молчит больше трёх часов — его баню отпускаем, ему — следующая, а не ждём три дня",
+      ask_of(ab2, "Шурик")[2] == "skipped" and len(q) == 1 and "Тест-Шерегеш" in q[0]["text"], (ask_of(ab2, "Шурик"), [p.get("text") for p in q]))
 # примерная точка «по городу», но в другом конце страны (30.10: «Rize» стояла в Анталье) — ответ на вопрос всё равно принимаем
 ab4 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Кедровый дом', 'ok', 'public', 'Россия', 64.68631, 97.74531, 'city') returning id").splitlines()[0]
 sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ab4}, 2026, 'Ден', 1)")
@@ -1084,8 +1095,8 @@ asks_run()
 check("«🔕 Больше не спрашивай» на старом сообщении — больше не пишем", sql("select no_point_asks from players where nick = 'Шурик'") == "t" and not dms(seen, 909))
 sql("update settings set value = '\"off\"' where key = 'point_asks'"); sql("update players set no_point_asks = false")
 sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_id in ({ab1}, {ab2}, {ab3})")
-sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4}, {ab5})")
-sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3}, {ab4}, {ab5})"); sql("delete from player_accounts where tg_id = 909")
+sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3}, {ab6})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4}, {ab5})")
+sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3}, {ab4}, {ab5}, {ab6})"); sql("delete from player_accounts where tg_id = 909")
 
 print("Действия бота по просьбе владельца (bot_actions)")
 from local import TELEGRAM
