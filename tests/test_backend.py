@@ -516,4 +516,50 @@ s, _ = req("PATCH", f"/rest/v1/baths?id=eq.{bc}", {"closed_on": "2026-09-01"}, t
 check("Комиссия отмечает «закрыта» месяцем — баня остаётся в лиге, в общих данных с датой",
       s in (200, 204) and any(b["id"] == bc and b["closed_on"] == "2026-09-01" for b in req("POST", "/rest/v1/rpc/baths_all", {})[1]), s)
 sql(f"delete from baths where id = {bc}")
+
+print("Вход из мини-приложения Telegram")
+from local import webapp_init
+s, r = req("POST", "/functions/v1/tg-login?webapp=1", {"initData": webapp_init(2002, "Shurik_TG")})
+check("подписанные Telegram данные мини-приложения — вход без кодов", s == 200 and r.get("token_hash") and r.get("nick") == "Шурик", (s, r))
+bad = webapp_init(2002, "Shurik_TG").replace("Shurik_TG", "Vitek_TG")
+check("подделанные данные (чужой username) — не пускаем", req("POST", "/functions/v1/tg-login?webapp=1", {"initData": bad})[0] == 401)
+check("старые данные (двое суток) — не пускаем", req("POST", "/functions/v1/tg-login?webapp=1", {"initData": webapp_init(2002, "Shurik_TG", age=2 * 86400)})[0] == 401)
+
+print("Рейтинг бани — восемь пунктов, оценивает тот, кто был")
+# 01.11: печь, пар, аквазона, выход на улицу, кухня, атмосфера, сервис, цены — по 1–5, общая — среднее; с rating_since
+rb = sql("insert into baths (name, status, type) values ('Тест-Рейтинг', 'ok', 'public') returning id").splitlines()[0]
+def rvisit(when, status="ok", who=("Шурик",)):
+    v = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by) select {rb}, '{when}', 120, 'pending', id from players where nick = '{who[0]}' returning id").splitlines()[0]
+    for n in who: sql(f"insert into visit_players (visit_id, player_id) select {v}, id from players where nick = '{n}'")
+    if status == "ok": sql(f"update visits set status = 'ok' where id = {v}")
+    return v
+rv1 = rvisit("2026-11-01T18:00:00+03", who=("Шурик", "Витёк"))
+check("«засчитано» — каждому из компании в очередь «оцени баню»",
+      sql(f"select count(*) from rating_asks where visit_id = {rv1} and not done and stage = 0") == "2")
+S = lambda **k: {**{c: 4 for c in ("stove", "steam", "aqua", "outdoor", "kitchen", "atmosphere", "service", "prices")}, **k}
+check("гость оценить не может", req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv1, "p_scores": S()})[0] >= 400)
+check("не все восемь пунктов — не принимается",
+      req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv1, "p_scores": {"stove": 5}}, token=shurik)[0] >= 400)
+check("оценка вне 1–5 — не принимается", req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv1, "p_scores": S(steam=6)}, token=shurik)[0] >= 400)
+s, ov = req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv1, "p_scores": S(stove=5, steam=5, prices=2)}, token=shurik)
+check("участник похода оценивает: общая — среднее восьми", s == 200 and float(ov) == 4.0, (s, ov))
+check("…и из очереди «оцени» его убрали", sql(f"select done from rating_asks where visit_id = {rv1} and player_id = (select id from players where nick = 'Шурик')") == "t")
+rv2 = rvisit("2026-11-01T20:00:00+03", who=("Витёк",))
+check("чужой поход не оценить", req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv2, "p_scores": S()}, token=shurik)[0] >= 400)
+rv3 = rvisit("2026-10-20T18:00:00+03")
+check("поход раньше рейтинга (до 01.11) не оценивается и в очередь не встаёт",
+      req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv3, "p_scores": S()}, token=shurik)[0] >= 400 and sql(f"select count(*) from rating_asks where visit_id = {rv3}") == "0")
+rv4 = rvisit("2026-11-01T21:00:00+03", status="pending")
+f4 = req("POST", "/rest/v1/rpc/rating_form", {"p_visit": rv4}, token=shurik)[1]
+check("поход на модерации — форма говорит «ждёт Комиссию»", f4 and not f4["allowed"] and f4["why"] == "pending", f4)
+req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv2, "p_scores": S(stove=2)}, token=vitek)
+rv5 = rvisit("2026-11-02T18:00:00+03")
+req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv5, "p_scores": S(stove=3, steam=3, prices=3)}, token=shurik)
+ra = req("POST", "/rest/v1/rpc/bath_rating_all", {})[1].get(str(rb)) or {}
+check("рейтинг бани — по последней оценке каждого: Шурик 3.63 (свежая), Витёк 3.75 → 3.69, две оценки, печь 2.5",
+      ra.get("n") == 2 and abs(float(ra["overall"]) - 3.69) < 0.01 and abs(float(ra["stove"]) - 2.5) < 0.01, ra)
+f1 = req("POST", "/rest/v1/rpc/rating_form", {"p_visit": rv1}, token=shurik)[1]
+check("форма показывает прежнюю оценку похода — можно поправить", f1["allowed"] and f1["scores"]["stove"] == 5, f1)
+check("гостю рейтинг виден", str(rb) in (req("POST", "/rest/v1/rpc/bath_rating_all", {})[1] or {}))
+sql(f"delete from visits where bath_id = {rb}"); sql(f"delete from baths where id = {rb}")
 print("Готово.")

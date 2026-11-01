@@ -10,7 +10,7 @@
 import base64, functools, http.server, json, pathlib, re, threading, time, urllib.error, urllib.parse, urllib.request
 from playwright.sync_api import sync_playwright
 import stub
-from local import API, KEY, TELEGRAM, check, link, player_id, session, sql
+from local import API, KEY, TELEGRAM, check, link, player_id, session, sql, webapp_init
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ART = ROOT / "tests" / "artifacts"
@@ -987,6 +987,72 @@ with sync_playwright() as pw:
         check("гостю даты не показываем и говорим, что их видят участники",
               "сегодня" not in s.js(first_row) and s.js("() => /видны участникам/.test(document.getElementById('playerBody').innerText)"))
         s.close()
+
+        print("Рейтинг бани: страница оценки по ссылке из бота")
+        def heat(s, k, n):   # ползунок-градусник: нажать в нужное деление, как пальцем
+            box = s.page.locator(f'#rateBody [data-heat="{k}"]').bounding_box()
+            s.page.mouse.click(box["x"] + 15 + (n - 1) / 4 * (box["width"] - 30), box["y"] + box["height"] / 2)
+        # 01.11: восемь пунктов по пять веников, «Оценить» — только когда все восемь; потом — по желанию отзыв и фото
+        rtb = sql("insert into baths (name, status, type, lat, lng, precision) values ('Тест-Рейтинг-Сайт', 'ok', 'public', 55.75, 37.6, 'exact') returning id").splitlines()[0]
+        rtv = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by) select {rtb}, '2026-11-01T18:00:00+03', 120, 'pending', id from players where nick = 'Шурик' returning id").splitlines()[0]
+        sql(f"insert into visit_players (visit_id, player_id) select {rtv}, id from players where nick = 'Шурик'")
+        sql(f"update visits set status = 'ok' where id = {rtv}")
+        s = Site(browser, url + f"#rate={rtv}", name="rate-guest")
+        s.page.wait_for_selector("#rateModal:not([hidden]) #rateLogin", timeout=8000)
+        check("гостю по ссылке на оценку — «войди через Telegram»", s.js("() => /войди/.test(document.getElementById('rateBody').innerText)"))
+        s.close()
+        s = Site(browser, url + f"#rate={rtv}", sess=shurik, name="rate")
+        s.page.wait_for_selector("#rateModal:not([hidden]) [data-heat]", timeout=8000)
+        check("участник похода — восемь ползунков жара, «Оценить» пока выключена",
+              s.js("() => document.querySelectorAll('#rateBody [data-heat]').length") == 8 and s.js("() => document.getElementById('rateSave').disabled"))
+        for k, n in (("stove", 5), ("steam", 5), ("aqua", 3), ("outdoor", 4), ("kitchen", 2), ("atmosphere", 5), ("service", 4), ("prices", 4)):
+            heat(s, k, n)
+        check("все восемь — на ручках цифры, слова у пунктов, общая крупно (4) с листьями, «Оценить · 4» включилась",
+              s.js("() => [...document.querySelectorAll('#rateBody .heat-knob')].map((x) => x.innerText).join('')") == "55342544"
+              and s.js("() => document.querySelector('[data-line=\"stove\"] .rl-w').innerText") == "огонь"
+              and s.js("() => document.getElementById('rScore').innerText") == "4" and s.js("() => !!document.querySelector('#rLeaves .leaves')")
+              and not s.js("() => document.getElementById('rateSave').disabled") and "4" in s.js("() => document.getElementById('rateSave').innerText"))
+        s.page.focus('#rateBody [data-heat="kitchen"]'); s.page.keyboard.press("ArrowRight")
+        check("…стрелкой на клавиатуре — на деление выше", s.js("() => document.querySelector('[data-heat=\"kitchen\"] .heat-knob').innerText") == "3")
+        s.page.keyboard.press("ArrowLeft")
+        s.no_clip("страница оценки", "#rateModal .sheet")
+        s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
+        check("оценка в базе, дальше — отзыв и фото по желанию",
+              sql(f"select overall from bath_ratings where visit_id = {rtv}") == "4.00" and s.js("() => !!document.getElementById('rateText')"))
+        s.page.fill("#ratePrice", "1 500"); s.page.fill("#rateText", "Пар отличный, кухня так себе")
+        s.page.click("#rateRv button[type=submit]"); s.page.wait_for_timeout(800)
+        check("…отзыв и цена входа (1 500 ₽) сохранились, окно закрылось",
+              sql(f"select count(*) from reviews where bath_id = {rtb}") == "1" and sql(f"select price || ' ' || currency from bath_prices where bath_id = {rtb}") == "1500 RUB"
+              and s.js("() => document.getElementById('rateModal').hidden"), sql(f"select price || ' ' || currency from bath_prices where bath_id = {rtb}"))
+        s.js(f"() => location.hash = '#bath={rtb}'"); s.page.reload(); s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000)
+        s.page.wait_for_timeout(800)
+        check("в карточке бани — рейтинг: общая, одна оценка и восемь пунктов",
+              s.js("() => /4.*1 оценка/s.test(document.getElementById('dRateTile').innerText) && document.querySelectorAll('#dRating .rate-rows > div').length === 8"))
+        s.clean("рейтинг бани")
+        s.close()
+        # мини-приложение Telegram: без входа на сайте, данные подписаны Telegram — входит сам, кнопка «Оценить» — у Telegram
+        sql(f"delete from bath_ratings where visit_id = {rtv}")
+        tg_mock = """window.Telegram = { WebApp: { initData: %s, ready() {}, expand() {}, close() { window.__tgClosed = true; },
+          HapticFeedback: { selectionChanged() {}, notificationOccurred() {} },
+          MainButton: { text: "", enabled: true, visible: false, cbs: [], setText(t) { this.text = t; }, enable() { this.enabled = true; }, disable() { this.enabled = false; },
+            show() { this.visible = true; }, hide() { this.visible = false; }, showProgress() {}, hideProgress() {}, onClick(f) { this.cbs.push(f); },
+            offClick(f) { this.cbs = this.cbs.filter((x) => x !== f); } } } };""" % json.dumps(webapp_init(2002, "Shurik_TG"))
+        s = Site(browser, url + f"?rate={rtv}", name="rate-tg", mobile=True, init=tg_mock)
+        s.page.wait_for_selector("#rateModal:not([hidden]) [data-heat]", timeout=10000)
+        check("мини-приложение: вошёл сам (без кодов), форма оценки, кнопка Telegram «Осталось 8 из 8» выключена",
+              s.js("() => Telegram.WebApp.MainButton.visible && !Telegram.WebApp.MainButton.enabled && /8 из 8/.test(Telegram.WebApp.MainButton.text)")
+              and s.js("() => getComputedStyle(document.getElementById('rateSave')).display") == "none")
+        for k in ("stove", "steam", "aqua", "outdoor", "kitchen", "atmosphere", "service", "prices"):
+            heat(s, k, 5)
+        check("…все восемь — кнопка Telegram «Оценить · 5» включилась", s.js("() => Telegram.WebApp.MainButton.enabled && /Оценить · 5/.test(Telegram.WebApp.MainButton.text)"))
+        s.js("() => Telegram.WebApp.MainButton.cbs.forEach((f) => f())"); s.page.wait_for_selector("#rateRv", timeout=8000)
+        check("…нажал кнопку Telegram — оценка в базе, дальше отзыв и фото", sql(f"select overall from bath_ratings where visit_id = {rtv}") == "5.00")
+        s.no_clip("мини-приложение: страница оценки", "#rateModal .sheet")
+        s.page.click("[data-close-rate]")
+        check("…«Без отзыва» закрывает мини-приложение", s.js("() => window.__tgClosed === true"))
+        s.clean("мини-приложение")
+        s.close()
+        sql(f"delete from reviews where bath_id = {rtb}"); sql(f"delete from bath_prices where bath_id = {rtb}"); sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}")
 
         print("Куда сходить за очками: «Я», «Не были в 2026», «Рядом»")
         s = Site(browser, url, sess=shurik, name="where-to-go")

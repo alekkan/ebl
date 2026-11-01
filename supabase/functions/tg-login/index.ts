@@ -1,4 +1,6 @@
-// Вход на сайт через Telegram — два пути, сессия выдаётся одинаково (issue):
+// Вход на сайт через Telegram — три пути, сессия выдаётся одинаково (issue):
+// • мини-приложение Telegram (01.11, оценка бани из бота): ?webapp=1 — initData, подписанные Telegram
+//   (HMAC-SHA256: ключ — HMAC("WebAppData", bot_token)); человек ничего не подтверждает — Telegram уже знает, кто он;
 // • код из бота (16.10): ?code=new — сайт заводит одноразовый код и секрет; человек подтверждает код в боте
 //   («✅ Да, это я», tg-bot); ?code=poll — сайт опрашивает код своим секретом и после подтверждения получает сессию;
 // • Telegram Login Widget (запасной, «другие способы»): проверяем подпись данных от Telegram (HMAC-SHA256 с ключом sha256(bot_token)).
@@ -38,6 +40,25 @@ async function validTelegram(data: Record<string, string>) {
   return crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(check));
 }
 
+// мини-приложение: initData — строка запроса; подпись — hex HMAC-SHA256 от отсортированных «ключ=значение» (кроме hash)
+// с ключом HMAC-SHA256("WebAppData", bot_token). Данные живут сутки: кнопку в боте открывают и назавтра
+const WEBAPP_FRESH_SEC = 86400;
+async function validWebApp(initData: string): Promise<Record<string, unknown> | null> {
+  const p = new URLSearchParams(initData), hash = p.get("hash") ?? "";
+  if (!BOT_TOKEN || !/^[0-9a-f]{64}$/i.test(hash)) return null;
+  p.delete("hash");
+  const age = Date.now() / 1000 - Number(p.get("auth_date"));
+  if (!(age < WEBAPP_FRESH_SEC && age > -300)) return null;
+  const check = [...p.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join("\n");
+  const hmac = async (key: Uint8Array, msg: string) => new Uint8Array(await crypto.subtle.sign("HMAC",
+    await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]), new TextEncoder().encode(msg)));
+  const secret = await hmac(new TextEncoder().encode("WebAppData"), BOT_TOKEN);
+  const key = await crypto.subtle.importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const sig = new Uint8Array(hash.match(/../g)!.map((h) => parseInt(h, 16)));
+  if (!(await crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(check)))) return null;
+  try { return JSON.parse(p.get("user") ?? "null"); } catch { return null; }
+}
+
 // в ilike «_» и «%» — шаблоны: без экранирования «v_tek1987» входил в чужой заранее вписанный «vitek1987»
 const likeExact = (s: string) => s.replace(/[\\%_]/g, (c) => "\\" + c);
 
@@ -58,6 +79,12 @@ Deno.serve(async (req) => {
   try {
     if (mode === "new") return await newCode(sb, req.headers.get("User-Agent") ?? "", ok, fail);
     if (mode === "poll") return await pollCode(sb, String(body.code ?? ""), String(body.secret ?? ""), ok, fail);
+    if (new URL(req.url).searchParams.get("webapp")) {
+      const u = await validWebApp(String(body.initData ?? ""));
+      if (!u?.id) return fail(401, "Telegram не подтвердил вход — открой кнопку в боте ещё раз");
+      const name = [u.first_name, u.last_name].filter(Boolean).join(" ");
+      return ok(await issue(sb, Number(u.id), (u.username as string) ?? null, name, u.photo_url as string | undefined));
+    }
 
     const tg = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => [k, String(v)]));
     if (!(await validTelegram(tg))) return fail(401, "Telegram не подтвердил вход — попробуй ещё раз");

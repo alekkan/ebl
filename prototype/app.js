@@ -30,6 +30,15 @@
   const boot = (html) => { const el = $("#boot"); if (el) { el.innerHTML = html; el.classList.add("err"); } };
   if (D.broken) { boot("Не загрузилась связь с базой. Проверь интернет и обнови страницу."); return; }
   let data;
+  // мини-приложение Telegram (01.11): кнопка «⭐ Оценить» из бота открывает сайт прямо в Telegram. Он сам говорит, кто
+  // открыл, — входим без кодов (tg-login ?webapp); кнопка внизу, вибрация и цвета шапки — Telegram
+  const tgApp = window.Telegram?.WebApp?.initData ? window.Telegram.WebApp : null;
+  if (tgApp) {
+    tgApp.ready(); tgApp.expand();
+    document.documentElement.classList.add("in-tg");
+    try { await D.loginWebApp(tgApp.initData); } catch { /* не вышло — страница оценки предложит обычный вход */ }
+  }
+  const tick = (kind) => { try { kind === "ok" ? tgApp?.HapticFeedback.notificationOccurred("success") : tgApp?.HapticFeedback.selectionChanged(); } catch { /* не Telegram */ } };
   const loading = D.load();
   // ---------- шторка на телефоне (18.10, отзыв из чата: «карте мало места, сделайте как в Яндекс Картах») ----------
   // Карта — на весь экран, панель с поиском и списком — шторка снизу. Три остановки: «поиск» (peek — видно только поле
@@ -496,9 +505,6 @@
     const lastBeer = bv[bv.length - 1], olderBeer = bv.slice(0, -1).reverse();
     const rv = reviews[id] || [];
     // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); в средней — последняя оценка каждого
-    const lastRate = new Map();
-    for (const r of rv) if (!lastRate.has(r.author)) lastRate.set(r.author, r.rate);
-    const avg = lastRate.size ? [...lastRate.values()].reduce((a, x) => a + x, 0) / lastRate.size : 0;
     const myRate = 4, iWrote = rv.some((r) => r.mine);
     const pending = visits.filter((v) => v.bathId === id && v.status === "pending").length;
     // последний засчитанный поход с портала — журнал видят только участники, гостю строки нет
@@ -564,8 +570,9 @@
         <div class="facts">
           <div><b>${b.n26}</b><span>${plural(b.n26, "поход", "похода", "походов")} в 2026</span></div>
           <div><b>${who.length}</b><span>${plural(who.length, "участник", "участника", "участников")}</span></div>
-          <div><b>${avg ? fmt(avg) : "—"}</b><span>${avg ? leaves(avg) : "нет оценок"}</span></div>
+          <div id="dRateTile">${rateTile(id)}</div>
         </div>
+        <section class="d-rating" id="dRating" ${ratings[id] ? "" : "hidden"}>${rateRows(id)}</section>
         ${(() => {
           const who = $("#fPlayer").value || myNick; if (!who) return "";
           const parts = potentialFor(who)(b); if (!parts) return "";
@@ -1040,6 +1047,150 @@ ${edit}
     if (!blob) throw new Error("не сжалось");
     return { blob, w: c.width, h: c.height };
   }
+  // ---------- рейтинг бани (01.11): восемь пунктов по 1–5 веников, общая — среднее; оценивает тот, кто был в походе ----------
+  // Ссылку на оценку похода (#rate=<поход>) присылает бот после «засчитано». В карточке — общая, число оценок и по пунктам;
+  // средняя по старым отзывам больше не показывается (рейтинг начали с нуля, отзывы остались)
+  const CRIT = [["stove", "Печь"], ["steam", "Пар"], ["aqua", "Аквазона"], ["outdoor", "Выход на улицу"], ["kitchen", "Кухня"],
+    ["atmosphere", "Атмосфера"], ["service", "Сервис"], ["prices", "Цены"]];
+  let ratings = {};
+  const rateLink = +(new URLSearchParams(location.search).get("rate") || location.hash.match(/^#rate=(\d+)$/)?.[1] || 0) || null;
+  const rateTile = (id) => { const r = ratings[id];
+    return r ? `<b>${fmt(+r.overall)}</b><span>${leaves(+r.overall)}<br>${r.n} ${plural(r.n, "оценка", "оценки", "оценок")}</span>` : "<b>—</b><span>нет оценок</span>"; };
+  const rateRows = (id) => { const r = ratings[id]; if (!r) return "";
+    return `<h3>Рейтинг · ${fmt(+r.overall)}</h3><div class="rate-rows">${CRIT.map(([k, t]) =>
+      `<div><span>${t}</span><i style="--w:${(+r[k] / 5) * 100}%"></i><b>${fmt(+r[k])}</b></div>`).join("")}</div>`; };
+  function loadRatings() {
+    return D.bathRatings().then((r) => {
+      ratings = r || {};
+      if (openId && $("#dRateTile")) { $("#dRateTile").innerHTML = rateTile(openId); const box = $("#dRating"); box.innerHTML = rateRows(openId); box.hidden = !ratings[openId]; }
+    }).catch(() => {});
+  }
+  // цена входа на экране после оценки (01.11: бот её больше не спрашивает) — валюта по стране бани
+  const RATE_CUR = ["RUB", "EUR", "USD", "KZT", "BYN", "GEL", "AMD", "TRY", "AED", "JPY", "THB", "CNY"];
+  const curOf = (country) => ({ "Россия": "RUB", "Казахстан": "KZT", "Беларусь": "BYN", "Грузия": "GEL", "Армения": "AMD", "Турция": "TRY",
+    "ОАЭ": "AED", "Япония": "JPY", "Таиланд": "THB", "Китай": "CNY", "США": "USD" })[country] || (country && country !== "Россия" ? "EUR" : "RUB");
+  // слово к оценке — как в такси
+  const SCORE_WORD = ["", "плохо", "так себе", "норм", "хорошо", "огонь"];
+  async function openRate(visitId) {
+    const body = $("#rateBody"), modal = $("#rateModal");
+    modal.hidden = false; modal.classList.add("rate-modal");
+    const shut = () => { modal.hidden = true; tgApp?.MainButton.hide(); if (rateLink) history.replaceState(null, "", location.pathname + "#map"); };
+    $("[data-close]", modal).onclick = () => (tgApp ? tgApp.close() : shut());
+    body.innerHTML = '<p class="hint">Открываю…</p>';
+    let f;
+    try { f = await D.ratingForm(visitId); } catch (e) { body.innerHTML = `<p class="lead">Не открылось: ${esc(e.message)}</p>`; return; }
+    if (!f) { body.innerHTML = '<h2>Поход не найден</h2>'; return; }
+    if (!f.allowed) {
+      const why = { login: "Оценивают участники лиги — войди через Telegram, и я верну тебя сюда.", stranger: "Оценивает тот, кто был в этом походе.",
+        pending: "Поход ещё ждёт Комиссию — оценить можно после «засчитано».", old: "Рейтинг собираем с походов с 1 ноября." }[f.why] || "";
+      body.innerHTML = `<div class="eyebrow">Оценка бани</div><h2 class="rate-title">${esc(f.name)}</h2><p class="lead">${why}</p>
+        ${f.why === "login" ? '<button class="cta" type="button" id="rateLogin">Войти через Telegram</button>' : ""}`;
+      $("#rateLogin")?.addEventListener("click", () => { modal.hidden = true; openLogin(); });
+      return;
+    }
+    const s = { ...(f.scores || {}) };
+    const filled = () => CRIT.filter(([k]) => s[k]).length;
+    const avg = () => { const v = CRIT.map(([k]) => s[k]).filter(Boolean); return v.length ? v.reduce((a, x) => a + x, 0) / v.length : 0; };
+    const full = () => filled() === CRIT.length;
+    // «Градусник» (01.11, вариант Б2): у пункта — полоска жара и ручка с цифрой 1–5 в цвет жара; сверху — общая листьями,
+    // как в рейтинге на карте. Провести пальцем или нажать в нужное место; стрелки на клавиатуре — тоже
+    body.innerHTML = `<div class="rate-head">
+        <div><div class="eyebrow">Оценка бани · ${dayLabel(mskIso(f.entered_at))}</div><h2 class="rate-title">${esc(f.name)}</h2></div>
+        <div class="rate-score" aria-live="polite"><b id="rScore">—</b><span id="rLeaves"></span></div>
+      </div>
+      <div class="rate-form">${CRIT.map(([k, t]) => `<div class="rate-line" data-line="${k}">
+          <div class="rl-t"><b>${t}</b><em class="rl-w"></em></div>
+          <div class="heat" role="slider" tabindex="0" aria-label="${t}" aria-valuemin="1" aria-valuemax="5" data-heat="${k}">
+            <span class="heat-fill"></span><span class="heat-dots"><i></i><i></i><i></i><i></i><i></i></span><span class="heat-knob"></span></div>
+          </div>`).join("")}</div>
+      <div class="rate-foot"><button class="cta" type="button" id="rateSave">${icon("check")}<span></span></button></div>`;
+    const save = $("#rateSave", body);
+    const paint = () => {
+      for (const [k] of CRIT) {
+        const v = s[k] || 0, h = $(`[data-heat="${k}"]`, body);
+        h.style.setProperty("--p", v ? (v - 1) / 4 : 0); h.dataset.v = v;
+        $(".heat-knob", h).textContent = v || "";
+        h.setAttribute("aria-valuenow", v || 1); h.setAttribute("aria-valuetext", v ? `${v} — ${SCORE_WORD[v]}` : "не оценено");
+        const w = $(`[data-line="${k}"] .rl-w`, body);
+        w.textContent = v ? SCORE_WORD[v] : "проведи пальцем"; w.dataset.v = v;
+      }
+      const a = avg(), n = filled();
+      $("#rScore", body).textContent = n ? fmt(Math.round(a * 10) / 10) : "—";
+      $("#rLeaves", body).innerHTML = n ? leaves(a) : `<small>0 из 8</small>`;
+      const label = full() ? `${f.scores ? "Сохранить" : "Оценить"} · ${fmt(Math.round(a * 100) / 100)}` : `Осталось ${CRIT.length - n} из 8`;
+      $("span", save).textContent = label; save.disabled = !full();
+      if (tgApp) { const mb = tgApp.MainButton; mb.setText(label); full() ? mb.enable() : mb.disable(); mb.show(); }
+    };
+    // провести пальцем или нажать в нужное место; на каждом делении — вибрация
+    const set = (k, n) => { if (s[k] === n) return; s[k] = n; tick(); paint(); };
+    const nextUp = (k) => {   // заполнил строку — следующая пустая сама подъезжает под палец
+      const next = CRIT.find(([c]) => !s[c]);
+      if (next && k !== next[0]) $(`[data-line="${next[0]}"]`, body)?.scrollIntoView({ block: "nearest", behavior: calm ? "auto" : "smooth" });
+    };
+    $$("[data-heat]", body).forEach((h) => {
+      const k = h.dataset.heat;
+      // деления — по центрам пяти точек: ручка шириной 30 px ходит от края до края
+      const at = (x) => { const r = h.getBoundingClientRect(); return Math.min(5, Math.max(1, Math.round(((x - r.left - 15) / (r.width - 30)) * 4) + 1)); };
+      let drag = false;
+      h.addEventListener("pointerdown", (e) => { drag = true; h.setPointerCapture?.(e.pointerId); h.classList.add("drag"); set(k, at(e.clientX)); });
+      h.addEventListener("pointermove", (e) => { if (drag) set(k, at(e.clientX)); });
+      const up = () => { if (drag) { drag = false; h.classList.remove("drag"); nextUp(k); } };
+      h.addEventListener("pointerup", up); h.addEventListener("pointercancel", up);
+      h.addEventListener("keydown", (e) => {
+        const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+        if (d) { e.preventDefault(); set(k, Math.min(5, Math.max(1, (s[k] || (d > 0 ? 0 : 2)) + d))); }
+      });
+    });
+    const submit = async () => {
+      if (!full() || save.dataset.busy) return;
+      save.dataset.busy = "1"; save.disabled = true; tgApp?.MainButton.showProgress();
+      let overall;
+      try { overall = await D.rateVisit(visitId, s); }
+      catch (e) { delete save.dataset.busy; save.disabled = false; tgApp?.MainButton.hideProgress(); return toast("Не сохранилось: " + e.message); }
+      tick("ok"); loadRatings(); tgApp?.MainButton.hideProgress();
+      thanks(+overall);
+    };
+    save.onclick = submit;
+    if (tgApp) { tgApp.MainButton.offClick(tgApp._rateSubmit || (() => {})); tgApp._rateSubmit = submit; tgApp.MainButton.onClick(submit); }
+    // дальше — по желанию: пара слов и фото к этому походу
+    const thanks = (overall) => {
+      const photos = [];
+      body.innerHTML = `<div class="rate-done">
+          <div class="rate-big"><b>${fmt(overall)}</b>${leaves(overall, "big")}<span>${SCORE_WORD[Math.round(overall)]} · ${esc(f.name)}</span></div>
+          <p class="lead">Спасибо! Оценка уже в рейтинге бани. Хочешь — пару слов и фото, это тоже увидит вся лига.</p>
+        </div>
+        <form class="rvform rate-rv" id="rateRv">
+          <label class="rate-price"><span>Цена входа</span><input class="inp" id="ratePrice" inputmode="decimal" placeholder="сколько заплатил" autocomplete="off">
+            <select class="sel" id="rateCur" aria-label="Валюта">${RATE_CUR.map((c) => `<option ${c === curOf(f.country) ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+          <textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea>
+          <div class="rate-photos" id="ratePrev"></div>
+          <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label>
+          <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
+          <button type="button" class="linkbtn" data-close-rate>Без отзыва</button></div></form>`;
+      const done = () => { tgApp ? tgApp.close() : shut(); };
+      if (tgApp) { tgApp.MainButton.offClick(submit); tgApp.MainButton.hide(); }
+      $("[data-close-rate]", body).onclick = done;
+      $("#ratePhotos", body).onchange = (e) => {
+        for (const file of e.target.files) { photos.push(file); $("#ratePrev", body).insertAdjacentHTML("beforeend", `<img alt="" src="${URL.createObjectURL(file)}">`); }
+      };
+      $("#rateRv", body).onsubmit = async (e) => {
+        e.preventDefault();
+        const text = $("#rateText", body).value.trim();
+        const rawPrice = $("#ratePrice", body).value.trim(), cur = $("#rateCur", body).value;
+        const price = rawPrice ? Number(rawPrice.replace(/[\s\u00a0]/g, "").replace(",", ".")) : null;
+        if (rawPrice && !(price > 0)) return toast("Цена — числом, например 1500 или 14,5");
+        try {
+          if (price) await D.submitBathPrice(f.bath, cur === "RUB" ? Math.round(price) : Math.round(price * 100) / 100, cur);
+          if (text) await D.submitReview(f.bath, me.nick, Math.min(5, Math.max(1, Math.round(overall))), text);
+          if (photos.length) await uploadPhotos(visitId, f.bath, photos);
+          if (text || photos.length || price) await refreshData();
+        } catch (err) { return toast("Не сохранилось: " + err.message); }
+        tick("ok"); toast("Спасибо — всё в карточке бани"); done();
+      };
+    };
+    paint();
+  }
+
   async function uploadPhotos(visitId, bathId, files) {
     files = files.slice(0, 10);
     const items = [];
@@ -3084,6 +3235,9 @@ ${edit}
   render("home");
   setTimeout(announceDecisions, 600);   // после первой отрисовки — не поверх заставки
   const h = location.hash.slice(1);
+  loadRatings();
+  // ссылка из бота «оцени баню» — страница оценки похода: ?rate=<поход> (мини-приложение Telegram) или #rate=<поход>
+  if (rateLink) openRate(rateLink);
   const linked = h.match(/^bath=(\d+)$/);   // ссылка на баню — сразу её карточка на карте
   if (linked && byId.has(+linked[1])) { show("map"); openBath(+linked[1], true); }
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);

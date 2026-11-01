@@ -289,9 +289,24 @@ function typeFromText(text: string): string | null {
 const curLabel = (code: string | null) => code ?? "₽";
 // цена — с центами, где они бывают (25.10: «9,5 €»): целые как есть, дробные — два знака с запятой.
 // Рубли — только целые (решение Лехи 25.10): валюта не выбрана или RUB — округляем
-const PRICE_TEXT = /^(?:\d{2,6}|\d{1,6}[.,]\d{1,2})$/;
+// цифра цены: «900», «14,4», а ещё со знаком или словом валюты и пробелами в тысячах — «14,4€», «1 500 ₽», «$12», «900 руб»
+// (01.11: Шурик ответил «14,4€» на вопрос в личке — бот принял это за новый поход). Валюта по знаку — в черновик
+const CUR_SIGN: [RegExp, string][] = [[/€|eur|евро/i, "EUR"], [/\$|usd|долл/i, "USD"], [/₽|руб|^\d[\d\s.,]*р\.?$/i, "RUB"],
+  [/¥|jpy|иен|йен/i, "JPY"], [/aed|дирх/i, "AED"]];
+function priceParts(text: string): { num: string; cur: string | null } | null {
+  const t = text.trim();
+  const num = t.replace(/€|\$|₽|¥|eur\w*|евро|usd|долл\w*|руб\w*|р\.?$|jpy|иен\w*|йен\w*|aed|дирх\w*/giu, "").replace(/[\s\u00a0]/g, "");
+  if (!/^(?:\d{2,6}|\d{1,6}[.,]\d{1,2})$/.test(num)) return null;
+  return { num, cur: CUR_SIGN.find(([re]) => re.test(t))?.[1] ?? null };
+}
+const isPriceText = (text: string) => !!priceParts(text);
+// валюта знаком в ответе («14,4€»), а в черновике её не выбирали (рубли по умолчанию) — берём из ответа
+function priceCurrency(st: Any, text: string) {
+  const cur = priceParts(text)?.cur;
+  if (cur && cur !== "RUB" && !st.currency) st.currency = cur;
+}
 const priceNum = (text: string, cur: string | null = null) => {
-  const n = Number(text.trim().replace(",", "."));
+  const n = Number((priceParts(text)?.num ?? text.trim()).replace(",", "."));
   return !cur || cur === "RUB" ? Math.round(n) : Math.round(n * 100) / 100;
 };
 const money = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
@@ -459,24 +474,23 @@ async function renderCard(st: Any, lg: Any) {
   // (скидка — до какого часа) → валюта → цифра ответом на карточку. С историей — цена уже стоит, «✏️ Изменить» её сбрасывает и заводит тот же мастер.
   // Цифру спрашиваем строкой в карточке, а не отдельным сообщением: «Сколько стоил вход?» в чате — мусор (30.09, 🤡 от Комиссии)
   const priceStep = st.priceStep;
-  const askSched = st.price != null && st.priceWeekend == null && st.priceBefore == null;
   if (priceStep === "sched") lines.push("💰 Цена входа — будни, выходной, скидка до часа или одна на все дни?");
   else if (priceStep === "before") lines.push("💰 Скидка — до какого часа?");
   else if (priceStep === "currency") lines.push(`💰 Цена входа${schedLabel(st)} — в какой валюте?`);
   else if (st.awaitPriceFor === "price") lines.push(priceAskLine(st, "💰 Цена входа"));
   else if (st.priceFromHistory) {
     const list = (st.knownPrices ?? []).map((p: Any) => `${money(p.price)} ${curLabel(p.currency)}${priceDimLabel(p)}`).join(" / ");
-    lines.push(`💰 ${list} — как в прошлый раз, ✏️ можно поменять`);
+    lines.push(`💰 ${list} — как в прошлый раз`);
   }
   else if (st.price) lines.push(`💰 ${money(st.price)} ${curLabel(st.currency)}${schedLabel(st)} — со слов автора`);
-  else lines.push("💰 Цена входа? Кнопкой ниже.");
+  // цены нет — не спрашиваем (01.11): её вписывают на сайте вместе с оценкой бани
   if (st.awaitPriceFor === "beer") lines.push(priceAskLine(st, "🍺 Цена пива"));
   else if (st.beerFromHistory) {
     const list = (st.knownBeerPrices ?? []).map((p: Any) => `${money(p.price)} ${curLabel(p.currency)}`).join(" / ");
-    lines.push(`🍺 ${list} — как в прошлый раз, ✏️ можно поменять`);
+    lines.push(`🍺 ${list} — как в прошлый раз`);
   }
   else if (st.beerPrice) lines.push(`🍺 ${money(st.beerPrice)} ${curLabel(st.currency)} — со слов автора`);
-  else if (st.price != null || st.priceFromHistory) lines.push("🍺 Цена пива? Кнопкой ниже.");
+
   if (st.hint) lines.push(`\n${st.hint}`);
   if (st.awaiting === "company") lines.push("\nКто был? Отметь кнопками или ответь на это сообщение: ники через запятую или @username, «один» — если один.");
   if (st.awaiting === "dur") lines.push("\nДолгая или экспресс? По регламенту важно только, была ли дольше 2,5 часа.");
@@ -492,14 +506,8 @@ async function renderCard(st: Any, lg: Any) {
     : priceStep === "currency"
     ? [...chunk(CUR_BTNS.map(([c, l]) => btn(l, `pc:${c}`)), 2), [btn("Пропустить", "pz")]]
     : [...pick, ...(askType ? [Object.entries(TYPE_BTN).map(([t, l]) => btn(`${st.type === t ? "✓ " : ""}${l}`, `t:${t}`))] : []),
-      // цена этой бани уже стоит по истории — кнопка только чтобы поменять, если в этот раз другая
-      ...(st.priceFromHistory ? [[btn("✏️ Изменить цену входа", "pe")]] : []),
-      // истории нет — спрашиваем по шагам (будни/выходной/скидка/валюта), потом цифру ответом на карточку
-      ...(st.price == null && !st.priceFromHistory ? [[btn("💰 Цена", "ap")]] : []),
-      ...(st.beerFromHistory ? [[btn("✏️ Изменить цену пива", "be")]] : []),
-      ...((st.price != null || st.priceFromHistory) && st.beerPrice == null && !st.beerFromHistory && st.awaitPriceFor !== "beer" ? [[btn("🍺 Пиво", "ab")]] : []),
-      // будни/выходной у цены — необязательная кнопка, как и тип бани (если уже пришли по шагам — не переспрашиваем)
-      ...(askSched ? [Object.entries(SCHED_RU).map(([s, l]) => btn(`${st.priceWeekend === s ? "✓ " : ""}${l}`, `pw:${s}`))] : []),
+      // цену входа и пива бот больше не спрашивает (01.11, Леха): её вписывают на сайте вместе с оценкой бани, отзывом и фото.
+      // Кнопки «💰 Цена», «🍺 Пиво», «будни/выходной» убраны; старые карточки с ними ещё работают (обработчики ниже)
       // экспресс или долгая — выбор виден прямо на кнопках (галочка), как у типа бани
       [btn(`${st.dur == null || st.dur <= LONG ? "✓ " : ""}⚡ Экспресс`, "d:120"), btn(`${st.dur != null && st.dur > LONG ? "✓ " : ""}🔥 Долгая`, "d:180")],
       // ждём цифру цены — отправить можно только без неё, явно
@@ -584,6 +592,7 @@ function priceAskLine(st: Any, label: string) {
 }
 // цифра пришла в личку, а черновик — в чате: ставим её в черновик и правим карточку там
 async function priceFromDm(msg: Any, st: Any, lg: Any) {
+  priceCurrency(st, msg.text ?? "");
   const n = priceNum(msg.text ?? "", st.currency);
   if (st.awaitPriceFor === "price") st.price = n; else st.beerPrice = n;
   await dropPriceAsk(st);
@@ -764,7 +773,8 @@ async function continueDraft(msg: Any, st: Any, me: Any, lg: Any) {
       if (c.ids.length) { st.company = [...new Set([...(st.company ?? []), ...c.ids])]; st.companyOk = true; st.picking = false; }
       // ответ на явный вопрос о цене — просто цифра; бот знает, чего именно ждёт (awaitPriceFor — после шагов
       // будни/скидка/валюта или кнопки «Пиво»), иначе это другая цифра взамен «как в прошлый раз»
-      if (PRICE_TEXT.test(text)) {
+      if (isPriceText(text)) {
+        priceCurrency(st, text);
         if (st.awaitPriceFor === "price" && st.price == null) { st.price = priceNum(text, st.currency); await dropPriceAsk(st); }
         else if (st.awaitPriceFor === "beer" && st.beerPrice == null) { st.beerPrice = priceNum(text, st.currency); await dropPriceAsk(st); }
       }
@@ -1241,6 +1251,45 @@ async function linked(accountId: string, judge?: string): Promise<boolean> {
 function searchNear(b: Any): { near: { lat: number; lng: number } | null; maxKm: number } {
   if (b?.lat == null || b.precision === "exact" || b.precision === "country") return { near: null, maxKm: 0 };
   return { near: { lat: b.lat, lng: b.lng }, maxKm: { city: 80, region: 400 }[b.precision as string] ?? 400 };
+}
+
+// ---------- рейтинг бани: «оцени баню» после «засчитано» (01.11, docs/bot.md) ----------
+// Очередь rating_asks ставит база (триггер на «засчитано»); cron днём каждые 10 минут → ?rateasks=1. Приглашение, потом
+// напоминания через 3 и через 12 часов; оценил — больше не пишем. Ночью cron молчит — отложенное уйдёт утром
+const RATE_NEXT = [3 * 3600e3, 12 * 3600e3];
+// кнопка открывает страницу оценки мини-приложением прямо в Telegram (вход без кодов — tg-login ?webapp); номер похода —
+// в адресе запроса, а не после «#»: туда Telegram кладёт свои данные
+const rateUrl = (visitId: number) => `${SITE.replace(/\/?(#.*)?$/, "/")}?rate=${visitId}`;
+async function rateAsks(): Promise<number> {
+  const { data: rows } = await sb.from("rating_asks").select("visit_id, player_id, stage, visits(baths(name))")
+    .eq("done", false).lt("stage", 3).lte("next_at", new Date().toISOString()).limit(50);
+  if (!rows?.length) return 0;
+  const visitIds = [...new Set(rows.map((r: Any) => r.visit_id))], playerIds = [...new Set(rows.map((r: Any) => r.player_id))];
+  const [{ data: rated }, { data: accs }] = await Promise.all([
+    sb.from("bath_ratings").select("visit_id, player_id").in("visit_id", visitIds),
+    sb.from("player_accounts").select("player_id, tg_id").in("player_id", playerIds).not("tg_id", "is", null),
+  ]);
+  const done = new Set((rated ?? []).map((r: Any) => `${r.visit_id}:${r.player_id}`));
+  const tgOf = new Map((accs ?? []).map((a: Any) => [a.player_id, a.tg_id]));
+  let sent = 0;
+  for (const r of rows as Any[]) {
+    const key = { visit_id: r.visit_id, player_id: r.player_id };
+    const tgId = tgOf.get(r.player_id);
+    if (done.has(`${r.visit_id}:${r.player_id}`) || !tgId) { await sb.from("rating_asks").update({ done: true }).match(key); continue; }
+    // шаг отмечаем до отправки: два запуска разом не пришлют два сообщения
+    const next = r.stage < RATE_NEXT.length ? new Date(Date.now() + RATE_NEXT[r.stage]).toISOString() : new Date().toISOString();
+    const { data: claimed } = await sb.from("rating_asks").update({ stage: r.stage + 1, next_at: next }).match({ ...key, stage: r.stage }).select("stage");
+    if (!claimed?.length) continue;
+    const name = esc(r.visits?.baths?.name ?? "баню");
+    const text = r.stage === 0
+      ? `⭐ Оцени баню <b>${name}</b>: печь, пар, аквазона, выход на улицу, кухня, атмосфера, сервис, цены — по пять веников. Минута, а лиге — рейтинг бань.`
+      : `Напоминаю: оцени <b>${name}</b> — минута, восемь пунктов.`;
+    const m = await tg("sendMessage", { chat_id: tgId, text, parse_mode: "HTML", disable_web_page_preview: true,
+      reply_markup: { inline_keyboard: [[{ text: "⭐ Оценить", web_app: { url: rateUrl(r.visit_id) } }]] } });
+    if (m.ok) sent++;
+    else await sb.from("rating_asks").update({ done: true }).match(key);   // личка закрыта — писать некуда
+  }
+  return sent;
 }
 
 // ---------- Сверка: «где была баня?» в личку тем, кто был (30.10, docs/catalog.md) ----------
@@ -1884,7 +1933,7 @@ async function onMessage(msg: Any) {
   if (msg.photo && (isPrivate || mentionsBot(msg)) && !(replyToCard && st) && isPhotoOnly(text)) return photoToRecent(msg, me);
   if (text.startsWith("/") && !/^\/banya/i.test(text)) return;   // прочие команды — не походы
   // цифра цены в личку — ответ на вопрос из черновика в чате (askPrice)
-  if (isPrivate && st?.priceInDm && st.awaitPriceFor && st.chat !== chat && PRICE_TEXT.test(text)) return priceFromDm(msg, st, await league());
+  if (isPrivate && st?.priceInDm && st.awaitPriceFor && st.chat !== chat && isPriceText(text)) return priceFromDm(msg, st, await league());
 
   const lg = await league();
   if (replyToCard && !mentionsBot(msg)) return continueDraft(msg, st, me, lg);
@@ -2035,6 +2084,9 @@ Deno.serve(async (req) => {
     const result = { point, trail: geoTrail(), at: new Date().toISOString() };
     await sb.from("geo_debug").update({ result }).eq("id", id);
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+  }
+  if (url.searchParams.get("rateasks")) {
+    return new Response(JSON.stringify({ sent: await rateAsks() }), { headers: { "Content-Type": "application/json" } });
   }
   if (url.searchParams.get("asks")) {
     return new Response(JSON.stringify({ sent: await pointAsks() }), { headers: { "Content-Type": "application/json" } });

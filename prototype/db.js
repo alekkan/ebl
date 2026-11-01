@@ -220,6 +220,13 @@ window.EBLData = (() => {
       check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
       return body;
     },
+    // вход из мини-приложения Telegram (01.11): initData подписаны Telegram — без кодов; уже вошёл — ничего не делаем
+    async loginWebApp(initData) {
+      if (!live || !initData || sessionUser() !== "guest") return null;
+      const body = await tgLogin("?webapp=1", { initData });
+      check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
+      return body;
+    },
     // вход кодом из бота (16.10): код и секрет опроса; сам код человек подтверждает в боте
     loginCode: () => tgLogin("?code=new", {}),
     // null — в боте ещё не подтвердили; ошибка со status: 410 — код устарел, 403 — «Нет» в боте
@@ -434,6 +441,19 @@ window.EBLData = (() => {
     async bathFacts(bathId) {
       if (!live) return null;
       return check(await sb.rpc("bath_facts", { p_bath: bathId }));
+    },
+    // рейтинг бани (01.11): восемь пунктов по 1–5; по всем баням одним json — общая, число оценок и по пунктам
+    async bathRatings() {
+      if (!live) return {};
+      return check(await sb.rpc("bath_rating_all")) || {};
+    },
+    // страница оценки похода: баня, можно ли оценивать (why: login / stranger / pending / old) и прежняя оценка
+    async ratingForm(visitId) {
+      if (!live) return null;
+      return check(await sb.rpc("rating_form", { p_visit: visitId }));
+    },
+    async rateVisit(visitId, scores) {
+      return check(await sb.rpc("rate_visit", { p_visit: visitId, p_scores: scores }));
     },
     // Сверка каталога (19.10) — только Комиссии: что агенты нашли по баням лиги (точка, адрес, ссылки, факты) и её решения
     async catalog() {

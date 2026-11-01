@@ -359,6 +359,66 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .d-foot .cta, .d-foot .btn { justify-content: center; }
 /* цифры бани — одной строкой с тонкими разделителями, без плиток */
 .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+/* рейтинг бани (01.11): в карточке — восемь пунктов тонкими полосками; страница оценки — строка на пункт */
+.rate-rows { display: grid; gap: 6px; }
+.rate-rows > div { display: grid; grid-template-columns: 9.5em 1fr 2.2em; align-items: center; gap: 10px; font-size: 14px; }
+.rate-rows i { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--oak) var(--w), var(--line) var(--w)); }
+.rate-rows b { text-align: right; font-weight: 600; }
+/* страница оценки: на телефоне — шторка снизу, в Telegram — экран целиком с кнопкой Telegram внизу */
+.rate-modal .sheet { width: min(520px, 100%); }
+.rate-page { padding: 22px 20px calc(14px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 14px; }
+.rate-head { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; padding-right: 44px; }
+.rate-title { font: 800 clamp(22px, 6.2vw, 30px)/1.08 var(--display); margin: 6px 0 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.rate-score { text-align: right; min-width: 96px; }
+.rate-score b { display: block; font: 800 52px/.9 var(--display); color: var(--oak); font-variant-numeric: tabular-nums; }
+.rate-score .leaves { margin-top: 6px; }
+.rate-score small { display: block; margin-top: 6px; font-size: 12.5px; color: var(--ink-3); }
+.rate-form { display: grid; gap: 14px; margin-top: 4px; }
+.rate-line { display: grid; gap: 4px; scroll-margin: 90px; }
+.rl-t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.rl-t b { font-size: 16px; }
+.rl-w { font-style: normal; font-size: 13.5px; color: var(--ink-3); }
+.rl-w[data-v="1"], .rl-w[data-v="2"], .rl-w[data-v="3"], .rl-w[data-v="4"] { color: var(--oak); font-weight: 600; }
+.rl-w[data-v="5"] { color: var(--ember); font-weight: 600; }
+/* «градусник» (Б2): полоска жара, пять точек-делений, ручка с цифрой в цвет жара */
+.heat { --p: 0; --c: #b9c7b3; position: relative; height: 34px; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent; outline: none; }
+.heat[data-v="1"] { --c: #8fb47d; } .heat[data-v="2"] { --c: #a9b663; } .heat[data-v="3"] { --c: var(--honey); }
+.heat[data-v="4"] { --c: #e8892e; } .heat[data-v="5"] { --c: var(--ember); }
+.heat::before { content: ""; position: absolute; left: 0; right: 0; top: 14px; height: 6px; border-radius: 3px; background: var(--line); }
+.heat-fill { position: absolute; left: 0; top: 14px; height: 6px; border-radius: 3px; width: calc(15px + var(--p) * (100% - 30px));
+  background: linear-gradient(90deg, #a9c79a, var(--honey) 70%, var(--ember)); background-size: calc(100% / max(var(--p), .001)) 100%;
+  transition: width .18s var(--ease); }
+.heat[data-v="0"] .heat-fill { display: none; }
+.heat-dots { position: absolute; left: 15px; right: 15px; top: 15px; display: flex; justify-content: space-between; pointer-events: none; }
+.heat-dots i { width: 4px; height: 4px; margin: 0 -2px; border-radius: 50%; background: color-mix(in srgb, var(--panel) 85%, transparent); }
+.heat-knob { position: absolute; top: 2px; left: calc(var(--p) * (100% - 30px)); width: 30px; height: 30px; border-radius: 50%;
+  background: var(--panel); box-shadow: 0 2px 8px rgba(20, 40, 25, .28), 0 0 0 3px var(--c); display: grid; place-items: center;
+  font: 800 13px/1 var(--display); color: var(--c); transition: left .18s var(--ease), transform .15s var(--ease); }
+.heat[data-v="0"] .heat-knob { box-shadow: 0 2px 8px rgba(20, 40, 25, .2); }
+.heat[data-v="0"] .heat-knob::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.heat.drag .heat-knob { transform: scale(1.18); transition: transform .15s var(--ease); }
+.heat:focus-visible .heat-knob { outline: 2px solid var(--oak); outline-offset: 3px; }
+.rate-price { display: grid; grid-template-columns: 1fr 96px; gap: 8px; align-items: center; }
+.rate-price span { grid-column: 1 / -1; font-weight: 600; font-size: 14px; }
+.rate-foot { position: sticky; bottom: calc(-14px - env(safe-area-inset-bottom, 0px)); margin: 0 -20px -14px; padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(transparent, var(--panel) 28%); display: flex; gap: 16px; align-items: center; }
+.rate-foot .cta { flex: 1; justify-content: center; min-height: 52px; font-size: 16px; }
+.rate-page .cta[disabled] { opacity: .5; cursor: default; box-shadow: none; }
+.rate-done { text-align: center; display: grid; gap: 10px; justify-items: center; padding-top: 8px; }
+.rate-big b { display: block; font: 800 72px/1 var(--display); color: var(--oak); font-variant-numeric: tabular-nums; }
+.rate-big .leaves { margin-top: 8px; }
+.rate-big span:last-child { display: block; margin-top: 6px; color: var(--ink-2); }
+.rate-rv { display: grid; gap: 10px; }
+.rate-photos { display: flex; gap: 8px; flex-wrap: wrap; }
+.rate-photos:empty { display: none; }
+.rate-photos img { width: 68px; height: 68px; object-fit: cover; border-radius: 12px; }
+.rate-add { justify-self: start; cursor: pointer; }
+/* в Telegram: кнопка «Оценить» — своя у Telegram, окно — на весь экран, карта за ним не нужна */
+.in-tg .rate-modal { padding: 0; background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.in-tg .rate-modal .sheet { width: 100%; height: 100%; max-height: none; border-radius: 0; box-shadow: none; animation: none; }
+.in-tg #rateSave { display: none; }
+.in-tg .rate-modal .rate-foot:has(#rateSave) { display: none; }
 .facts > div { display: grid; gap: 5px; align-content: start; padding: 13px 0 13px 14px; }
 .facts > div:first-child { padding-left: 0; }
 .facts > div + div { border-left: 1px solid var(--line); }
