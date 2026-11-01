@@ -1129,8 +1129,9 @@ rdm = lambda seen, who: [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessag
 seen = len(TELEGRAM.calls)
 n = rate_run()
 q9, q0 = rdm(seen, 909), rdm(seen, ME)
-check("«засчитано» — обоим из компании «оцени баню» с кнопкой — мини-приложение со страницей оценки",
-      n == 2 and len(q9) == 1 and len(q0) == 1 and "Тест-Оценка" in q9[0]["text"] and f"?rate={rtv}" in json.dumps(q9[0].get("reply_markup")) and "web_app" in json.dumps(q9[0].get("reply_markup")), (n, q9))
+check("«засчитано» — обоим из компании «оцени баню» с кнопкой — личная ссылка с ключом на лёгкую страницу оценки",
+      n == 2 and len(q9) == 1 and len(q0) == 1 and "Тест-Оценка" in q9[0]["text"] and "rate.html?t=" + sql(f"select token from rating_asks where visit_id = {rtv} and player_id = (select id from players where nick = 'Шурик')") in json.dumps(q9[0].get("reply_markup"))
+      and "web_app" not in json.dumps(q9[0].get("reply_markup")), (n, q9))
 check("…повторный запуск сразу — ничего (напоминание через три часа)", rate_run() == 0)
 sql(f"update rating_asks set next_at = now() - interval '1 minute' where visit_id = {rtv}")
 sql(f"insert into bath_ratings (visit_id, bath_id, player_id, stove, steam, aqua, outdoor, kitchen, atmosphere, service, prices) select {rtv}, {rtb}, id, 4, 4, 4, 4, 4, 4, 4, 4 from players where nick = 'Шурик'")

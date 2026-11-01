@@ -220,6 +220,16 @@ window.EBLData = (() => {
       check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
       return body;
     },
+    // вход по личной ссылке на оценку из бота (01.11): ключ приглашения → сессия того, кого пригласили; номер похода
+    async loginRate(token) {
+      const body = await tgLogin("?rate=1", { token });
+      check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
+      return body.visit;
+    },
+    // отзыв без загрузки всей лиги (страница оценки): от имени того, кто оценивает
+    async addReview(bathId, playerId, rate, text) {
+      return check(await sb.from("reviews").insert({ bath_id: bathId, player_id: playerId, rating: rate, text }).select("id").single()).id;
+    },
     // вход из мини-приложения Telegram (01.11): initData подписаны Telegram — без кодов; уже вошёл — ничего не делаем
     async loginWebApp(initData) {
       if (!live || !initData || sessionUser() !== "guest") return null;

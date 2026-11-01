@@ -536,6 +536,15 @@ def rvisit(when, status="ok", who=("Шурик",)):
 rv1 = rvisit("2026-11-01T18:00:00+03", who=("Шурик", "Витёк"))
 check("«засчитано» — каждому из компании в очередь «оцени баню»",
       sql(f"select count(*) from rating_asks where visit_id = {rv1} and not done and stage = 0") == "2")
+tok = sql(f"select token from rating_asks where visit_id = {rv1} and player_id = (select id from players where nick = 'Шурик')")
+s, r = req("POST", "/functions/v1/tg-login?rate=1", {"token": tok})
+check("личная ссылка на оценку: ключ приглашения — вход под тем, кого пригласили, и номер похода",
+      s == 200 and r.get("token_hash") and r.get("nick") == "Шурик" and r.get("visit") == int(rv1), (s, r))
+check("ключ не того вида — 400", req("POST", "/functions/v1/tg-login?rate=1", {"token": "abc"})[0] == 400)
+check("чужой (несуществующий) ключ — 401", req("POST", "/functions/v1/tg-login?rate=1", {"token": "0" * 64})[0] == 401)
+sql(f"update rating_asks set created_at = now() - interval '8 days' where token = '{tok}'")
+check("ключ старше 7 дней — 401", req("POST", "/functions/v1/tg-login?rate=1", {"token": tok})[0] == 401)
+sql(f"update rating_asks set created_at = now() where token = '{tok}'")
 S = lambda **k: {**{c: 4 for c in ("stove", "steam", "aqua", "outdoor", "kitchen", "atmosphere", "service", "prices")}, **k}
 check("гость оценить не может", req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv1, "p_scores": S()})[0] >= 400)
 check("не все восемь пунктов — не принимается",
