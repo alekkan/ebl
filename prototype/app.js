@@ -567,6 +567,7 @@
           <div id="dRateTile">${rateTile(id)}</div>
         </div>
         <section class="d-rating" id="dRating" ${ratings[id] ? "" : "hidden"}>${rateRows(id)}</section>
+        <div id="dRateInvite">${rateInvite(id)}</div>
         ${(() => {
           const who = $("#fPlayer").value || myNick; if (!who) return "";
           const parts = potentialFor(who)(b); if (!parts) return "";
@@ -1052,6 +1053,24 @@ ${edit}
   const rateRows = (id) => { const r = ratings[id]; if (!r) return "";
     return `<h3>Рейтинг · ${fmt(+r.overall)}</h3><div class="rate-rows">${CRIT.map(([k, t]) =>
       `<div><span>${t}</span><i style="--w:${(+r[k] / 5) * 100}%"></i><b>${fmt(+r[k])}</b></div>`).join("")}</div>`; };
+  // «Ты тут был … · Оцени баню — 1 минута» (01.11, вариант Б): участнику, который был в бане (любой поход — с портала или
+  // из таблицы) и ещё её не оценивал; ведёт на лёгкую страницу оценки по бане. Дата — последнего похода с портала, иначе год
+  let myRated = null;   // null — ещё не знаем, кто что оценил: приглашение не показываем
+  function rateInvite(id) {
+    if (!D.live || !myNick || !myRated || myRated.has(id)) return "";
+    const b = byId.get(id);
+    const mine = visits.filter((v) => v.bathId === id && v.status === "ok" && (v.player === myNick || v.companions.includes(myNick)))
+      .map((v) => v.date).sort().pop();
+    const year = Object.keys(b?.histBy || {}).filter((y) => b.histBy[y]?.[myNick] > 0).sort().pop();
+    if (!mine && !year) return "";
+    const when = mine ? (["сегодня", "вчера"].includes(dayLabel(mine)) ? dayLabel(mine)
+      : new Date(mine.slice(0, 10) + "T00:00:00Z").toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })) : `в ${year}`;
+    return `<a class="rate-invite" href="rate.html?b=${id}"><span><b>Ты тут был ${esc(when)}</b><small>Оцени баню — 1 минута</small></span><span class="go">Оценить</span></a>`;
+  }
+  if (D.live && myNick) D.myRatedBaths().then((ids) => {
+    myRated = new Set(ids.map(Number));
+    if (openId && $("#dRateInvite")) $("#dRateInvite").innerHTML = rateInvite(openId);
+  }).catch(() => {});
   function loadRatings() {
     return D.bathRatings().then((r) => {
       ratings = r || {};

@@ -360,6 +360,14 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 /* цифры бани — одной строкой с тонкими разделителями, без плиток */
 .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
 /* рейтинг бани (01.11): в карточке — восемь пунктов тонкими полосками; страница оценки — строка на пункт */
+/* приглашение оценить в карточке бани (01.11, вариант Б): одна мягкая строка, исчезает после оценки */
+.rate-invite { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; padding: 11px 12px 11px 14px; border-radius: 14px;
+  background: color-mix(in srgb, var(--oak) 8%, var(--panel)); color: var(--ink); text-decoration: none; }
+.rate-invite > span:first-child { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.rate-invite b { font-size: 14.5px; }
+.rate-invite small { font-size: 13px; color: var(--ink-2); }
+.rate-invite .go { flex: none; padding: 8px 14px; border-radius: 999px; background: var(--oak); color: var(--oak-ink); font-weight: 700; font-size: 13.5px; }
+.rate-invite:hover .go { background: var(--oak-deep); }
 .rate-rows { display: grid; gap: 6px; }
 .rate-rows > div { display: grid; grid-template-columns: 9.5em 1fr 2.2em; align-items: center; gap: 10px; font-size: 14px; }
 .rate-rows i { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--oak) var(--w), var(--line) var(--w)); }

@@ -570,5 +570,20 @@ check("рейтинг бани — по последней оценке кажд
 f1 = req("POST", "/rest/v1/rpc/rating_form", {"p_visit": rv1}, token=shurik)[1]
 check("форма показывает прежнюю оценку похода — можно поправить", f1["allowed"] and f1["scores"]["stove"] == 5, f1)
 check("гостю рейтинг виден", str(rb) in (req("POST", "/rest/v1/rpc/bath_rating_all", {})[1] or {}))
+# 01.11: оценка из карточки бани — по бане, где был (поход из таблицы — только год)
+sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({rb}, 2024, 'Витёк', 1)")
+fb = req("POST", "/rest/v1/rpc/rating_form_bath", {"p_bath": rb}, token=vitek)[1]
+check("оценка из карточки: был по таблице — можно, последний раз — дата похода портала, иначе год", fb["allowed"] and fb["year"] == 2026 and fb["entered_at"], fb)
+rb2 = sql("insert into baths (name, status, type) values ('Тест-Рейтинг-2', 'ok', 'public') returning id").splitlines()[0]
+sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({rb2}, 2024, 'Витёк', 1)")
+fb2 = req("POST", "/rest/v1/rpc/rating_form_bath", {"p_bath": rb2}, token=vitek)[1]
+check("…баня только из таблицы — точной даты нет, год 2024", fb2["allowed"] and fb2["year"] == 2024 and fb2["entered_at"] is None, fb2)
+check("…кто не был — нельзя", req("POST", "/rest/v1/rpc/rate_bath", {"p_bath": rb2, "p_scores": S()}, token=shurik)[0] >= 400)
+s2, o2 = req("POST", "/rest/v1/rpc/rate_bath", {"p_bath": rb2, "p_scores": S(stove=5)}, token=vitek)
+check("…был — оценил баню без похода на портале (4.13), в «моих оценённых» она есть",
+      s2 == 200 and abs(float(o2) - 4.13) < 0.01 and int(rb2) in req("POST", "/rest/v1/rpc/my_rated_baths", {}, token=vitek)[1], (s2, o2))
+req("POST", "/rest/v1/rpc/rate_bath", {"p_bath": rb2, "p_scores": S(stove=1)}, token=vitek)
+check("…повторная оценка правит прежнюю, а не плодит", sql(f"select count(*) || ' ' || max(stove) from bath_ratings where bath_id = {rb2}") == "1 1")
+sql(f"delete from baths where id = {rb2}")
 sql(f"delete from visits where bath_id = {rb}"); sql(f"delete from baths where id = {rb}")
 print("Готово.")

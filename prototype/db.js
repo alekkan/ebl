@@ -462,6 +462,18 @@ window.EBLData = (() => {
       if (!live) return null;
       return check(await sb.rpc("rating_form", { p_visit: visitId }));
     },
+    // оценка из карточки бани (01.11): по бане, где был — любой поход, с портала или из таблицы
+    async ratingFormBath(bathId) {
+      if (!live) return null;
+      return check(await sb.rpc("rating_form_bath", { p_bath: bathId }));
+    },
+    async rateBath(bathId, scores) {
+      return check(await sb.rpc("rate_bath", { p_bath: bathId, p_scores: scores }));
+    },
+    async myRatedBaths() {
+      if (!live || sessionUser() === "guest") return [];
+      return check(await sb.rpc("my_rated_baths")) || [];
+    },
     async rateVisit(visitId, scores) {
       return check(await sb.rpc("rate_visit", { p_visit: visitId, p_scores: scores }));
     },
