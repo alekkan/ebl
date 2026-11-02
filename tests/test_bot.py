@@ -1143,6 +1143,22 @@ sql("delete from point_asks"); sql(f"delete from bath_point_requests where bath_
 sql(f"delete from visits where bath_id in ({ab1}, {ab2}, {ab3}, {ab6})"); sql(f"delete from legacy_visits where bath_id in ({ab2}, {ab4}, {ab5})")
 sql(f"delete from baths where id in ({ab1}, {ab2}, {ab3}, {ab4}, {ab5}, {ab6})"); sql("delete from player_accounts where tg_id = 909")
 
+print("«Где была баня?» по решённым в Сверке без точки (02.11)")
+cands = lambda: sql("select coalesce(string_agg(distinct e->>'bath', ','), '') from jsonb_array_elements(point_ask_candidates()) e").split(",")
+db1 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Принятая', 'ok', 'public', 'ОАЭ', 24.4, 54.4, 'region') returning id").splitlines()[0]
+db2 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Отклонённая', 'ok', 'spa', 'Россия', 55.7, 37.6, 'region') returning id").splitlines()[0]
+db3 = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Вернули', 'ok', 'public', 'Испания', 40.4, -3.7, 'city') returning id").splitlines()[0]
+for b in (db1, db2, db3):
+    sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({b}, 2025, 'Шурик', 1)")
+sql(f"insert into catalog_proposals (run, bath_id, match, status) values ('test-dec', {db1}, 70, 'accepted'), ('test-dec', {db2}, 55, 'rejected'), ('test-dec', {db3}, 60, 'accepted')")
+sql(f"insert into catalog_proposals (run, bath_id, match, lat, lng) values ('test-dec2', {db3}, 70, 38.1, -1.3)")
+c = cands()
+check("принятая без точки и отклонённая «другая баня» — спрашиваем тех, кто был", db1 in c and db2 in c, c)
+check("вернули в Сверку с точкой 70+ — ждёт Комиссию, не спрашиваем", db3 not in c, c)
+sql(f"update baths set precision = 'exact' where id = {db1}")
+check("точка стала точной — не спрашиваем", db1 not in cands())
+sql(f"delete from legacy_visits where bath_id in ({db1}, {db2}, {db3})"); sql(f"delete from baths where id in ({db1}, {db2}, {db3})")
+
 print("Ответы Шурика 01.11: старые вопросы о цене и переспрос «Не нашёл»")
 sql("delete from player_accounts where tg_id = 909 or (tg_id <> 909 and player_id = (select id from players where nick = 'Шурик'))")
 sql("insert into player_accounts (player_id, tg_id, tg_username) select id, 909, 'shurik_tg' from players where nick='Шурик'")
