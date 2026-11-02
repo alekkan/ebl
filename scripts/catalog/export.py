@@ -6,6 +6,7 @@
                                                        # среди необщественных и без типа ищем общественные
   python3 scripts/catalog/export.py scripts/catalog/runs/2026-10-24-ru --approx ru        # 24.10: без точной точки — Россия
   python3 scripts/catalog/export.py scripts/catalog/runs/2026-10-24-abroad --approx abroad   # и заграница; частные не берём
+  python3 scripts/catalog/export.py scripts/catalog/runs/2026-11-02-yd --ids 81,83,…        # 02.11: только эти бани
 
 Берёт с боя (supabase db query --linked, только чтение): баня, регион и страна Комиссии (опора поиска — почти всегда
 верные), текущая точка и её точность, сколько походов (2026 и всего), подсказки Радара (если место уже найдено там:
@@ -15,6 +16,7 @@ import argparse, json, re, subprocess, pathlib
 
 ap = argparse.ArgumentParser(); ap.add_argument("run"); ap.add_argument("--types", default="public")
 ap.add_argument("--approx", choices=["ru", "abroad"], help="все бани без точной точки, кроме частных (чья-то дача — точку не ищем)")
+ap.add_argument("--ids", help="только эти бани, через запятую (02.11: повторный поиск по Яндексу и 2ГИС)")
 ap.add_argument("--doubt", action="store_true", help="только бани из «Не нашли» в Сверке (30.10) — тех типов, что в --types")
 a = ap.parse_args(); run = pathlib.Path(a.run); run.mkdir(parents=True, exist_ok=True)
 kinds = [t for t in a.types.split(",") if t in ("public", "spa", "private")]
@@ -29,6 +31,8 @@ if a.doubt:   # как вкладка «Не нашли»: агенты не у�
       where p.status = 'new' and coalesce(p.match, 0) < 70 and not p.region_conflict and p.is_public is not false
         and coalesce(p.place_status, 'open') not in ('closed', 'repair'))
       and not exists (select 1 from bath_point_requests r where r.bath_id = b.id and r.status = 'pending')"""
+if a.ids:
+    where = "b.id in (%s)" % ", ".join(str(int(x)) for x in a.ids.split(","))
 SQL = """
 select json_agg(x order by x.n26 desc, x.n_all desc, x.id) from (
   select b.id, b.name, coalesce(b.type, 'unknown') as type, b.region, b.country, b.lat, b.lng, b.precision,
