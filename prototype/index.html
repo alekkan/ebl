@@ -168,25 +168,40 @@
         </div>
         <div class="filt-more" id="filtMore">
         <div class="filt-head"><h2>Фильтры</h2><button class="x" type="button" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button></div>
-        <select id="fSeason" class="sel" aria-label="Сезон">
-          <option value="all">Все бани</option>
-          <option value="2026">Были в 2026</option>
-          <option value="never">Не были в 2026</option>
-        </select>
+        <!-- телефон: шторка — подписи групп, сезон кнопками; компьютер — те же списки строкой, подписи и кнопки скрыты -->
+        <div class="fgrp"><span class="filt-lab">Сезон</span>
+          <div class="seg filt-seg" id="fSeasonSeg" role="radiogroup" aria-label="Сезон">
+            <button type="button" data-v="all" aria-pressed="true">Все бани</button>
+            <button type="button" data-v="2026" aria-pressed="false">Были в 2026</button>
+            <button type="button" data-v="never" aria-pressed="false">Не были</button>
+          </div>
+          <select id="fSeason" class="sel" aria-label="Сезон">
+            <option value="all">Все бани</option>
+            <option value="2026">Были в 2026</option>
+            <option value="never">Не были в 2026</option>
+          </select>
+        </div>
         <div class="selrow">
-          <select id="fCountry" class="sel" aria-label="Страна"><option value="">Все страны</option></select>
-          <div class="who-pick">
-            <select id="fPlayer" class="sel" aria-label="Участник"><option value="">Все участники</option></select>
-            <button type="button" class="me-pick" id="fMe" hidden aria-pressed="false" title="Мои бани">Я</button>
+          <div class="fgrp"><span class="filt-lab">Страна</span>
+            <select id="fCountry" class="sel" aria-label="Страна"><option value="">Все страны</option></select>
+          </div>
+          <div class="fgrp"><span class="filt-lab">Чьи бани</span>
+            <div class="who-pick">
+              <button type="button" class="me-pick who-all" id="fWhoAll" aria-pressed="true">Все</button>
+              <button type="button" class="me-pick" id="fMe" hidden aria-pressed="false" title="Мои бани">Я</button>
+              <select id="fPlayer" class="sel" aria-label="Участник"><option value="">Все участники</option></select>
+            </div>
           </div>
         </div>
         <!-- Комиссии: пройтись по баням без точки и с примерной точкой (по городу, региону, стране) и поправить их -->
-        <select id="fPrec" class="sel" hidden aria-label="Точка бани — для Комиссии">
-          <option value="">Все точки</option>
-          <option value="rough">Точка примерная</option>
-          <option value="auto">Среднеточная — нашёл геокодер</option>
-          <option value="none">Без точки</option>
-        </select>
+        <div class="fgrp fgrp-prec" id="fPrecGrp" hidden><span class="filt-lab">Точка · Комиссии</span>
+          <select id="fPrec" class="sel" aria-label="Точка бани — для Комиссии">
+            <option value="">Все точки</option>
+            <option value="rough">Точка примерная</option>
+            <option value="auto">Среднеточная — нашёл геокодер</option>
+            <option value="none">Без точки</option>
+          </select>
+        </div>
         <div class="filt-foot"><button type="button" class="btn" id="filtReset">Сбросить</button><button type="button" class="cta" data-close id="filtShow">Показать</button></div>
         </div>
       </div>

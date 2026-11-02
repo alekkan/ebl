@@ -1376,18 +1376,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   .count { padding: 4px 16px; }
   .count b { font-size: 18px; }
   .panel-head { display: block; }
-  /* шторка фильтров */
-  .filt-sheet { padding: 6px 20px calc(22px + env(safe-area-inset-bottom, 0px)); }
-  .filt-sheet .filt-more { display: flex; flex-direction: column; gap: 12px; }
-  .filt-sheet .filt-head { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; }
-  .filt-sheet .filt-head h2 { margin: 0; font: 800 22px var(--display); }
-  .filt-sheet .filt-head .x { position: static; }
-  .filt-sheet .sel { height: 48px; font-size: 16px; }
-  .filt-sheet .selrow { display: flex; flex-direction: column; gap: 12px; }
-  .filt-sheet .who-pick .me-pick { height: 48px; min-width: 56px; }
-  .filt-sheet .filt-foot { display: flex; gap: 10px; margin-top: 6px; }
-  .filt-sheet .filt-foot .btn { flex: none; padding: 0 18px; height: 54px; border-radius: 16px; }
-  .filt-sheet .filt-foot .cta { flex: 1; height: 54px; border-radius: 16px; font-size: 16px; }
+  /* шторка фильтров — отдельным блоком ниже */
 
   /* нижнее меню: Карта, Таблица, веник «+ Баня», Лента, Ещё */
   .nav [data-view="owners"], .nav [data-view="rules"], .nav [data-view="dir"] { display: none !important; }
@@ -1412,4 +1401,39 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 @media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
   #addVisitBtn.pour .v-swat { animation: swat .5s ease-out; }
   @keyframes swat { 0% { transform: rotate(0); } 30% { transform: rotate(-28deg); } 55% { transform: rotate(22deg); } 75% { transform: rotate(-6deg); } 100% { transform: rotate(0); } }
+}
+
+/* ---------- фильтры (02.11): на компьютере — строкой текстовых списков, на телефоне — шторка с подписями групп ---------- */
+.fgrp { display: contents; }
+.filt-lab, .filt-seg, #fWhoAll { display: none; }
+@media (max-width: 760px) {
+  .filt-sheet { padding: 0 20px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .filt-sheet .filt-more { display: flex; flex-direction: column; align-items: stretch; gap: 22px; text-align: left; }
+  .filt-sheet .filt-head { display: flex; align-items: center; justify-content: space-between; padding-top: 18px; }
+  .filt-sheet .filt-head h2 { margin: 0; font: 800 22px var(--display); }
+  .filt-sheet .filt-head .x { position: static; box-shadow: none; background: var(--panel-2); }
+  .filt-sheet .fgrp { display: flex; flex-direction: column; gap: 10px; }
+  .filt-sheet .fgrp[hidden] { display: none; }
+  .filt-sheet .filt-lab { display: block; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .filt-sheet .selrow { display: flex; flex-direction: column; gap: 22px; }
+  /* сезон — сегментами: три кнопки видны сразу, без выпадающего списка */
+  .filt-sheet .filt-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 4px; gap: 4px; border-radius: 14px; background: var(--panel-2); }
+  .filt-sheet .filt-seg button { height: 40px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+  .filt-sheet .filt-seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(23, 33, 27, .14); }
+  .filt-sheet #fSeason { display: none; }
+  /* поля — во всю ширину, с рамкой, как в форме похода */
+  .filt-sheet .filt-more .sel { flex: 1; width: 100%; max-width: none; height: 52px; padding: 0 40px 0 16px; border: 1.5px solid var(--line); border-radius: 14px;
+    background-color: var(--panel); background-position: calc(100% - 21px) 50%, calc(100% - 16px) 50%; font-size: 16px; font-weight: 500; color: var(--ink); }
+  .filt-sheet .filt-more .sel:focus { border-color: var(--oak); outline: 0; }
+  /* чьи бани: «Все», «Я» — кнопками, другой участник — списком */
+  .filt-sheet .who-pick { display: flex; gap: 8px; }
+  .filt-sheet .who-pick .me-pick { display: block; flex: none; height: 52px; min-width: 64px; padding: 0 16px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); font-size: 15px; font-weight: 600; }
+  .filt-sheet .who-pick .me-pick[hidden] { display: none; }
+  .filt-sheet .who-pick .me-pick[aria-pressed="true"], .filt-sheet .who-pick .sel.on { border-color: var(--oak); background-color: color-mix(in srgb, var(--oak) 9%, var(--panel)); color: var(--oak-deep); }
+  .filt-sheet .who-pick .sel { min-width: 0; }
+  .filt-sheet #fWhoAll { display: block; }
+  .filt-sheet .fgrp > .sel { flex: none; }   /* в колонке flex: 1 сжимал поле по высоте */
+  .filt-sheet .filt-foot { display: flex; align-items: center; gap: 12px; margin: 4px -20px 0; padding: 14px 20px 0; border-top: 1px solid var(--line); }
+  .filt-sheet .filt-foot .btn { flex: none; height: 54px; padding: 0 8px; border: 0; background: none; color: var(--ink-2); font-size: 15px; font-weight: 600; }
+  .filt-sheet .filt-foot .cta { flex: 1; height: 54px; border-radius: 16px; font-size: 16px; }
 }

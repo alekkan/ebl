@@ -362,6 +362,9 @@
   });
   // разрезы по годам с главного экрана убрали (02.11, Леха: фильтры перегружены) — сезон теперь в «Фильтрах» рядом со страной
   $("#fSeason").addEventListener("change", () => render(true));
+  // в шторке на телефоне сезон — тремя кнопками, «Все» — все участники; меняют те же списки
+  $("#fSeasonSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (!b) return; $("#fSeason").value = b.dataset.v; render(true); });
+  $("#fWhoAll").addEventListener("click", () => { $("#fPlayer").value = ""; render(true); });
   // телефон: поиск и типы — поверх карты, остальные фильтры — шторкой по кнопке в поиске; компьютер — всё в панели
   const fBox = $(".filters"), sBox = $(".searchbox", fBox), tBox = $("#fType"), mBox = $("#filtMore");
   function placeFilters() {
@@ -381,7 +384,7 @@
   // Комиссии (18.10): бани без точки и с примерной — пройтись и поправить. Сразу «Все бани»: проверяем бани всех лет,
   // а не только те, где были в 2026; поправил точку в карточке — баня уходит из списка. Карту не отдаляем: таких бань сотни
   // по всему миру — удобнее остаться в своём городе и идти по списку
-  $("#fPrec").hidden = !(canModerate && D.live);
+  $("#fPrecGrp").hidden = !(canModerate && D.live);
   $("#fPrec").addEventListener("change", () => {
     if ($("#fPrec").value) $("#fSeason").value = "all";
     render();
@@ -459,6 +462,9 @@
     else if (pot) current.sort((a, b) => b._pot.length - a._pot.length || b.n26 - a.n26 || a.name.localeCompare(b.name, "ru"));
     else current.sort((a, b) => b._m - a._m || a.name.localeCompare(b.name, "ru"));
     $("#fMe").setAttribute("aria-pressed", String(!!myNick && player === myNick));
+    $("#fWhoAll").setAttribute("aria-pressed", String(!player));
+    $$("#fSeasonSeg [data-v]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === season)));
+    $("#fPlayer").classList.toggle("on", !!player && player !== myNick);
     $("#fNear").setAttribute("aria-pressed", String(!!here));
     $("#fNear span").textContent = here ? "рядом" : pot ? "по очкам" : "по походам";
     // сколько фильтров включено в шторке — числом на кнопке в поиске
