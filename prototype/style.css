@@ -1372,7 +1372,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   /* шторка — под поиском и типами; свёрнутая показывает «N бань» */
   .panel { top: 112px; }
   #map .leaflet-bottom.leaflet-right { top: 112px; }
-  .countrow { padding: 2px 8px 6px 0; }
+  .countrow { padding: 2px 8px 6px 0; border-top: 0; }   /* над ней сразу полоска шторки — черта лишняя (02.11, Леха) */
   .count { padding: 4px 16px; }
   .count b { font-size: 18px; }
   .panel-head { display: block; }
