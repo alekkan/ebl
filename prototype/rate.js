@@ -162,13 +162,19 @@
             </div>
           </div>
         </div>
-        <div class="thx-sec"><span>Отзыв <small>по желанию</small></span>
+        <div class="thx-sec"><span>Отзыв <small id="rateRvNote">по желанию</small></span>
           <textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea></div>
         ${visit ? `<div class="thx-photos"><span class="rate-photos" id="ratePhotoPrev"></span>
           <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label></div>` : ""}
         <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
           <button type="button" class="linkbtn" id="rateSkip">Без этого</button></div>
       </form>`;
+    // уже писал отзыв об этой бане (02.11) — он в поле, сохранение его правит, а не добавляет второй
+    let myRv = null;
+    D.myReview?.(f.bath, f.player).then((r) => {
+      if (!r || $("#rateText", body).value) return;
+      myRv = r; $("#rateText", body).value = r.text || ""; $("#rateRvNote", body).textContent = "твой прошлый — можно поправить";
+    }).catch(() => {});
     lastPrice().then((p) => { if (p) $("#ratePrev", body).textContent = `по желанию · в прошлый раз ${money(p.price)} ${curSign(p.currency)}`; else $("#ratePrev", body).textContent = "по желанию"; });
     const done = () => say("Готово, спасибо!", `Оценка «${esc(f.name)}» — в рейтинге бани. <a href="./#bath=${f.bath}">Открыть баню на карте</a>`);
     $("#rateSkip", body).onclick = done;
@@ -193,7 +199,9 @@
       try {
         if (price) await D.submitBathPrice(f.bath, round(price), cur, dur || null, weekend, before);
         if (beer) await D.submitBeerPrice(f.bath, round(beer), cur);
-        if (text) await D.addReview(f.bath, f.player, Math.min(5, Math.max(1, Math.round(overall))), text);
+        const stars = Math.min(5, Math.max(1, Math.round(overall)));
+        if (myRv && text && text !== myRv.text) await D.updateReview(myRv.id, stars, text);
+        else if (!myRv && text) await D.addReview(f.bath, f.player, stars, text);
         if (photos.length) {
           const items = [];
           for (const p of photos.slice(0, 10)) { try { items.push({ big: await shrink(p, 1600), small: await shrink(p, 400) }); } catch { /* не открылось */ } }

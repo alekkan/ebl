@@ -1493,3 +1493,12 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   .drawer { z-index: 1400; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); height: calc(62% - var(--nav-h)); }
   .drawer.full { height: calc(100% - 112px - var(--nav-h) - env(safe-area-inset-bottom, 0px)); }
 }
+
+/* ---------- «Отзывы и оценки» (02.11): одна лента — отзывы и оценки без текста; своё — «изменить» ---------- */
+.d-fb { display: grid; }
+.d-fb .reviews { display: grid; gap: 14px; margin-top: 12px; }
+.d-fb .rv-none { margin: 2px 0 0; font-size: 13px; }
+.d-fb .rv-acts { display: flex; gap: 14px; margin-top: 4px; }
+.d-fb .rv-acts .linkbtn { font-size: 13px; font-weight: 600; color: var(--oak); text-decoration: none; }
+.d-fb .rv-acts [data-rvdel] { color: var(--ink-3); }
+.d-fb .rv-go { justify-self: start; margin-top: 14px; text-decoration: none; }
