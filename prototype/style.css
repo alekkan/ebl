@@ -1502,3 +1502,35 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-fb .rv-acts .linkbtn { font-size: 13px; font-weight: 600; color: var(--oak); text-decoration: none; }
 .d-fb .rv-acts [data-rvdel] { color: var(--ink-3); }
 .d-fb .rv-go { justify-self: start; margin-top: 14px; text-decoration: none; }
+
+/* ---------- карточка 02.11: карандаш Комиссии с меню правки; «⋯» у отзыва; своё первым ---------- */
+.x-edit { right: 56px; color: var(--ink-2); }
+.d-edit { position: absolute; z-index: 6; top: 54px; right: 12px; width: 230px; padding: 6px; border-radius: 16px; background: var(--panel);
+  box-shadow: 0 12px 32px -8px rgba(23, 33, 27, .28), 0 0 0 1px var(--line); display: grid; }
+.d-edit[hidden] { display: none; }
+.d-edit-h { padding: 6px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.d-edit button { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 40px; padding: 8px 10px; border: 0; border-radius: 10px;
+  background: none; text-align: left; font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.d-edit button small { font-size: 12px; color: var(--ink-3); font-weight: 400; }
+@media (hover: hover) { .d-edit button:hover { background: var(--panel-2); } }
+.d-meta .t { padding: 0; }
+
+.d-fb .review { position: relative; }
+.d-fb .review[hidden] { display: none; }
+.d-fb .review.mine { margin: -8px -10px 0; padding: 8px 10px 10px; border-radius: 14px; background: var(--panel-2); }
+.d-fb .rv-me { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--oak-soft); color: var(--oak); font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.d-fb .rv-more { flex: none; width: 28px; height: 28px; margin: -4px -6px -4px 2px; border: 0; border-radius: 50%; background: none; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; }
+.d-fb .rv-more .ic { width: 18px; height: 18px; fill: currentColor; stroke: none; }
+.d-fb .rv-more[aria-expanded="true"], .d-fb .rv-more:hover { background: var(--panel-2); color: var(--ink); }
+.d-fb .rv-menu { position: absolute; z-index: 4; top: 26px; right: 0; min-width: 210px; padding: 6px; border-radius: 14px; background: var(--panel);
+  box-shadow: 0 12px 32px -8px rgba(23, 33, 27, .28), 0 0 0 1px var(--line); display: grid; }
+.d-fb .rv-menu[hidden] { display: none; }
+.d-fb .rv-menu > * { display: block; padding: 9px 10px; border: 0; border-radius: 9px; background: none; text-align: left; font-size: 14px; font-weight: 500; color: var(--ink); text-decoration: none; cursor: pointer; }
+.d-fb .rv-menu [data-rvdel] { color: var(--ember); }
+@media (hover: hover) { .d-fb .rv-menu > *:hover { background: var(--panel-2); } }
+.d-fb .rv-all { justify-self: start; margin-top: 12px; padding: 0; border: 0; background: none; color: var(--oak); font-size: 14px; font-weight: 600; cursor: pointer; }
+.d-fb .rv-who { margin: 12px 0 0; }
+@media (max-width: 760px) {
+  .d-k { padding: 0 12px; }
+  .d-k b { font-size: 15px; }
+}
