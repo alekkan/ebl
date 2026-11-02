@@ -489,7 +489,7 @@ with sync_playwright() as pw:
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
-        s.page.click("#dVisit")
+        s.page.click("#addVisitBtn")   # карточка открыта — эта баня уже подставлена (02.11: «Я тут парился» в карточке больше нет)
         check("баня с примерной точкой — форма похода просит ссылку", s.js("() => !!document.querySelector('#vBathPicked .geo-ask #vGeo')"))
         s.page.fill("#vGeo", "55.7558, 37.6173"); s.page.press("#vGeo", "Enter")
         s.page.wait_for_function("() => /поставлена|Не нашёл|Войди|уже стоит/.test(document.querySelector('.geo-ask')?.innerText || '')", timeout=15000)
@@ -550,8 +550,8 @@ with sync_playwright() as pw:
         # отзывы: второй не затирает первый, свой можно удалить
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
-        check("в карточке сначала то, что знаем о бане: формы цены и отзыва — по кнопке, «Я тут парился» внизу на виду",
-              s.js("() => document.getElementById('prForm').hidden && document.getElementById('rvForm').hidden && !!document.querySelector('#drawer .d-foot #dVisit')"))
+        check("в карточке сначала главное (сегодня, вход, оценка) и кнопки карт; формы цены и отзыва — по кнопке",
+              s.js("() => document.getElementById('prForm').hidden && document.getElementById('rvForm').hidden && !!document.querySelector('#drawer #dMain #dPriceV') && !!document.querySelector('#drawer .d-acts #dShare') && !document.querySelector('#drawer .d-foot')"))
         s.page.click("#rvOpen")
         for t in ("Первый отзыв — проверка сайта", "Второй отзыв — проверка сайта"):
             s.page.fill("#rvText", t); s.page.click('#rvForm button[type="submit"]'); s.page.wait_for_timeout(900)
@@ -744,7 +744,7 @@ with sync_playwright() as pw:
         check("регион строчными — сохранился в написании лиги", bplace() == old_place, bplace())
         sql(f"update baths set country = {repr(old_country) if old_country else 'null'}, region = {repr(old_region) if old_region else 'null'} where id = {bath}")
         # поход за другого (только на сайте): Комиссия сама выбирает «Кто» и в бане могла не быть
-        s.page.click("#dVisit")   # из карточки этой бани
+        s.page.click("#addVisitBtn")   # при открытой карточке — поход в эту баню
         check("Комиссии «Кто» можно выбрать", s.js("() => !document.getElementById('vPlayer').disabled && !document.getElementById('vPlayerHint').hidden"))
         s.page.select_option("#vPlayer", "Леха")
         s.page.fill("#vDate", "2026-10-01T19:00"); s.page.wait_for_timeout(300)
@@ -935,17 +935,18 @@ with sync_playwright() as pw:
         sql(f"delete from bath_schedule where bath_id = {cb_id}")   # часы от участника (выше, та же баня) показались бы вместо часов из сверки
         s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
-        s.page.click(f'#list .item[data-id="{cb_id}"]'); s.page.wait_for_selector("#dInfo:not([hidden])", timeout=8000)
-        check("карточка: принятое в сверке — на своих местах: адрес вместо региона, «Сегодня 8–22», дни без пояснений агента, плашки, ссылки",
+        s.page.click(f'#list .item[data-id="{cb_id}"]'); s.page.wait_for_selector("#dAbout:not([hidden])", timeout=8000)
+        # 02.11 (макет карточки): часы — в главном блоке «Сегодня», удобства и дни — в «О бане», карты и сайт — кнопками
+        check("карточка: принятое в сверке — на своих местах: адрес вместо региона, «Сегодня 8–22», дни без пояснений агента, плашки, карты и сайт",
               s.js("""() => { const i = document.getElementById('dInfo').innerText; return /ул. Пара, 2/.test(document.querySelector('#drawer .where').innerText)
-                && /Сегодня 8–22/.test(i) && /мужские пн, ср/.test(i) && !/по 2ГИС/.test(i) && document.querySelectorAll('#dInfo .d-tags span').length === 2
-                && document.querySelectorAll('#dInfo .d-links a').length === 3 && document.querySelectorAll('#dInfo .d-links .l-grp').length === 2
-                && document.getElementById('dHours').hidden && getComputedStyle(document.querySelector('#drawer .w-acts')).display === 'block'; }"""))
+                && document.getElementById('dTodayV').innerText === '8–22' && /мужские пн, ср/.test(i) && !/по 2ГИС/.test(i) && document.querySelectorAll('#dInfo .d-tags span').length === 2
+                && [...document.querySelectorAll('#drawer .d-acts a')].filter((a) => !a.hidden).length === 3 && !document.getElementById('dSite').hidden
+                && document.getElementById('dWeek').hidden && getComputedStyle(document.querySelector('#drawer .w-acts')).display === 'block'; }"""))
         check("часы из сверки есть — форма пар их не спрашивает", s.js("() => document.getElementById('shOpen').textContent === '+ Указать пары'"))
-        s.page.click("#dInfo [data-hedit]")
-        check("…а «изменить» рядом с ними открывает поля часов", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden"))
-        s.page.click("#dHoursBtn")
-        check("…«все часы» — расписание по дням", s.js("() => !document.getElementById('dHours').hidden && /пн–вс 8–22/.test(document.getElementById('dHours').innerText)"))
+        s.page.click("#shOpen"); s.page.click("#shHoursEdit")
+        check("…а «изменить часы работы» в форме открывает поля часов", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden"))
+        s.page.click("#dToday")
+        check("…нажатие на «Сегодня» — расписание по дням", s.js("() => !document.getElementById('dWeek').hidden && /пн–вс 8–22/.test(document.getElementById('dWeek').innerText)"))
         check("цена с сайта — в «Цене»: только вход (кабины и аренду не показываем), первая крупно, остальное под «ещё»",
               s.js("""() => { const p = document.getElementById('dPriceSite'); return /1500 ₽/.test(p.querySelector('.ps-main b').innerText) && /ещё 1 вариант/.test(p.innerText)
                 && /по сайту бани/.test(p.innerText) && !/Invalid/.test(document.getElementById('drawer').innerText) && !/кабина|22400/.test(p.innerHTML); }"""))
@@ -1061,7 +1062,7 @@ with sync_playwright() as pw:
         s = Site(browser, url + f"#bath={rtb}", name="rate-card")
         s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000); s.page.wait_for_timeout(800)
         check("в карточке бани — рейтинг: общая, одна оценка и восемь пунктов",
-              s.js("() => /4.*1 оценка/s.test(document.getElementById('dRateTile').innerText) && document.querySelectorAll('#dRating .rate-rows > div').length === 8"))
+              s.js("() => /4.*1 оценка/s.test(document.getElementById('dRateTile').innerText) && document.querySelectorAll('#dRating > div').length === 8"))
         s.close()
         # 01.11: в карточке бани — «Ты тут был … · Оцени баню — 1 минута», если был и ещё не оценивал
         ib = sql("insert into baths (name, status, type, lat, lng, precision) values ('Тест-Приглашение', 'ok', 'public', 55.7, 37.6, 'exact') returning id").splitlines()[0]
