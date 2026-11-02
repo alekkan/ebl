@@ -1261,6 +1261,18 @@ with sync_playwright() as pw:
         s.page.wait_for_timeout(300); s.page.mouse.click(pt["x"], pt["y"]); s.page.wait_for_timeout(400)
         check("нажатие на точку на карте открывает карточку бани", "Тест-Радар Общественная" in s.js("() => document.querySelector('#pane .card h2')?.textContent || ''"))
         s.close()
+        # 02.11: что уже есть среди посещённых бань лиги с точной точкой — привязано к ней или ближе 150 м — не показываем
+        vb = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Радар Наша', 'ok', 'public', 'Россия', 55.76, 37.65, 'exact') returning id").splitlines()[0]
+        nb = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Радар Новая в лиге', 'ok', 'public', 'Россия', 55.78, 37.67, 'exact') returning id").splitlines()[0]
+        sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({vb}, 2025, 'Шурик', 1)")
+        sql(f"""insert into radar_places (key, name, city, region, lat, lng, kind, public_index, status, bath_id) values
+          ('view-test:6', 'Тест-Радар Рядом с нашей', 'Москва', 'Москва', 55.7605, 37.6505, 'public', 80, 'new', null),
+          ('view-test:7', 'Тест-Радар Привязана', 'Москва', 'Москва', 55.77, 37.66, 'public', 80, 'matched', {vb}),
+          ('view-test:8', 'Тест-Радар Заведена', 'Москва', 'Москва', 55.78, 37.67, 'public', 80, 'added', {nb})""")
+        got = sql("select string_agg(e->>1, ',') from json_array_elements(public.radar_view('view-test-key')) e where e->>1 like 'Тест-Радар%'")
+        check("Радар для просмотра: место ближе 150 м к посещённой бане и привязанное к ней — не показываем, заведённая без походов — в лиге",
+              "Рядом с нашей" not in got and "Привязана" not in got and "Заведена" in got and "Общественная" in got, got)
+        sql(f"delete from legacy_visits where bath_id = {vb}"); sql(f"delete from radar_places where key like 'view-test:%'"); sql(f"delete from baths where id in ({vb}, {nb})")
         sql("delete from radar_places where key like 'view-test:%'"); sql("delete from radar_view_keys where key = 'view-test-key'")
 
         print("Режим витрины (пустой config.js)")
