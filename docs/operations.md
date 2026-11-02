@@ -96,6 +96,14 @@ Telegram Web скриптом `scripts/seed-chat-members.sh <файл> --prod` (
 ответов), `anonymous` (по умолчанию да, как в Telegram); номер сообщения с опросом бот запишет в `message_id`:
 `supabase db query --linked "insert into bot_actions (kind, chat_id, payload) values ('poll', -1002192445671, '{\"question\": \"…\", \"options\": [\"…\", \"…\"], \"multiple\": true}')"`.
 
+**Сообщение с кнопкой «Отметить поход»** для закрепа в группе (02.11) — тем же путём: `kind = 'button'`, в `payload`
+необязательные `text` (текст сообщения), `label` (подпись кнопки, по умолчанию «Отметить поход») и `start` (по умолчанию
+`visit`). Кнопка — ссылка `t.me/eblsu_bot?startapp=visit`: открывает ebl.su внутри Telegram, сайт сам входит по данным
+Telegram и сразу показывает форму похода. Работает, только если у бота включено главное мини-приложение (владелец, один раз:
+@BotFather → Bot Settings → Configure Mini App → `https://ebl.su`); слово «Открыть» в профиле бота ставит Telegram, его не поменять.
+`supabase db query --linked "insert into bot_actions (kind, chat_id, payload) values ('button', <чат>, '{\"label\": \"Отметить поход\"}')"`
+— потом закрепить сообщение руками.
+
 ## Радар для просмотра (секретная ссылка)
 
 Все места Радара списком и на карте по категориям, без входа и без действий: страница `prototype/radar.html`,

@@ -381,6 +381,23 @@ with sync_playwright() as pw:
         s.clean("вход кодом из бота")
         s.close()
 
+        # кнопка «Отметить поход» в закрепе группы (02.11): t.me/eblsu_bot?startapp=visit — Telegram открывает сайт
+        # с ?tgWebAppStartParam=visit и подписанными данными в адресе; входим без кода и сразу показываем форму похода
+        from urllib.parse import quote
+        s = Site(browser, url + "?tgWebAppStartParam=visit#tgWebAppData=" + quote(webapp_init(2002, "Shurik_TG"), safe="")
+                 + "&tgWebAppVersion=8.0&tgWebAppPlatform=ios", name="tg-app", mobile=True)
+        s.page.wait_for_selector("#visitModal:not([hidden])", timeout=15000)
+        check("кнопка из Telegram: вошёл сам как Шурик и сразу открыта форма похода, данные Telegram из адреса убраны",
+              s.js("() => document.getElementById('meBtn').getAttribute('aria-label') === 'Профиль: Шурик'")
+              and s.js("() => document.getElementById('vPlayer').value") == "Шурик" and "tgWebAppData" not in s.page.url, s.page.url)
+        s.clean("кнопка из Telegram")
+        s.close()
+        s = Site(browser, url + "?tgWebAppStartParam=visit#tgWebAppData=" + quote(webapp_init(2002, "Shurik_TG").replace("Shurik_TG", "Vitek_TG"), safe=""),
+                 name="tg-app-bad", mobile=True, noise="/functions/v1/tg-login")
+        s.page.wait_for_selector("#loginModal:not([hidden])", timeout=15000)
+        check("подделанные данные Telegram — не вошёл, форма просит войти", s.js("() => !document.getElementById('meBtn').getAttribute('aria-label')?.startsWith('Профиль')"))
+        s.close()
+
         print("Участник")
         s = Site(browser, url, sess=shurik, name="member")
         check("вошёл как Шурик — в шапке аватарка, лента открыта", s.js("() => document.getElementById('meBtn').getAttribute('aria-label') === 'Профиль: Шурик'"))
