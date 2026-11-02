@@ -1438,6 +1438,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   .filt-sheet .filt-foot { display: flex; align-items: center; gap: 12px; margin: 4px -20px 0; padding: 14px 20px 0; border-top: 1px solid var(--line); }
   .filt-sheet .filt-foot .btn { flex: none; height: 54px; padding: 0 8px; border: 0; background: none; color: var(--ink-2); font-size: 15px; font-weight: 600; }
   .filt-sheet .filt-foot .cta { flex: 1; height: 54px; border-radius: 16px; font-size: 16px; }
+}
 
 /* ---------- карточка бани 02.11 (макет): главное одним блоком, кнопки карт, кто парился за всё время ---------- */
 .d-main { border-radius: 18px; background: var(--panel-2); --fan-bg: var(--panel-2); }

@@ -287,6 +287,9 @@ with sync_playwright() as pw:
         s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000)
         check("ссылка #bath=<номер> открывает карточку этой бани, в карточке — «Поделиться»",
               s.js("() => document.querySelector('#drawer').innerText.includes('Василевские') && !!document.getElementById('dShare')"))
+        # 02.11: потерянная скобка в style.css спрятала стили карточки в правила телефона — на компьютере лист-оценка был на пол-экрана
+        check("карточка на компьютере со своими стилями: главное — тремя колонками, веник-оценка маленький",
+              s.js("() => { const k = document.querySelector('#drawer .d-key'), f = document.querySelector('#drawer .fan'); return !!k && getComputedStyle(k).display === 'grid' && (!f || f.getBoundingClientRect().width < 40); }"))
         s.page.click("#drawer .x:not(.x-share)"); s.page.wait_for_timeout(200)
         check("…закрыл карточку — в адресе снова #map", s.js("() => location.hash") == "#map")
         s.close()
