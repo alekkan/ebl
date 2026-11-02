@@ -1303,10 +1303,10 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .item .dot svg { width: 20px; height: 20px; }
 .dot.t-unknown::after { content: ""; width: 28%; height: 28%; border-radius: 50%; background: currentColor; opacity: .55; }   /* тип не указан — точка, а не пустая плитка */
 .it-heat small { font-size: 11px; color: var(--ink-3); }
-/* точка бани на карте — белый кружок с значком цвета типа */
-.pin { background: var(--panel); color: var(--c); border: 0; box-shadow: 0 2px 7px rgba(20, 30, 20, .3); }
+/* точка бани на карте — заливка цветом типа, значок светлый: на карте белые кружки разных типов сливались (02.11, Леха) */
+.pin { background: var(--c); color: var(--panel); border: 2px solid var(--panel); box-shadow: 0 2px 6px rgba(20, 30, 20, .35); }
 .pin svg { width: 66%; height: 66%; }
-.pin .pin-dot { width: 32%; height: 32%; border-radius: 50%; background: var(--t-unknown); }
+.pin .pin-dot { width: 32%; height: 32%; border-radius: 50%; background: var(--panel); }
 .pin-drop > svg:not(.pin-drop-bg) { color: var(--panel); }
 
 /* типы — чипы со значком; выбранный — дубовая рамка, как в макете (без «Все»: нажал ещё раз — снова все) */
@@ -1372,7 +1372,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   /* шторка — под поиском и типами; свёрнутая показывает «N бань» */
   .panel { top: 112px; }
   #map .leaflet-bottom.leaflet-right { top: 112px; }
-  .countrow { padding: 2px 8px 6px 0; }
+  .countrow { padding: 2px 8px 6px 0; border-top: 0; }   /* над ней сразу полоска шторки — черта лишняя (02.11, Леха) */
   .count { padding: 4px 16px; }
   .count b { font-size: 18px; }
   .panel-head { display: block; }
