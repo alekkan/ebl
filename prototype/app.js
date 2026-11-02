@@ -625,12 +625,19 @@
     d.innerHTML = `
       <button type="button" class="grab d-grab" aria-label="Развернуть карточку на весь экран"><i></i></button>
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
+      ${canModerate && D.live ? `<button type="button" class="x x-edit" id="dEditBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="dEditMenu" aria-label="Правка Комиссии" title="Правка Комиссии"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
+      <div class="d-edit" id="dEditMenu" role="menu" hidden>
+        <span class="d-edit-h">Правка Комиссии</span>
+        <button type="button" role="menuitem" id="dTypeBtn" aria-expanded="false" aria-controls="dTypeAsk">Тип бани<small>${TYPE_LABEL[b.t]}</small></button>
+        <button type="button" role="menuitem" id="dRename">Название</button>
+        <button type="button" role="menuitem" id="geoFixBtn">Точка на карте<small>${exact ? "точная" : b.ll ? "примерная" : "нет"}</small></button>
+        <button type="button" role="menuitem" id="dPlaceBtn" aria-expanded="false" aria-controls="dPlaceAsk">Страна и регион</button>
+        <button type="button" role="menuitem" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "Работает снова" : "Закрылась"}</button>
+      </div>` : ""}
       <div class="d-body">
         <div class="d-hero t-${b.t}">
           <div class="d-meta">
-            ${canModerate && D.live
-              ? `<button type="button" class="t t-pick" id="dTypeBtn" aria-expanded="false" aria-controls="dTypeAsk" title="Сменить тип — Комиссия">${tdot(b.t)}${TYPE_LABEL[b.t]}<span aria-hidden="true">▾</span></button>`
-              : `<span class="t">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
+            <span class="t">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>
             ${flags.map((f) => `<span class="flag">${f}</span>`).join("")}
           </div>
           ${canModerate && D.live ? `<div class="type-ask" id="dTypeAsk" hidden>
@@ -638,12 +645,11 @@
             <p class="type-note" id="dTypeNote">Выбери новый тип.</p>
             <div class="type-acts"><button type="button" class="btn sm solid" id="dTypeGo" disabled>Сменить</button><button type="button" class="linkbtn" id="dTypeCancel">Отмена</button></div>
           </div>` : ""}
-          <h2 class="${long ? "long" : ""}">${esc(b.name)}${canModerate && D.live ? ` <button type="button" class="rename" id="dRename" title="Поправить название — Комиссия" aria-label="Поправить название">✏️</button>` : ""}</h2>
+          <h2 class="${long ? "long" : ""}">${esc(b.name)}</h2>
           <div class="geo-move">
             <p class="where">${icon("pin")}<span><span id="dWhereTxt">${esc(where(b))}</span>${geoNote ? ` · <span class="muted">${geoNote}</span>` : ""}${(() => {
-              const acts = [geoAct && `<button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>`,
-                canModerate && D.live && `<button type="button" class="linkbtn" id="dPlaceBtn" aria-expanded="false" aria-controls="dPlaceAsk">регион не тот?</button>`,
-                canModerate && D.live && `<button type="button" class="linkbtn" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "работает снова?" : "закрылась?"}</button>`].filter(Boolean);
+              // участнику — одна тихая ссылка («знаю, где это» / «точка не там?»); Комиссия правит всё из меню под карандашом
+              const acts = [!canModerate && geoAct && `<button class="linkbtn" id="geoFixBtn" type="button">${geoAct}</button>`].filter(Boolean);
               return acts.length ? `<span class="w-acts">${acts.join(" · ")}</span>` : "";   // своей строкой под адресом: адреса бывают длинными
             })()}</span></p>
             ${geoAct ? `<form id="geoFixForm" class="geo-form" hidden><input class="inp" id="geoFixInput" placeholder="Ссылка на баню в картах, адрес или координаты" required>
@@ -768,7 +774,12 @@
       if (!factCache.has(id)) factCache.set(id, D.bathFacts(id).catch(() => { factCache.delete(id); return null; }));
       factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); syncToday(id); });
     }
-    $(".x", d).onclick = closeBath;
+    $(".x:not(.x-edit)", d).onclick = closeBath;
+    const editBtn = $("#dEditBtn", d), editMenu = $("#dEditMenu", d);
+    if (editBtn) {
+      editBtn.onclick = () => { editMenu.hidden = !editMenu.hidden; editBtn.setAttribute("aria-expanded", String(!editMenu.hidden)); };
+      $$("[role=menuitem]", editMenu).forEach((x) => x.addEventListener("click", () => { editMenu.hidden = true; editBtn.setAttribute("aria-expanded", "false"); }));
+    }
     $("#dShare", d).onclick = () => shareBath(id);
     // тип бани — Комиссия меняет прямо в карточке, но только после подтверждения: от типа зависят очки за все походы сюда (18.10)
     const typeAsk = $("#dTypeAsk", d);
@@ -935,27 +946,42 @@
   const ratingsBy = new Map();   // баня → последние оценки по людям; грузим при открытии карточки
   const nickById = Object.fromEntries(Object.entries(data.playerIds || {}).map(([n, i]) => [i, n]));
   const timesIn = (b, nick) => (b?.v26?.[nick] || 0) + Object.values(b?.histBy || {}).reduce((a, y) => a + (y[nick] || 0), 0);
+  const FB_SHOW = 3;   // сколько записей видно сразу; остальные — «Показать все N»
   function feedbackHtml(id) {
     const rateOf = new Map((ratingsBy.get(id) || []).map((r) => [nickById[r.player_id], r]).filter(([n]) => n));
     const items = (reviews[id] || []).map((r) => ({ ...r, score: null })), used = new Set();
     for (const it of items) { const r = rateOf.get(it.author); if (r && !used.has(it.author)) { it.score = +r.overall; used.add(it.author); } }
     for (const [nick, r] of rateOf) if (!used.has(nick)) items.push({ author: nick, score: +r.overall, at: r.updated_at, mine: nick === myNick });
-    items.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    // своё — первым (правят из «⋯»), дальше свежие сверху
+    items.sort((a, b) => (b.mine === true) - (a.mine === true) || String(b.at || "").localeCompare(String(a.at || "")));
     const been = !!myNick && timesIn(byId.get(id), myNick) > 0, rated = !!myRated?.has(id) || rateOf.has(myNick);
     const score = (v) => `<span class="rv-rate"><b>${fmt(v)}</b>${fanSvg(v)}</span>`;
+    const menu = (it) => {
+      const acts = [it.mine && D.live && `<a role="menuitem" class="rv-edit" href="rate.html?b=${id}">Изменить оценку и отзыв</a>`,
+        it.id && (it.mine || canModerate) && `<button type="button" role="menuitem" data-rvdel="${it.id}">Удалить отзыв</button>`].filter(Boolean);
+      return acts.length ? `<button type="button" class="rv-more" data-rvmenu aria-haspopup="menu" aria-expanded="false" aria-label="Действия с ${it.mine ? "моей оценкой" : "отзывом"}">${icon("dots")}</button>
+        <div class="rv-menu" role="menu" hidden>${acts.join("")}</div>` : "";
+    };
     return `<h3 class="d-big">Отзывы и оценки${items.length ? ` · ${items.length}` : ""}</h3>
-      <div class="reviews">${items.length ? items.map((it) => `<div class="review">${ava(it.author)}<div>
-        <div class="rh"><b>${esc(it.author)}${it.sample ? '<span class="sample">пример</span>' : ""}</b>${it.score != null ? score(it.score) : it.rate ? score(it.rate) : ""}${it.at ? `<small class="hint">${dayLabel(mskIso(it.at))}</small>` : ""}</div>
+      <div class="reviews">${items.length ? items.map((it, i) => `<div class="review${it.mine ? " mine" : ""}" ${i >= FB_SHOW ? "hidden" : ""}>${ava(it.author)}<div>
+        <div class="rh"><b>${esc(it.author)}${it.mine ? '<span class="rv-me">ты</span>' : ""}${it.sample ? '<span class="sample">пример</span>' : ""}</b>${it.score != null ? score(it.score) : it.rate ? score(it.rate) : ""}${it.at ? `<small class="hint">${dayLabel(mskIso(it.at))}</small>` : ""}${menu(it)}</div>
         ${it.text ? `<p>${esc(it.text)}</p>` : '<p class="hint rv-none">оценка без отзыва</p>'}
-        ${it.id && (it.mine || canModerate) ? `<span class="rv-acts"><button type="button" class="linkbtn" data-rvdel="${it.id}">удалить отзыв</button></span>` : ""}
       </div></div>`).join("") : `<p class="hint" style="margin:0">Пока никто не оценил${been ? " — оцени первым" : ""}.</p>`}</div>
+      ${items.length > FB_SHOW ? `<button type="button" class="rv-all" id="rvAll">Показать все ${items.length}</button>` : ""}
       ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Оценки и отзывы — от участников лиги, которые были в бане.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>`
-        : been && D.live ? `<a class="btn solid rv-go" id="rvGo" href="rate.html?b=${id}">${rated ? "Изменить оценку и отзыв" : "Оценить и написать отзыв"}</a>`
-        : '<p class="hint" style="margin:0">Оценивают и пишут отзывы те, кто был в бане — сходишь, и кнопка появится.</p>'}`;
+        : been && D.live && !rated ? `<a class="btn solid rv-go" id="rvGo" href="rate.html?b=${id}">Оценить и написать отзыв</a>`
+        : !been ? '<p class="hint rv-who">Оценивают и пишут отзывы те, кто был в бане.</p>' : ""}`;
   }
   function bindFeedback(id) {
     const box = $("#dFeedback"); if (!box) return;
     $("#rvLogin", box)?.addEventListener("click", () => (me ? openClaim() : openLogin()));
+    $("#rvAll", box)?.addEventListener("click", (e) => { $$(".review[hidden]", box).forEach((x) => (x.hidden = false)); e.currentTarget.remove(); });
+    // «⋯» у записи — маленькое меню; открыто одно, нажатие мимо закрывает
+    const closeAll = () => $$(".rv-menu", box).forEach((m) => { m.hidden = true; m.previousElementSibling?.setAttribute("aria-expanded", "false"); });
+    $$("[data-rvmenu]", box).forEach((b) => (b.onclick = (e) => {
+      e.stopPropagation(); const m = b.nextElementSibling, open = m.hidden; closeAll(); m.hidden = !open; b.setAttribute("aria-expanded", String(open));
+    }));
+    box.addEventListener("click", (e) => { if (!e.target.closest(".rv-menu")) closeAll(); });
     $$("[data-rvdel]", box).forEach((x) => (x.onclick = async () => {
       if (!confirm("Удалить отзыв? Оценка останется.")) return;
       try { await D.deleteReview(id, +x.dataset.rvdel); reviews[id] = (reviews[id] || []).filter((r) => r.id !== +x.dataset.rvdel); toast("Отзыв удалён"); openBath(id); }
@@ -1046,7 +1072,7 @@
     const sc = schedNow.get(id), f = factNow.get(id), byDay = hoursByDay(f?.hours), wd = (new Date().getDay() + 6) % 7;
     const h = sc?.hours, today = h ? (h.open === h.close ? "круглосуточно" : `${h.open}–${h.close}`) : byDay ? byDay[wd] || "не работает" : null;
     const ts = sc?.steam?.times || [], now = mskNow().slice(11, 16), next = ts.find((t) => t > now);
-    $("#dTodayV").textContent = today || "—";
+    $("#dTodayV").textContent = today ? today.replace(/(^|[–\s])0(\d:)/g, "$1$2") : "—";
     $("#dTodaySub").textContent = next ? `пар в ${next}` : ts.length ? "пары кончились" : today ? "пары не указали" : "часы не указали";   // мужские и женские дни — в «О бане»
     $("#dTodaySub").classList.toggle("steam", !!next);
     const week = [h ? `${h.open === h.close ? "круглосуточно" : `ежедневно ${h.open}–${h.close}`}` : byDay ? hoursRows(byDay).map(esc).join("<br>") : f?.hours ? esc(f.hours) : "",

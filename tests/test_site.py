@@ -197,6 +197,13 @@ class Site:
         self.ctx.close()
 
 
+def kom_click(s, sel):
+    """Правка Комиссии в карточке бани — пункты меню под карандашом (02.11): открыть меню, если закрыто, и нажать пункт."""
+    if s.js("() => !!document.getElementById('dEditMenu') && document.getElementById('dEditMenu').hidden"):
+        s.page.click("#dEditBtn")
+    s.page.click(sel)
+
+
 def swipe(s, x, y0, y1, steps=8, ms=120):
     """Провести пальцем по экрану телефона (настоящие касания через CDP): быстро — взмах, медленно (больше шагов и мс) — протянуть."""
     cdp = s.ctx.new_cdp_session(s.page)
@@ -509,7 +516,7 @@ with sync_playwright() as pw:
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
         check("участнику переименовать баню и сменить её тип нельзя, фильтра по точкам нет — это Комиссии",
               s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && !document.getElementById('dCloseBtn') && !document.getElementById('dPlaceBtn') && document.getElementById('fPrecGrp').hidden"))
-        s.page.click("#geoFixBtn"); s.page.fill("#geoFixInput", "55.783951, 37.354822"); s.page.click('#geoFixForm button[type="submit"]')
+        kom_click(s, "#geoFixBtn"); s.page.fill("#geoFixInput", "55.783951, 37.354822"); s.page.click('#geoFixForm button[type="submit"]')
         s.page.wait_for_function("() => /Передал Комиссии|Не нашёл|Войди/.test(document.querySelector('#drawer .geo-move')?.innerText || '')", timeout=15000)
         req_row = sql(f"select status || ' ' || source || ' ' || round(lat::numeric, 4) from bath_point_requests where bath_id = {bath}")
         check("точная точка — предложение Комиссии: запрос ждёт, точка прежняя",
@@ -569,7 +576,7 @@ with sync_playwright() as pw:
         check("лента: оба отзыва и оценка Витька без текста (с цифрой и веником)", "Первый отзыв" in fb and "Второй отзыв" in fb and "Витёк" in fb and "оценка без отзыва" in fb
               and s.js("() => document.querySelectorAll('#dFeedback .review .fan').length >= 1"), fb[:400])
         my_reviews = f"select count(*) from reviews where bath_id = {bath} and player_id = '{shurik_id}' and text like '%— проверка сайта'"
-        s.page.click("#dFeedback [data-rvdel]"); s.page.wait_for_timeout(900)
+        s.page.click("#dFeedback .review.mine [data-rvmenu]"); s.page.click("#dFeedback .review.mine [data-rvdel]"); s.page.wait_for_timeout(900)
         check("свой отзыв можно удалить — оценка остаётся", sql(my_reviews) == "1", sql(my_reviews))
         sql(f"delete from reviews where bath_id = {bath} and text like '%— проверка сайта'"); sql(f"delete from bath_ratings where bath_id = {bath} and visit_id is null")
         # цена: новая запись, повтор той же цены не дублирует, другая цена — новая строка (история, не перезапись)
@@ -701,12 +708,12 @@ with sync_playwright() as pw:
         bath_name = sql(f"select name from baths where id = {bath}")
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
-        s.page.click("#dRename"); s.page.wait_for_timeout(900)
+        kom_click(s, "#dRename"); s.page.wait_for_timeout(900)
         check("Комиссия переименовывает баню в карточке", sql(f"select name from baths where id = {bath}") == "проверка сайта")
         sql(f"update baths set name = '{bath_name}' where id = {bath}")
         # тип бани — и из карточки (18.10), но только Комиссии и только после подтверждения
         btype = lambda: sql(f"select coalesce(type, '') from baths where id = {bath}")
-        s.page.click("#dTypeBtn")
+        kom_click(s, "#dTypeBtn")
         # страница помнит тип из справочника выше (в базе его уже откатили) — берём тип, отличный от показанного в карточке
         shown = s.js("() => document.querySelector('#dTypeAsk [aria-pressed=\"true\"]')?.dataset.newtype || ''")
         card_type = next(t for t in ("public", "spa", "private") if t != shown)
@@ -715,12 +722,12 @@ with sync_playwright() as pw:
               s.js("() => /→/.test(document.getElementById('dTypeNote').innerText) && /пересчита/.test(document.getElementById('dTypeNote').innerText)") and btype() == old_type)
         s.page.click("#dTypeCancel")
         check("«Отмена» — строка закрылась, тип прежний", s.js("() => document.getElementById('dTypeAsk').hidden") and btype() == old_type)
-        s.page.click("#dTypeBtn"); s.page.click(f'#dTypeAsk [data-newtype="{card_type}"]'); s.page.click("#dTypeGo"); s.page.wait_for_timeout(1500)
+        kom_click(s, "#dTypeBtn"); s.page.click(f'#dTypeAsk [data-newtype="{card_type}"]'); s.page.click("#dTypeGo"); s.page.wait_for_timeout(1500)
         check("«Сменить» — тип бани поменялся", btype() == card_type)
         sql(f"update baths set type = {repr(old_type) if old_type else 'null'} where id = {bath}")
         # баня закрылась (19.10): Комиссия отмечает в карточке с подтверждением; походы остаются, в форме похода не предлагаем
         bclosed = lambda: sql(f"select coalesce(closed_on::text, '') from baths where id = {bath}")
-        s.page.click("#dCloseBtn")
+        kom_click(s, "#dCloseBtn")
         check("«Закрылась?» — строка подтверждения с месяцем, без «Закрыта» ничего не меняется",
               s.js("() => !document.getElementById('dCloseAsk').hidden && /Походы и очки останутся/.test(document.getElementById('dCloseAsk').innerText) && !!document.getElementById('dCloseMonth')") and bclosed() == "")
         s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
@@ -739,20 +746,20 @@ with sync_playwright() as pw:
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(900); s.page.click("#drawer .x"); s.page.wait_for_timeout(500)
         check("на карте закрытая баня — бледная", s.js("() => !!document.querySelector('#map .pin.closed')"))
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
-        s.page.click("#dCloseBtn"); s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
+        kom_click(s, "#dCloseBtn"); s.page.click("#dCloseGo"); s.page.wait_for_timeout(1500)
         check("«Работает снова» — дата закрытия снята", bclosed() == "")
         sql(f"update baths set closed_on = null where id = {bath}")
         # страна и регион (21.10): из таблицы бывают неверные («Хельсинки» в Хабаровском крае) — Комиссия правит в карточке
         bplace = lambda: sql(f"select coalesce(country, '') || '|' || coalesce(region, '') from baths where id = {bath}")
         old_place = bplace(); old_country, old_region = old_place.split("|")
-        s.page.click("#dPlaceBtn")
+        kom_click(s, "#dPlaceBtn")
         check("«Регион не тот?» — строка со страной и регионом, как сейчас у бани",
               s.js("() => !document.getElementById('dPlaceAsk').hidden") and s.page.input_value("#dPlaceCountry") == old_country and s.page.input_value("#dPlaceRegion") == old_region)
         s.page.fill("#dPlaceCountry", "Финляндия"); s.page.fill("#dPlaceRegion", "Уусимаа"); s.page.click("#dPlaceGo"); s.page.wait_for_timeout(1500)
         check("«Сохранить» — в лиге новые страна и регион, в карточке тоже", bplace() == "Финляндия|Уусимаа" and
               s.js("() => /Уусимаа, Финляндия/.test(document.getElementById('dWhereTxt').innerText)"), bplace())
         # написание — как уже встречалось у лиги: «москва» не заводит новый регион рядом с «Москва»
-        s.page.click("#dPlaceBtn"); s.page.fill("#dPlaceCountry", old_country.lower()); s.page.fill("#dPlaceRegion", old_region.lower())
+        kom_click(s, "#dPlaceBtn"); s.page.fill("#dPlaceCountry", old_country.lower()); s.page.fill("#dPlaceRegion", old_region.lower())
         s.page.click("#dPlaceGo"); s.page.wait_for_timeout(1500)
         check("регион строчными — сохранился в написании лиги", bplace() == old_place, bplace())
         sql(f"update baths set country = {repr(old_country) if old_country else 'null'}, region = {repr(old_region) if old_region else 'null'} where id = {bath}")
@@ -954,7 +961,7 @@ with sync_playwright() as pw:
               s.js("""() => { const i = document.getElementById('dInfo').innerText; return /ул. Пара, 2/.test(document.querySelector('#drawer .where').innerText)
                 && document.getElementById('dTodayV').innerText === '8–22' && /мужские пн, ср/.test(i) && !/по 2ГИС/.test(i) && document.querySelectorAll('#dInfo .d-tags span').length === 2
                 && [...document.querySelectorAll('#drawer .d-acts a')].filter((a) => !a.hidden).length === 3 && !document.getElementById('dSite').hidden
-                && document.getElementById('dWeek').hidden && getComputedStyle(document.querySelector('#drawer .w-acts')).display === 'block'; }"""))
+                && document.getElementById('dWeek').hidden; }"""))
         check("часы из сверки есть — форма пар их не спрашивает", s.js("() => document.getElementById('shOpen').textContent === '+ Указать пары'"))
         s.page.click("#shOpen"); s.page.click("#shHoursEdit")
         check("…а «изменить часы работы» в форме открывает поля часов", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden"))
@@ -1099,9 +1106,9 @@ with sync_playwright() as pw:
         check("…после оценки приглашения в карточке нет", s.js("() => !document.querySelector('#dRateInvite .rate-invite')"))
         # 02.11: в ленте — своя запись с оценкой и текстом, кнопка «Изменить оценку и отзыв» — на страницу оценки
         s.page.wait_for_function("() => /Первая версия/.test(document.getElementById('dFeedback')?.innerText || '')", timeout=8000)
-        check("…в ленте своя оценка с отзывом, кнопка — «Изменить оценку и отзыв»",
-              s.js("() => document.getElementById('rvGo')?.innerText === 'Изменить оценку и отзыв' && !!document.querySelector('#dFeedback .review .fan')"))
-        s.page.click("#rvGo"); s.page.wait_for_selector("#rateBody [data-heat]", timeout=8000)
+        check("…в ленте своя оценка с отзывом — первой, с «ты»; большой кнопки уже нет, правка — в «⋯»",
+              s.js("() => !document.getElementById('rvGo') && !!document.querySelector('#dFeedback .review.mine .rv-me') && document.querySelector('#dFeedback .review').classList.contains('mine') && !!document.querySelector('#dFeedback .review .fan')"))
+        s.page.click("#dFeedback .review.mine [data-rvmenu]"); s.page.click("#dFeedback .review.mine .rv-edit"); s.page.wait_for_selector("#rateBody [data-heat]", timeout=8000)
         for k in ("stove", "steam", "aqua", "outdoor", "kitchen", "atmosphere", "service", "prices"):
             heat(s, k, 5)
         s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
