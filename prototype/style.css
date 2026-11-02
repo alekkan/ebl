@@ -1481,7 +1481,8 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-owner b { display: block; font-size: 15px; }
 .d-owner small { display: block; font-size: 13px; color: var(--ink-3); }
 .drawer h3.d-big { font: 800 17px var(--display); letter-spacing: 0; text-transform: none; color: var(--ink); }
-.rv-rate { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.review .rh { justify-content: flex-start; }   /* оценка — сразу за ником, дата — справа */
+.rv-rate { display: inline-flex; align-items: center; gap: 4px; }
 .rv-rate b { font: 700 14px var(--display); color: var(--oak); }
 .rv-rate .fan { width: 20px; height: 18px; }
 @media (max-width: 760px) {

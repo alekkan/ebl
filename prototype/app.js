@@ -1053,7 +1053,7 @@
     const h = sc?.hours, today = h ? (h.open === h.close ? "круглосуточно" : `${h.open}–${h.close}`) : byDay ? byDay[wd] || "не работает" : null;
     const ts = sc?.steam?.times || [], now = mskNow().slice(11, 16), next = ts.find((t) => t > now);
     $("#dTodayV").textContent = today || "—";
-    $("#dTodaySub").textContent = next ? `пар в ${next}` : ts.length ? "пары кончились" : today ? (f?.gender_days ? "есть муж. и жен. дни" : "пары не указали") : "часы не указали";
+    $("#dTodaySub").textContent = next ? `пар в ${next}` : ts.length ? "пары кончились" : today ? "пары не указали" : "часы не указали";   // мужские и женские дни — в «О бане»
     $("#dTodaySub").classList.toggle("steam", !!next);
     const week = [h ? `${h.open === h.close ? "круглосуточно" : `ежедневно ${h.open}–${h.close}`}` : byDay ? hoursRows(byDay).map(esc).join("<br>") : f?.hours ? esc(f.hours) : "",
       ts.length ? `пары: ${ts.join(" · ")}` : "", f?.gender_days ? esc(String(f.gender_days).replace(/\s*\([^)]*\)/g, "")) : ""].filter(Boolean);
