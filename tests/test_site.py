@@ -554,14 +554,24 @@ with sync_playwright() as pw:
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
         check("в карточке сначала главное (сегодня, вход, оценка) и кнопки карт; формы цены и отзыва — по кнопке",
-              s.js("() => document.getElementById('prForm').hidden && document.getElementById('rvForm').hidden && !!document.querySelector('#drawer #dMain #dPriceV') && !!document.querySelector('#drawer .d-acts #dShare') && !document.querySelector('#drawer .d-foot')"))
-        s.page.click("#rvOpen")
+              s.js("() => document.getElementById('prForm').hidden && !!document.querySelector('#drawer #dMain #dPriceV') && !!document.querySelector('#drawer .d-acts #dShare') && !document.querySelector('#drawer .d-foot')"))
+        # 02.11: «Отзывы и оценки» — одной лентой; пишут на странице оценки (кнопка — тем, кто был), в карточке формы нет
+        check("в карточке нет своей формы отзыва — кнопка ведёт на страницу оценки или её нет",
+              s.js(f"() => !document.getElementById('rvForm') && (!document.getElementById('rvGo') || document.getElementById('rvGo').getAttribute('href') === 'rate.html?b={bath}')"))
+        shurik_id = player_id('Шурик')
         for t in ("Первый отзыв — проверка сайта", "Второй отзыв — проверка сайта"):
-            s.page.fill("#rvText", t); s.page.click('#rvForm button[type="submit"]'); s.page.wait_for_timeout(900)
-        my_reviews = f"select count(*) from reviews where bath_id = {bath} and player_id = '{player_id('Шурик')}' and text like '%— проверка сайта'"
-        check("второй отзыв на ту же баню не затирает первый", sql(my_reviews) == "2", sql(my_reviews))
-        s.page.click("#drawer [data-rvdel]"); s.page.wait_for_timeout(900)
-        check("свой отзыв можно удалить", sql(my_reviews) == "1", sql(my_reviews))
+            sql(f"insert into reviews (bath_id, player_id, rating, text) values ({bath}, '{shurik_id}', 4, '{t}')")
+        sql(f"insert into bath_ratings (visit_id, bath_id, player_id, stove, steam, aqua, outdoor, kitchen, atmosphere, service, prices) values (null, {bath}, '{player_id('Витёк')}', 5, 5, 4, 4, 3, 5, 4, 4)")
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_function("() => /оценка без отзыва/.test(document.getElementById('dFeedback')?.innerText || '')", timeout=8000)
+        fb = s.js("() => document.getElementById('dFeedback').innerText")
+        check("лента: оба отзыва и оценка Витька без текста (с цифрой и веником)", "Первый отзыв" in fb and "Второй отзыв" in fb and "Витёк" in fb and "оценка без отзыва" in fb
+              and s.js("() => document.querySelectorAll('#dFeedback .review .fan').length >= 1"), fb[:400])
+        my_reviews = f"select count(*) from reviews where bath_id = {bath} and player_id = '{shurik_id}' and text like '%— проверка сайта'"
+        s.page.click("#dFeedback [data-rvdel]"); s.page.wait_for_timeout(900)
+        check("свой отзыв можно удалить — оценка остаётся", sql(my_reviews) == "1", sql(my_reviews))
+        sql(f"delete from reviews where bath_id = {bath} and text like '%— проверка сайта'"); sql(f"delete from bath_ratings where bath_id = {bath} and visit_id is null")
         # цена: новая запись, повтор той же цены не дублирует, другая цена — новая строка (история, не перезапись)
         price_rows = f"select count(*) from bath_prices where bath_id = {bath}"
         s.page.click("#prOpen")   # дальше форма остаётся открытой, пока карточка та же
@@ -1082,13 +1092,29 @@ with sync_playwright() as pw:
         s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
         check("…оценка по бане сохранилась, фото без похода не предлагаем",
               sql(f"select overall from bath_ratings where bath_id = {ib} and visit_id is null") == "4.00" and not s.js("() => !!document.getElementById('ratePhotos')"))
+        s.page.fill("#rateText", "Первая версия отзыва"); s.page.click("#rateRv button[type=submit]"); s.page.wait_for_selector("#rateBody .rate-done a", timeout=8000)
+        rv_ib = lambda: sql(f"select count(*) || ':' || coalesce(max(text), '') from reviews where bath_id = {ib}")
+        check("…отзыв с оценкой сохранился", rv_ib() == "1:Первая версия отзыва", rv_ib())
         s.page.goto(url + f"#bath={ib}"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000); s.page.wait_for_timeout(1200)
         check("…после оценки приглашения в карточке нет", s.js("() => !document.querySelector('#dRateInvite .rate-invite')"))
+        # 02.11: в ленте — своя запись с оценкой и текстом, кнопка «Изменить оценку и отзыв» — на страницу оценки
+        s.page.wait_for_function("() => /Первая версия/.test(document.getElementById('dFeedback')?.innerText || '')", timeout=8000)
+        check("…в ленте своя оценка с отзывом, кнопка — «Изменить оценку и отзыв»",
+              s.js("() => document.getElementById('rvGo')?.innerText === 'Изменить оценку и отзыв' && !!document.querySelector('#dFeedback .review .fan')"))
+        s.page.click("#rvGo"); s.page.wait_for_selector("#rateBody [data-heat]", timeout=8000)
+        for k in ("stove", "steam", "aqua", "outdoor", "kitchen", "atmosphere", "service", "prices"):
+            heat(s, k, 5)
+        s.page.click("#rateSave"); s.page.wait_for_selector("#rateRv", timeout=8000)
+        s.page.wait_for_function("() => document.getElementById('rateText').value === 'Первая версия отзыва'", timeout=8000)
+        check("…на странице оценки прежний отзыв уже в поле", True)
+        s.page.fill("#rateText", "Вторая версия отзыва"); s.page.click("#rateRv button[type=submit]"); s.page.wait_for_selector("#rateBody .rate-done a", timeout=8000)
+        check("…сохранение правит отзыв, а не пишет второй; оценка новая",
+              rv_ib() == "1:Вторая версия отзыва" and sql(f"select overall from bath_ratings where bath_id = {ib} and visit_id is null") == "5.00", rv_ib())
         s.close()
         s = Site(browser, url + f"#bath={ib}", name="rate-invite-guest"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000); s.page.wait_for_timeout(800)
         check("гостю приглашения нет", s.js("() => !document.querySelector('#dRateInvite .rate-invite')"))
         s.close()
-        sql(f"delete from baths where id = {ib}")
+        sql(f"delete from reviews where bath_id = {ib}"); sql(f"delete from baths where id = {ib}")
         # 01.11, баг Витька: поход 2026 года из таблицы (без отметки на портале) — тоже «Ты тут был в 2026»
         ib = sql("insert into baths (name, status, type, lat, lng, precision) values ('Тест-Приглашение-2026', 'ok', 'public', 55.7, 37.6, 'exact') returning id").splitlines()[0]
         sql(f"insert into legacy_visits (bath_id, year, nick, n) values ({ib}, 2026, 'Шурик', 1)")

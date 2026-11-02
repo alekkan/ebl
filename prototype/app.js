@@ -596,7 +596,6 @@
     const rv = reviews[id] || [];
     // отзывов у участника может быть несколько (сходил ещё раз — написал ещё); средней по ним больше нет — рейтинг бани
     // считается по восьми пунктам (bath_ratings, 01.11)
-    const myRate = 4, iWrote = rv.some((r) => r.mine);
     const pending = visits.filter((v) => v.bathId === id && v.status === "pending").length;
     // последний засчитанный поход с портала — журнал видят только участники, гостю строки нет
     const lastV = visits.filter((v) => v.bathId === id && v.status === "ok").sort((x, y) => y.date.localeCompare(x.date))[0];
@@ -693,25 +692,7 @@
           ${lastV ? `<p class="hint last-visit" style="margin:6px 0 0">Последний раз — <b>${dayLabel(lastV.date)}</b>: ${esc([lastV.player, ...(lastV.companions || [])].join(", "))}</p>` : ""}
           ${pending ? `<p class="hint" style="margin:6px 0 0">Ещё ${pending} на модерации</p>` : ""}
         </section>
-        <section>
-          <h3 class="d-big">Отзывы${rv.length ? " · " + rv.length : ""}</h3>
-          <div class="reviews">
-            ${rv.length ? rv.map((r) => `<div class="review">${ava(r.author)}<div>
-              <div class="rh"><b>${esc(r.author)}${r.sample ? '<span class="sample">пример</span>' : ""}</b><span class="rv-rate"><b>${r.rate}</b>${fanSvg(r.rate)}</span>${r.at ? `<small class="hint">${dayLabel(mskIso(r.at))}</small>` : ""}</div>
-              <p>${esc(r.text)}</p>${r.id && (r.mine || canModerate) ? `<button type="button" class="linkbtn" data-rvdel="${r.id}">удалить</button>` : ""}</div></div>`).join("") : `<p class="hint" style="margin:0">Отзывов пока нет — расскажи про пар первым.</p>`}
-          </div>
-          ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Отзывы пишут участники лиги.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>` : `
-          <button type="button" class="addbtn" id="rvOpen" ${cardOpen.has("rv") ? "hidden" : ""}>+ ${iWrote ? "Ещё отзыв" : "Написать отзыв"}</button>
-          <form class="rvform" id="rvForm" ${cardOpen.has("rv") ? "" : "hidden"}>
-            <div class="row">
-              <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === myRate}" aria-label="${n} из 5">${leafSvg(n <= myRate).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
-              ${D.live ? `<span class="hint">от имени <b>${esc(me.nick)}</b></span>` : `<select id="rvAuthor" class="sel" aria-label="Автор">${players.map((p) => `<option ${p === store.get("me", "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`}
-            </div>
-            <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва"></textarea>
-            <button class="btn solid" type="submit" style="justify-self:start">${iWrote ? "Добавить ещё отзыв" : "Опубликовать отзыв"}</button>
-            ${iWrote ? '<span class="hint">Прошлый отзыв останется — это будет ещё один.</span>' : ""}
-          </form>`}
-        </section>
+        <section class="d-fb" id="dFeedback">${feedbackHtml(id)}</section>
         <section>
           <h3>Цена</h3>
           <div class="price-now">
@@ -880,16 +861,12 @@
       } catch (err) { toast("Не сохранилось: " + err.message); }
     });
     $$("[data-player]", d).forEach((x) => (x.onclick = () => openPlayer(x.dataset.player)));
-    const rateBtns = $$("#rvRate button", d);
-    const setRate = (n) => rateBtns.forEach((x) => { const on = +x.dataset.r <= n; x.setAttribute("aria-checked", String(+x.dataset.r === n)); $(".leaf", x).classList.toggle("on", on); });
-    rateBtns.forEach((x) => (x.onclick = () => setRate(+x.dataset.r)));
     $("#geoFixBtn", d)?.addEventListener("click", () => { const f = $("#geoFixForm", d); f.hidden = !f.hidden; if (!f.hidden) $("#geoFixInput", d).focus(); });
-    // формы цены и отзыва — по кнопке: сначала то, что уже знаем о бане; открытая остаётся открытой, пока карточка та же
+    // формы цены и пар — по кнопке: сначала то, что уже знаем о бане; открытая остаётся открытой, пока карточка та же
     const openForm = (key, btn, form, focus) => $(btn, d)?.addEventListener("click", () => {
       cardOpen.add(key); $(btn, d).hidden = true; $(form, d).hidden = false; $(focus, d)?.focus();
     });
     openForm("pr", "#prOpen", "#prForm", "#prPrice");
-    openForm("rv", "#rvOpen", "#rvForm", "#rvText");
     openForm("sh", "#shOpen", "#shForm", "#shEvery button");
     const shForm = $("#shForm", d);
     if (shForm) {
@@ -942,12 +919,8 @@
         refreshData().then(() => openId === id && openBath(id)).catch(() => {});   // страну и регион по точке сервер мог заполнить
       } catch (err) { toast(err.message); }
     });
-    $("#rvLogin", d)?.addEventListener("click", () => (me ? openClaim() : openLogin()));
-    $$("[data-rvdel]", d).forEach((x) => (x.onclick = async () => {
-      if (!confirm("Удалить отзыв?")) return;
-      try { await D.deleteReview(id, +x.dataset.rvdel); reviews[id] = (reviews[id] || []).filter((r) => r.id !== +x.dataset.rvdel); toast("Отзыв удалён"); openBath(id); }
-      catch (err) { toast("Не удалилось: " + err.message); }
-    }));
+    bindFeedback(id);
+    if (D.live && !ratingsBy.has(id)) D.bathRatingsBy(id).then((rows) => { ratingsBy.set(id, rows); if (openId === id && $("#dFeedback")) { $("#dFeedback").innerHTML = feedbackHtml(id); bindFeedback(id); } }).catch(() => {});
     // Комиссия правит название бани прямо в карточке («Северные Киров» → «Киров, Северные»)
     $("#dRename", d)?.addEventListener("click", async () => {
       const name = prompt("Название бани — как в справочнике Комиссии", b.name)?.trim();
@@ -955,18 +928,39 @@
       try { await D.moderateBath(id, { name }); b.name = name; hydrate(b); render(); openBath(id); toast("Название поправлено"); }
       catch (err) { toast("Не получилось: " + err.message); }
     });
-    const rvForm = $("#rvForm", d);
-    if (rvForm) rvForm.onsubmit = async (e) => {
-      e.preventDefault();
-      const text = $("#rvText", d).value.trim(); if (!text) return;
-      const rate = +(rateBtns.find((x) => x.getAttribute("aria-checked") === "true")?.dataset.r || 4);
-      const author = D.live ? me.nick : $("#rvAuthor", d).value;
-      try {
-        const rid = await D.submitReview(id, author, rate, text);
-        if (D.live) reviews[id] = [{ id: rid, author, rate, text, at: new Date().toISOString(), mine: true }, ...(reviews[id] || [])];
-        toast("Отзыв опубликован — спасибо за пар"); openBath(id);
-      } catch (err) { toast("Отзыв не сохранился: " + err.message); }
-    };
+  }
+  // «Отзывы и оценки» (02.11, Леха): отзывы и оценки без текста — одной лентой, свежие сверху. У человека — его последняя
+  // оценка бани по восьми пунктам (bath_ratings), у старых отзывов без неё — их «звезда». Поправить своё — кнопкой под лентой: страница оценки,
+  // там прежние баллы и прежний отзыв. Оценивают и пишут те, кто был в бане (bath_counts), — кнопка только им
+  const ratingsBy = new Map();   // баня → последние оценки по людям; грузим при открытии карточки
+  const nickById = Object.fromEntries(Object.entries(data.playerIds || {}).map(([n, i]) => [i, n]));
+  const timesIn = (b, nick) => (b?.v26?.[nick] || 0) + Object.values(b?.histBy || {}).reduce((a, y) => a + (y[nick] || 0), 0);
+  function feedbackHtml(id) {
+    const rateOf = new Map((ratingsBy.get(id) || []).map((r) => [nickById[r.player_id], r]).filter(([n]) => n));
+    const items = (reviews[id] || []).map((r) => ({ ...r, score: null })), used = new Set();
+    for (const it of items) { const r = rateOf.get(it.author); if (r && !used.has(it.author)) { it.score = +r.overall; used.add(it.author); } }
+    for (const [nick, r] of rateOf) if (!used.has(nick)) items.push({ author: nick, score: +r.overall, at: r.updated_at, mine: nick === myNick });
+    items.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    const been = !!myNick && timesIn(byId.get(id), myNick) > 0, rated = !!myRated?.has(id) || rateOf.has(myNick);
+    const score = (v) => `<span class="rv-rate"><b>${fmt(v)}</b>${fanSvg(v)}</span>`;
+    return `<h3 class="d-big">Отзывы и оценки${items.length ? ` · ${items.length}` : ""}</h3>
+      <div class="reviews">${items.length ? items.map((it) => `<div class="review">${ava(it.author)}<div>
+        <div class="rh"><b>${esc(it.author)}${it.sample ? '<span class="sample">пример</span>' : ""}</b>${it.score != null ? score(it.score) : it.rate ? score(it.rate) : ""}${it.at ? `<small class="hint">${dayLabel(mskIso(it.at))}</small>` : ""}</div>
+        ${it.text ? `<p>${esc(it.text)}</p>` : '<p class="hint rv-none">оценка без отзыва</p>'}
+        ${it.id && (it.mine || canModerate) ? `<span class="rv-acts"><button type="button" class="linkbtn" data-rvdel="${it.id}">удалить отзыв</button></span>` : ""}
+      </div></div>`).join("") : `<p class="hint" style="margin:0">Пока никто не оценил${been ? " — оцени первым" : ""}.</p>`}</div>
+      ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Оценки и отзывы — от участников лиги, которые были в бане.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>`
+        : been && D.live ? `<a class="btn solid rv-go" id="rvGo" href="rate.html?b=${id}">${rated ? "Изменить оценку и отзыв" : "Оценить и написать отзыв"}</a>`
+        : '<p class="hint" style="margin:0">Оценивают и пишут отзывы те, кто был в бане — сходишь, и кнопка появится.</p>'}`;
+  }
+  function bindFeedback(id) {
+    const box = $("#dFeedback"); if (!box) return;
+    $("#rvLogin", box)?.addEventListener("click", () => (me ? openClaim() : openLogin()));
+    $$("[data-rvdel]", box).forEach((x) => (x.onclick = async () => {
+      if (!confirm("Удалить отзыв? Оценка останется.")) return;
+      try { await D.deleteReview(id, +x.dataset.rvdel); reviews[id] = (reviews[id] || []).filter((r) => r.id !== +x.dataset.rvdel); toast("Отзыв удалён"); openBath(id); }
+      catch (err) { toast("Не удалилось: " + err.message); }
+    }));
   }
   // фото походов в карточке бани (docs/photos.md): лента, свежие походы первыми; дата — на первом фото похода, между походами
   // промежуток шире; имён нет. Грузим, когда карточку открыли, и держим до перезагрузки — карточка перерисовывается часто

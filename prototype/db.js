@@ -226,6 +226,19 @@ window.EBLData = (() => {
       check(await sb.auth.verifyOtp({ token_hash: body.token_hash, type: "magiclink" }));
       return body.visit;
     },
+    // оценки бани по людям (02.11): последняя оценка каждого — в ленту «Отзывы и оценки» карточки
+    async bathRatingsBy(bathId) {
+      if (!live) return [];
+      const rows = check(await sb.from("bath_ratings").select("player_id, overall, updated_at").eq("bath_id", bathId).order("updated_at", { ascending: false })) || [];
+      const seen = new Set();
+      return rows.filter((r) => !seen.has(r.player_id) && seen.add(r.player_id));
+    },
+    // мой последний отзыв о бане — странице оценки: показать и поправить, а не писать второй
+    async myReview(bathId, playerId) {
+      if (!live || !playerId) return null;
+      return (check(await sb.from("reviews").select("id, text").eq("bath_id", bathId).eq("player_id", playerId).order("created_at", { ascending: false }).limit(1)) || [])[0] || null;
+    },
+    async updateReview(id, rate, text) { check(await sb.from("reviews").update({ rating: rate, text }).eq("id", id)); },
     // отзыв без загрузки всей лиги (страница оценки): от имени того, кто оценивает
     async addReview(bathId, playerId, rate, text) {
       return check(await sb.from("reviews").insert({ bath_id: bathId, player_id: playerId, rating: rate, text }).select("id").single()).id;
