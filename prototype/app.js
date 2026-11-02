@@ -33,6 +33,18 @@
   // старая ссылка на оценку (#rate=<поход>, ?rate=<поход>) — на лёгкую страницу оценки, не загружая карту и лигу (01.11)
   const rateId = new URLSearchParams(location.search).get("rate") || location.hash.match(/^#rate=(\d+)$/)?.[1];
   if (rateId) { location.replace(`rate.html?v=${encodeURIComponent(rateId)}`); return; }
+  // мини-приложение Telegram (02.11, кнопка «Отметить поход» в закрепе группы): Telegram кладёт в адрес подписанные данные
+  // о том, кто нажал (#tgWebAppData=…), — входим без кода, а ?tgWebAppStartParam=visit после загрузки откроет форму похода.
+  // Данные из адреса убираем сразу: в адресе им не место, а #… сайт читает как вкладку
+  const tgHash = new URLSearchParams(location.hash.slice(1)), tgStart = new URLSearchParams(location.search).get("tgWebAppStartParam");
+  if (tgHash.get("tgWebAppData")) {
+    history.replaceState(null, "", location.pathname + "#map");
+    // «готово» и «на весь экран» — события Telegram без его скрипта (в приложении — TelegramWebviewProxy, в вебе — окно-родитель)
+    for (const eventType of ["web_app_ready", "web_app_expand"]) {
+      try { window.TelegramWebviewProxy ? TelegramWebviewProxy.postEvent(eventType, "{}") : parent.postMessage(JSON.stringify({ eventType, eventData: {} }), "*"); } catch { /* не в Telegram */ }
+    }
+    try { await D.loginWebApp(tgHash.get("tgWebAppData")); } catch { /* не пустил — войдёт как обычно, форма попросит */ }
+  }
   const loading = D.load();
   // ---------- шторка на телефоне (18.10, отзыв из чата: «карте мало места, сделайте как в Яндекс Картах») ----------
   // Карта — на весь экран, панель с поиском и списком — шторка снизу. Три остановки: «поиск» (peek — видно только поле
@@ -3128,4 +3140,5 @@ ${edit}
   if (linked && byId.has(+linked[1])) { show("map"); openBath(+linked[1], true); }
   if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) show(h);
   if ((h === "radar" || h === "catalog") && canModerate && D.live) { show("dir"); setDirMode(h); }
+  if (tgStart === "visit") openVisit();   // кнопка «Отметить поход» из Telegram
 })();

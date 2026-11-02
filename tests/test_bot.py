@@ -1231,6 +1231,13 @@ check("запись в bot_actions — бот присылает опрос в �
       and polls()[0].get("allows_multiple_answers") is True and sql(f"select message_id is not null from bot_actions where id = {pid}") == "t", polls())
 req("POST", "/functions/v1/tg-bot?actions=1", {})
 check("повторный вызов не присылает опрос второй раз", len(polls()) == 1)
+buttons = lambda: [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and "reply_markup" in p]
+seen = len(TELEGRAM.calls)
+bid = sql(f"""insert into bot_actions (kind, chat_id, payload) values ('button', {CHAT}, '{{"label": "Я в бане"}}') returning id""").splitlines()[0]
+check("запись в bot_actions — бот присылает сообщение с кнопкой мини-приложения (для закрепа в группе)",
+      wait(f"select coalesce(result, '') from bot_actions where id = {bid}", "ok") and len(buttons()) == 1
+      and buttons()[0]["reply_markup"]["inline_keyboard"][0][0] == {"text": "Я в бане", "url": "https://t.me/eblsu_bot?startapp=visit"}
+      and sql(f"select message_id is not null from bot_actions where id = {bid}") == "t", buttons())
 check("гость в bot_actions не пишет", req("POST", "/rest/v1/bot_actions", {"kind": "react", "chat_id": 1, "message_id": 1})[0] in (401, 403))
 sql("delete from bot_actions")
 

@@ -56,6 +56,11 @@ const poll = (chat: number, p: Any) => tg("sendPoll", {
   chat_id: chat, question: String(p?.question ?? ""), options: (p?.options ?? []).map((t: unknown) => ({ text: String(t) })),
   allows_multiple_answers: !!p?.multiple, is_anonymous: p?.anonymous !== false,
 });
+// сообщение с кнопкой мини-приложения (bot_actions, 02.11): {text, label, start}. Кнопка — ссылка t.me/<бот>?startapp=…:
+// кнопки web_app Telegram в группах не пускает, а такая ссылка открывает сайт внутри Telegram и в группе (нужно главное
+// мини-приложение бота — BotFather → Bot Settings → Configure Mini App → ebl.su)
+const appButton = (chat: number, p: Any) => send(chat, esc(p?.text ?? "Был в бане? Отметь поход 👇"),
+  [[{ text: String(p?.label ?? "Отметить поход"), url: `https://t.me/${BOT}?startapp=${encodeURIComponent(String(p?.start ?? "visit"))}` }]]);
 const answer = (id: string, text?: string, alert = false) => tg("answerCallbackQuery", { callback_query_id: id, text, show_alert: alert });
 const postLink = (chat: Any, msg: number) =>
   chat.username ? `https://t.me/${chat.username}/${msg}` : String(chat.id).startsWith("-100") ? `https://t.me/c/${String(chat.id).slice(4)}/${msg}` : null;
@@ -2189,6 +2194,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ refreshed: n }), { headers: { "Content-Type": "application/json" } });
   }
   // действия по просьбе владельца из bot_actions (пишет только service_role): поменять реакцию на сообщении, прислать опрос
+  // или сообщение с кнопкой мини-приложения
   if (url.searchParams.get("actions")) {
     const { data: rows } = await sb.from("bot_actions").select("*").is("done_at", null).order("id").limit(20);
     for (const a of rows ?? []) {
@@ -2198,9 +2204,10 @@ Deno.serve(async (req) => {
       // replace — реакция бота заменяет его прежнюю (🤔 → 👍)
       const r = a.kind === "react" ? await react(a.chat_id, a.message_id, a.emoji)
         : a.kind === "poll" ? await poll(a.chat_id, a.payload)
+        : a.kind === "button" ? await appButton(a.chat_id, a.payload)
         : { ok: false, description: "неизвестное действие" };
       await sb.from("bot_actions").update({ result: r.ok ? "ok" : String(r.description ?? "нет ответа").slice(0, 200),
-        ...(a.kind === "poll" && r.ok ? { message_id: r.result?.message_id } : {}) }).eq("id", a.id);
+        ...(a.kind !== "react" && r.ok ? { message_id: r.result?.message_id } : {}) }).eq("id", a.id);
     }
     return new Response(JSON.stringify({ done: (rows ?? []).length }), { headers: { "Content-Type": "application/json" } });
   }
