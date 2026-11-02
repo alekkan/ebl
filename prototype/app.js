@@ -55,13 +55,14 @@
   const sheet = $("#view-map .panel");
   let sheetState = "half";
   const viewH = () => $("#view-map").clientHeight || innerHeight;
-  const peekH = () => { const q = $(".searchbox", sheet); return q && q.offsetHeight ? q.offsetTop + q.offsetHeight + 12 : 80; };
-  function sheetY(state) {   // насколько шторка опущена от верхнего положения (оно — в 8 px от верха вкладки)
-    const h = viewH() - 8;
+  // свёрнутая — видно строку «N бань» под полоской (поиск с 02.11 — поверх карты, а не в шторке)
+  const peekH = () => { const c = $(".countrow", sheet); return c && c.offsetHeight ? c.offsetTop + c.offsetHeight + 4 : 80; };
+  function sheetY(state) {   // насколько шторка опущена от верхнего положения (оно — под поиском и типами поверх карты)
+    const h = viewH() - sheet.offsetTop;
     return state === "full" ? 0 : state === "half" ? Math.round(h * 0.5) : Math.max(0, h - peekH());
   }
   // сколько карты снизу закрывает шторка — столько отступа, когда карта подбирает рамку
-  const sheetCover = () => (phone.matches ? viewH() - 8 - sheetY(sheetState) : 0);
+  const sheetCover = () => (phone.matches ? viewH() - sheet.offsetTop - sheetY(sheetState) : 0);
   function setSheet(state) {
     sheetState = state;
     sheet.dataset.state = state;
@@ -119,7 +120,7 @@
   // на компьютере слева панель, на телефоне снизу шторка — рамку карты подбираем в видимой части
   // сверху справа на компьютере — гонка недели: рамку опускаем под неё (по ширине не ужимаем — иначе зум на шаг меньше)
   const raceH = () => { const r = $("#race"); return innerWidth > 980 && r && r.offsetHeight > 40 ? r.offsetTop + r.offsetHeight + 8 : 0; };
-  const homePad = () => (phone.matches ? { paddingBottomRight: [0, sheetCover()] } : { paddingTopLeft: [380, raceH()] });
+  const homePad = () => (phone.matches ? { paddingTopLeft: [0, $(".top").offsetHeight], paddingBottomRight: [0, sheetCover()] } : { paddingTopLeft: [380, raceH()] });
   const map = L.map("map", { zoomControl: true, worldCopyJump: true }).fitBounds(HOME, { ...homePad(), animate: false });
   map.attributionControl.setPrefix(false);
   const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -275,7 +276,9 @@
   // ---------- вкладки ----------
   let radarMode = "dir";   // во вкладке «Бани» у Комиссии: справочник, радар или сверка (ниже, «Радар» и «Сверка»)
   function show(view) {
-    $$(".nav button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
+    $$(".nav button[data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
+    $("#moreBtn").setAttribute("aria-selected", String(["owners", "rules", "dir"].includes(view)));
+    document.body.dataset.view = view;   // на телефоне поиск и типы поверх карты — только на вкладке «Карта»
     $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + view));
     if (view === "map") setTimeout(() => map.invalidateSize(), 0);
     if (view === "owners") initOwners();
@@ -283,7 +286,17 @@
     if (view === "dir") renderDir();
     history.replaceState(null, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
   }
-  $$(".nav button").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
+  $$(".nav button[data-view]").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
+  document.body.dataset.view = "map";
+  // «Ещё» (02.11): на телефоне в нижнем меню — Карта, Таблица, веник «+ Баня», Лента; остальное — здесь
+  $("#moreBtn").addEventListener("click", () => {
+    $('#moreModal [data-go="dir"]').hidden = $('.nav [data-view="dir"]').hidden;
+    $("#moreModal").hidden = false;
+  });
+  $("#moreModal").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-go]"); if (!b) return;
+    $("#moreModal").hidden = true; show(b.dataset.go);
+  });
   // веник в шапке — на стартовый раздел с картой, откуда бы ни нажали
   $(".brand").addEventListener("click", (e) => { e.preventDefault(); show("map"); scrollTo({ top: 0, behavior: "smooth" }); });
 
@@ -303,8 +316,8 @@
   function pinIcon(b) {
     if (b.id === openId) return dropIcon(`var(--t-${b.t})`, glyphOf(b.t));
     // размер — по походам в 2026, силуэт внутри — тип бани
-    const size = b.n26 ? Math.round(Math.min(20 + Math.sqrt(b.n26) * 2.2, 32)) : 18;
-    const glyph = b.t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${b.t}"/></svg>` : "";
+    const size = b.n26 ? Math.round(Math.min(23 + Math.sqrt(b.n26) * 2.2, 34)) : 21;
+    const glyph = glyphOf(b.t);
     return L.divIcon({
       className: "", iconSize: [size, size],
       html: `<div class="pin ${b.prec !== "exact" ? "approx" : ""} ${b.n26 >= 15 ? "hot" : ""} ${b.closed_on ? "closed" : ""}" style="width:${size}px;height:${size}px;--c:var(--t-${b.t})">${glyph}${b._pot?.length >= 3 ? `<span class="pot">+${b._pot.length}</span>` : ""}</div>`,
@@ -340,7 +353,28 @@
     $$("button", group).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
     render(true);
   });
-  single($("#fSeason")); single($("#fType"));
+  // типы (02.11): без «Все» — нажал выбранный ещё раз, снова все типы
+  $("#fType").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-t]"); if (!b) return;
+    const on = b.getAttribute("aria-pressed") !== "true";
+    $$("#fType button[data-t]").forEach((x) => x.setAttribute("aria-pressed", String(on && x === b)));
+    render(true);
+  });
+  // разрезы по годам с главного экрана убрали (02.11, Леха: фильтры перегружены) — сезон теперь в «Фильтрах» рядом со страной
+  $("#fSeason").addEventListener("change", () => render(true));
+  // телефон: поиск и типы — поверх карты, остальные фильтры — шторкой по кнопке в поиске; компьютер — всё в панели
+  const fBox = $(".filters"), sBox = $(".searchbox", fBox), tBox = $("#fType"), mBox = $("#filtMore");
+  function placeFilters() {
+    if (phone.matches) { $(".map-bar").append(sBox); $(".map-chips").append(tBox); $("#filtModal .sheet").append(mBox); }
+    else { fBox.prepend(sBox, tBox); fBox.append(mBox); $("#filtModal").hidden = true; }
+    setSheet(sheetState);
+  }
+  placeFilters();
+  phone.addEventListener("change", placeFilters);
+  $("#filtBtn").addEventListener("click", (e) => { e.preventDefault(); $("#filtModal").hidden = false; });
+  $("#filtReset").addEventListener("click", () => {
+    $("#fSeason").value = "all"; $("#fCountry").value = ""; $("#fPlayer").value = ""; $("#fPrec").value = ""; render(true);
+  });
   $("#q").addEventListener("input", () => render());
   $("#fCountry").addEventListener("change", () => render(true));
   $("#fPlayer").addEventListener("change", () => render(true));
@@ -349,7 +383,7 @@
   // по всему миру — удобнее остаться в своём городе и идти по списку
   $("#fPrec").hidden = !(canModerate && D.live);
   $("#fPrec").addEventListener("change", () => {
-    if ($("#fPrec").value) $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "all")));
+    if ($("#fPrec").value) $("#fSeason").value = "all";
     render();
   });
   // «Я» — выбрать себя одним нажатием (повторное — снова вся лига)
@@ -371,9 +405,42 @@
     { timeout: 10000, maximumAge: 300000 });
   });
 
+  // «Лига не была» (02.11, Леха: карту потом объединим с Радаром) — места Радара, где лига ещё не была, пустыми кружками.
+  // Пока только Комиссии: Радар открыт ей; всем — когда решим. Те, что у точной бани лиги ближе 150 м, — это она, не рисуем
+  const unseenLayer = L.layerGroup().addTo(map), ringR = L.canvas({ padding: 0.3 });
+  let unseenOn = false;
+  $("#fRadar").hidden = !(canModerate && D.live);
+  $("#fRadar").addEventListener("click", () => {
+    unseenOn = !unseenOn;
+    $("#fRadar").setAttribute("aria-pressed", String(unseenOn));
+    if (unseenOn && !radar) D.radar().then((rows) => { radar = rows; render(); }).catch((err) => toast("Радар не загрузился: " + err.message));
+    render();
+  });
+  function drawUnseen(type, q) {
+    unseenLayer.clearLayers();
+    if (!unseenOn || !radar) return null;
+    const css = getComputedStyle(document.documentElement), ring = css.getPropertyValue("--ember").trim(), fill = css.getPropertyValue("--panel").trim();
+    let n = 0;
+    for (const p of radar) {
+      if (p.lat == null || radarGroup(p) === "known" || radarGroup(p) === "done" || (type && p.kind !== type)) continue;
+      if (q && !`${p.name} ${p.city || ""} ${p.region || ""}`.toLowerCase().includes(q)) continue;
+      n++;
+      L.circleMarker([p.lat, p.lng], { renderer: ringR, radius: 6, weight: 2.5, color: ring, fillColor: fill, fillOpacity: 1 })
+        .bindPopup(`<b>${esc(p.name)}</b><br><span class="hint">${esc([p.city, TYPE_LABEL[p.kind] && p.kind !== "unknown" ? TYPE_LABEL[p.kind].toLowerCase() : "", "лига не была"].filter(Boolean).join(" · "))}</span>`
+          + `<br><button type="button" class="btn sm" data-unseen="${p.id}">Открыть в Радаре</button>`)
+        .addTo(unseenLayer);
+    }
+    return n;
+  }
+  $("#map").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-unseen]"); if (!b) return;
+    map.closePopup(); show("dir"); setDirMode("radar");
+    setTimeout(() => radarFocus(+b.dataset.unseen, true), 400);
+  });
+
   function render(fit) {
     const q = $("#q").value.trim().toLowerCase();
-    const type = $("#fType [aria-pressed=true]").dataset.t, season = $("#fSeason [aria-pressed=true]").dataset.v;
+    const type = $("#fType button[data-t][aria-pressed=true]")?.dataset.t || "", season = $("#fSeason").value;
     const country = $("#fCountry").value, player = $("#fPlayer").value, prec = $("#fPrec").value;
     const metric = season === "2026" ? (b) => (player ? b.v26?.[player] || 0 : b.n26) : (b) => (player ? countFor(b, "all", player) : b.nAll);
     // выбран участник — «были / не были в 2026» считаются про него, а не про всю лигу:
@@ -393,16 +460,25 @@
     else current.sort((a, b) => b._m - a._m || a.name.localeCompare(b.name, "ru"));
     $("#fMe").setAttribute("aria-pressed", String(!!myNick && player === myNick));
     $("#fNear").setAttribute("aria-pressed", String(!!here));
-    const maxM = Math.max(1, ...current.map((b) => b._m));
+    $("#fNear span").textContent = here ? "рядом" : pot ? "по очкам" : "по походам";
+    // сколько фильтров включено в шторке — числом на кнопке в поиске
+    const nf = [season !== "all", country, player, prec].filter(Boolean).length;
+    $("#filtN").hidden = !nf; $("#filtN").textContent = nf;
+    $("#filtShow").textContent = `Показать ${current.length.toLocaleString("ru-RU")}`;
     cluster.clearLayers(); markers.clear();
     const onMap = current.filter((b) => b.ll);
     cluster.addLayers(onMap.map(markerFor));
+    const unseen = drawUnseen(type, q);
     const noPin = current.length - onMap.length;
     const rich = pot ? current.filter((b) => b._pot.length >= 3).length : 0;
-    $("#count").textContent = pot
-      ? `${player}: новых в 2026 — ${current.length} ${plural(current.length, "баня", "бани", "бань")}${rich ? ` · +3 и больше — ${rich}` : ""}`
-      : `${current.length} ${plural(current.length, "баня", "бани", "бань")} · ${season === "2026" ? "походы в 2026" : "походы за 2023–2026"}`
-        + (prec === "rough" ? " · точка примерная" : prec === "auto" ? " · среднеточные" : prec === "none" ? " · без точки" : noPin ? ` · ${noPin} без точки` : "");
+    // «1 144 бани» крупно, под ним — сколько из них в 2026 и где был ты (02.11, макет)
+    const in26 = current.filter((b) => b.n26 > 0).length, mine = myNick && !player ? current.filter((b) => countFor(b, "all", myNick) > 0).length : 0;
+    const sub = pot ? `${player}: новые в 2026${rich ? ` · +3 и больше — ${rich}` : ""}`
+      : [season === "all" ? `${in26.toLocaleString("ru-RU")} в 2026` : season === "2026" ? "походы в 2026" : "никто не был в 2026",
+        mine && `ты был в ${mine}`, player && `${player} был${season === "2026" ? " в 2026" : ""}`,
+        unseen != null && `+ ${unseen.toLocaleString("ru-RU")}, где лига не была`,
+        prec === "rough" ? "точка примерная" : prec === "auto" ? "среднеточные" : prec === "none" ? "без точки" : noPin ? `${noPin} без точки` : ""].filter(Boolean).join(" · ");
+    $("#count").innerHTML = `<b>${current.length.toLocaleString("ru-RU")} ${plural(current.length, "баня", "бани", "бань")}</b><span>${esc(sub)}</span>`;
     // подсказка, что значат цифры, — только там, где без неё непонятно
     const note = $("#potNote");
     let seen = false; try { seen = localStorage.getItem("ebl.potNote") === "1"; } catch { /* приватный режим — просто покажем */ }
@@ -422,7 +498,7 @@
         ${tdot(b.t)}
         <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(meta)}</span></span>
         ${b._pot ? `<span class="it-pot" title="${esc(b._pot.join(" · "))}"><b>+${b._pot.length}</b><small>${plural(b._pot.length, "очко", "очка", "очков")}</small></span>`
-          : `<span class="it-heat">${n ? `<b>${n}</b><i style="--w:${Math.max(8, (n / maxM) * 100)}%"></i>` : ""}</span>`}
+          : `<span class="it-heat">${n ? `<b>${n}</b><small>${plural(n, "поход", "похода", "походов")}</small>` : ""}</span>`}
       </button>`;
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
       : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
@@ -1492,8 +1568,8 @@ ${edit}
   function playerOnMap(name) {
     show("map"); closeBath();
     $("#q").value = ""; $("#fCountry").value = ""; $("#fPrec").value = "";
-    $$("#fType button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.t === "")));
-    $("#fPlayer").value = name; $$("#fSeason button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "2026")));
+    $$("#fType button[data-t]").forEach((x) => x.setAttribute("aria-pressed", "false"));
+    $("#fPlayer").value = name; $("#fSeason").value = "2026";
     render(true);
   }
 
@@ -1528,12 +1604,13 @@ ${edit}
   }
   // на телефоне наведения нет: по нажатию сначала бросок ковша и хлопок пара, потом форма — иначе шторка
   // формы сразу закрывает кнопку и анимации не видно. На компьютере её уже показало наведение — форма сразу.
+  // На телефоне с 02.11 вместо ковша — веник посередине нижнего меню: хлёст короче броска ковша.
   let pouring = false;
   $("#addVisitBtn").onclick = () => {
     if (pouring) return;
     const b = $("#addVisitBtn"); b.classList.remove("pour"); void b.offsetWidth; b.classList.add("pour");
     setTimeout(() => b.classList.remove("pour"), 2600);
-    const wait = calm || !matchMedia("(hover: none)").matches ? 0 : 950;
+    const wait = calm || !matchMedia("(hover: none)").matches ? 0 : phone.matches ? 520 : 950;
     if (!wait) return openVisit();
     pouring = true;
     setTimeout(() => { pouring = false; openVisit(); }, wait);

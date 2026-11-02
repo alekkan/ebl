@@ -56,12 +56,13 @@ CLIP_JS = """(root) => {
 # нижнее меню на телефоне: вкладка кончается там, где начинается меню, и ничего из <main> не лежит поверх него
 # (28.09 клики по меню на «Жаре» ловили тайлы карты; подпись карты рисовалась на меню, низ карточки «Жара» уходил под него)
 NAV_FREE_JS = """() => {
-  const nav = document.querySelector('.nav'), n = nav.getBoundingClientRect(), out = [];
+  // веник «+ Баня» (02.11) — часть меню: стоит посередине, над пустым местом между «Таблицей» и «Лентой»
+  const nav = document.querySelector('.nav'), cta = document.getElementById('addVisitBtn'), n = nav.getBoundingClientRect(), out = [];
   const view = [...document.querySelectorAll('.view')].find((v) => !v.hidden)?.getBoundingClientRect();
   if (view && view.bottom > n.top + 0.5) out.push(`вкладка уходит под меню на ${Math.round(view.bottom - n.top)} px`);
   for (const y of [n.top + 1, n.top + 6, (n.top + n.bottom) / 2, n.bottom - 2]) for (let x = 2; x < innerWidth; x += 16) {
     const el = document.elementFromPoint(x, y);
-    if (el && !nav.contains(el)) out.push(`${x},${Math.round(y)}: ${el.tagName}.${[...el.classList].slice(0, 2).join('.')}`);
+    if (el && !nav.contains(el) && !cta.contains(el)) out.push(`${x},${Math.round(y)}: ${el.tagName}.${[...el.classList].slice(0, 2).join('.')}`);
   }
   return [...new Set(out)].slice(0, 5);
 }"""
@@ -158,7 +159,10 @@ class Site:
         return self.page.evaluate(code, arg)
 
     def view(self, v):
-        self.page.click(f'.nav [data-view="{v}"]')
+        b = self.page.locator(f'.nav [data-view="{v}"]')
+        if b.is_visible(): b.click()
+        else:   # на телефоне «Хозяева», «Правила» и «Бани» — в «Ещё» (02.11)
+            self.page.click("#moreBtn"); self.page.click(f'#moreModal [data-go="{v}"]')
         # вкладка рисуется сразу (show в app.js); дальше — только перерисовка карты Leaflet: ждём вкладку и чуть-чуть, а не
         # полсекунды вслепую (вкладки переключаются ~70 раз за прогон)
         self.page.wait_for_selector(f"#view-{v}:not([hidden])", timeout=8000)
@@ -275,7 +279,7 @@ with sync_playwright() as pw:
         s.close()
         s = Site(browser, url, config=cfg2(API, dead), name="fallback-main")
         check("шлюз отвечает — работаем через него, прямой путь не нужен", s.js("() => document.querySelectorAll('#list .item').length > 0"))
-        check("на главной при старте — все бани, не только 2026 (30.10)", s.js("() => document.querySelector('#fSeason [aria-pressed=true]').dataset.v") == "all")
+        check("на главной при старте — все бани, не только 2026 (30.10)", s.js("() => document.getElementById('fSeason').value") == "all")
         s.close()
         # 30.10: ссылка на баню — ebl.su/#bath=<номер> открывает её карточку; закрыл — снова #map
         vb = sql("select id from baths where name = 'Василевские' limit 1")
@@ -754,7 +758,7 @@ with sync_playwright() as pw:
         sql(f"delete from visits where id = {fv}")
         # 18.10: фильтр Комиссии — бани с примерной точкой и без точки, чтобы пройтись и поправить
         s.view("map"); s.page.fill("#q", ""); s.page.select_option("#fPrec", "rough"); s.page.wait_for_timeout(600)
-        rough = s.js("""() => ({ season: document.querySelector('#fSeason [aria-pressed=true]').dataset.v, count: document.getElementById('count').innerText,
+        rough = s.js("""() => ({ season: document.getElementById('fSeason').value, count: document.getElementById('count').innerText,
           items: document.querySelectorAll('#list .item').length,
           bad: [...document.querySelectorAll('#list .item .it-meta')].slice(0, 30).map((m) => m.innerText).filter((t) => !/точка (по (городу|региону|стране)|автоматом)/.test(t)).slice(0, 3) })""")
         check("Комиссии: «Точка примерная» — бани всех лет, у каждой видно, насколько точка примерная",
@@ -775,7 +779,7 @@ with sync_playwright() as pw:
             check("карточка среднеточной бани: «точка найдена автоматически — может быть не та баня»",
                   s.js("() => /найдена автоматически/.test(document.querySelector('#drawer .geo-move')?.innerText || '')"))
             s.page.click("#drawer .x"); s.page.fill("#q", "")
-        s.page.select_option("#fPrec", ""); s.page.click('#fSeason [data-v="2026"]'); s.page.wait_for_timeout(300)
+        s.page.select_option("#fPrec", ""); s.page.select_option("#fSeason", "2026"); s.page.wait_for_timeout(300)
         s.clean("Комиссия")
         s.close()
         # Радар (16.10): места из прогона агентов, решает Комиссия; участнику и гостю его нет
@@ -1099,7 +1103,7 @@ with sync_playwright() as pw:
         print("Куда сходить за очками: «Я», «Не были в 2026», «Рядом»")
         s = Site(browser, url, sess=shurik, name="where-to-go")
         s.ctx.grant_permissions(["geolocation"]); s.ctx.set_geolocation({"latitude": 55.7558, "longitude": 37.6176})
-        s.page.click("#fMe"); s.page.click('#fSeason [data-v="never"]'); s.page.wait_for_timeout(500)
+        s.page.click("#fMe"); s.page.select_option("#fSeason", "never"); s.page.wait_for_timeout(500)
         check("«Я» выбирает себя одним нажатием", s.js("() => document.getElementById('fPlayer').value") == "Шурик")
         ids = s.js("() => [...document.querySelectorAll('#list .item')].slice(0, 25).map((x) => +x.dataset.id)")
         pots = s.js("() => [...document.querySelectorAll('#list .item .it-pot b')].slice(0, 25).map((x) => +x.textContent)")
@@ -1107,10 +1111,11 @@ with sync_playwright() as pw:
         been = sql(f"select count(*) from bath_counts where nick = 'Шурик' and year = 2026 and bath_id in ({','.join(map(str, ids))})")
         check("в этом списке нет бань, где он уже был в 2026", been == "0", been)
         s.page.click("#fNear"); s.page.wait_for_timeout(1200)
+        check("сортировка «по походам» сменилась на «рядом»", s.js("() => document.querySelector('#fNear span').textContent") == "рядом")
         meters = s.js("""() => [...document.querySelectorAll('#list .item .it-meta')].slice(0, 12).map((m) => {
           const x = m.textContent.match(/~?([\\d\\s,]+)\\s(км|м)(?![а-я])/); if (!x) return null;
           const v = parseFloat(x[1].replace(/\\s/g, '').replace(',', '.')); return x[2] === 'км' ? v * 1000 : v; })""")
-        check("«📍 Рядом» — у бань расстояние, ближние сверху", s.js("() => document.getElementById('fNear').getAttribute('aria-pressed')") == "true"
+        check("«Рядом» — у бань расстояние, ближние сверху", s.js("() => document.getElementById('fNear').getAttribute('aria-pressed')") == "true"
               and meters and None not in meters and meters == sorted(meters), meters)
         s.clean("куда сходить за очками")
         s.close()
@@ -1168,11 +1173,37 @@ with sync_playwright() as pw:
         s.nav_free("«Хозяева» на телефоне во время приближения")
         s.page.click('.nav [data-view="table"]', timeout=3000)
         check("…и меню переключает вкладку, не дожидаясь конца анимации", s.js("() => !document.getElementById('view-table').hidden"))
-        s.page.click(".brand"); s.page.wait_for_timeout(300)
-        check("веник в шапке возвращает на карту", s.js("() => !document.getElementById('view-map').hidden && location.hash === '#map'"))
+        s.page.click('.nav [data-view="map"]'); s.page.wait_for_timeout(300)
+        check("…и обратно на карту", s.js("() => !document.getElementById('view-map').hidden && location.hash === '#map'"))
+        # 02.11 (макет «карта и навигация»): на телефоне поиск и типы — поверх карты, веника-эмблемы нет; в меню — веник «+ Баня»
+        check("телефон: поиск и типы поверх карты, эмблемы нет, гостю «Лига не была» не показываем",
+              s.js("() => !!document.querySelector('.map-bar .searchbox') && !!document.querySelector('.map-chips #fType') && getComputedStyle(document.querySelector('.brand')).display === 'none' && document.getElementById('fRadar').hidden"))
+        check("телефон: в нижнем меню Карта, Таблица, Лента, Ещё — и веник «+ Баня» посередине",
+              s.js("""() => { const vis = [...document.querySelectorAll('.nav button')].filter((b) => b.offsetParent).map((b) => b.dataset.view || b.id);
+                const c = document.querySelector('#addVisitBtn .cta-venik').getBoundingClientRect();
+                return vis.join() === 'map,table,feed,moreBtn' && Math.abs(c.left + c.width / 2 - innerWidth / 2) < 2; }"""))
+        s.page.click('#fType [data-t="public"]'); s.page.wait_for_timeout(300)
+        pub = s.js("() => [...document.querySelectorAll('#list .item .dot')].slice(0, 10).every((d) => d.classList.contains('t-public'))")
+        s.page.click('#fType [data-t="public"]'); s.page.wait_for_timeout(300)
+        check("типы без «Все»: нажал «Общественные» — только они, ещё раз — снова все",
+              pub and s.js("() => !document.querySelector('#fType [aria-pressed=true]') && [...document.querySelectorAll('#list .item .dot')].some((d) => !d.classList.contains('t-public'))"))
+        s.page.click("#filtBtn"); s.page.wait_for_selector("#filtModal:not([hidden])", timeout=3000)
+        check("кнопка в поиске открывает шторку фильтров: сезон, страна, участник",
+              s.js("() => ['fSeason', 'fCountry', 'fPlayer'].every((id) => document.getElementById(id).closest('#filtModal') && document.getElementById(id).offsetParent)"))
+        s.no_clip("шторка фильтров на телефоне", "#filtModal .sheet")
+        s.page.select_option("#fSeason", "2026"); s.page.click("#filtShow")
+        check("…выбрал «Были в 2026» — шторка закрылась, на кнопке фильтров «1»",
+              s.js("() => document.getElementById('filtModal').hidden && document.getElementById('filtN').textContent === '1' && !document.getElementById('filtN').hidden"))
+        s.page.click("#filtBtn"); s.page.click("#filtReset"); s.page.click("#filtShow")
         s.close()
         s = Site(browser, url, sess=vitek, mobile=True, name="mobile-commission")
+        # «Лига не была» (02.11) — пока только Комиссии: места Радара, где лига не была, пустыми кружками на карте
+        s.page.click("#fRadar"); s.page.wait_for_timeout(1500)
+        check("Комиссии — «Лига не была»: в подписи списка, сколько таких мест",
+              s.js("() => /где лига не была/.test(document.getElementById('count').innerText) && document.getElementById('fRadar').getAttribute('aria-pressed') === 'true'"), s.js("() => document.getElementById('count').innerText"))
+        s.page.click("#fRadar")
         s.view("dir")
+        check("Бани Комиссии на телефоне — через «Ещё», оно подсвечено", s.js("() => document.getElementById('moreBtn').getAttribute('aria-selected') === 'true'"))
         s.page.wait_for_selector("#dirTable tbody tr", timeout=8000)
         s.no_clip("Комиссия на телефоне: справочник бань", "#view-dir")
         s.nav_free("Комиссия на телефоне: справочник бань")
@@ -1189,7 +1220,7 @@ with sync_playwright() as pw:
         s.no_clip("профиль на телефоне", "#loginModal .sheet")
         s.page.click("#myMap"); s.page.wait_for_timeout(500)
         check("…«Мои бани на карте» — карта с моими банями", s.js("() => !document.getElementById('view-map').hidden && document.getElementById('fPlayer').value === 'Шурик' && document.getElementById('loginModal').hidden"))
-        s.page.select_option("#fPlayer", ""); s.page.wait_for_timeout(300)
+        s.js("() => { const f = document.getElementById('fPlayer'); f.value = ''; f.dispatchEvent(new Event('change')); }"); s.page.wait_for_timeout(300)
         # таблица шире экрана — тень у правого края, пока можно листать вбок
         s.view("table"); s.page.wait_for_timeout(500)
         hint = lambda: s.js("() => document.getElementById('standings').closest('.tablecard').classList.contains('more-right')")
@@ -1197,21 +1228,23 @@ with sync_playwright() as pw:
         s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'); w.scrollLeft = w.scrollWidth; }"); s.page.wait_for_timeout(300)
         check("таблица на телефоне: тень у правого края, пока можно листать вбок, и пропадает в конце", had and not hint())
         s.view("map"); s.page.wait_for_timeout(300)
-        s.page.click("#fMe"); s.page.click('#fSeason [data-v="never"]'); s.page.wait_for_timeout(500)
+        s.page.click("#filtBtn"); s.page.click("#fMe"); s.page.select_option("#fSeason", "never"); s.page.click("#filtShow"); s.page.wait_for_timeout(500)
         s.no_clip("телефон: «Я» + «Не были в 2026» с очками", "#view-map")
-        s.page.click("#fMe"); s.page.click('#fSeason [data-v="2026"]'); s.page.wait_for_timeout(300)
+        s.page.click("#filtBtn"); s.page.click("#fMe"); s.page.select_option("#fSeason", "2026"); s.page.click("#filtShow"); s.page.wait_for_timeout(300)
         s.view("table"); s.js(open_shurik)
         s.no_clip("карточка участника с датами на телефоне", "#playerModal")
         s.js("() => (document.getElementById('playerModal').hidden = true)")
         s.page.click("#addVisitBtn")
         s.page.wait_for_timeout(350)
-        check("телефон: по нажатию сначала виден ковш, форма ещё не закрыла кнопку",
-              s.js("() => document.getElementById('visitModal').hidden && getComputedStyle(document.querySelector('#addVisitBtn .kovsh')).opacity > 0.5"))
+        check("телефон: по нажатию сначала веник хлещет, форма ещё не закрыла кнопку",
+              s.js("() => document.getElementById('visitModal').hidden && document.getElementById('addVisitBtn').classList.contains('pour') && getComputedStyle(document.querySelector('#addVisitBtn .cta-venik')).display !== 'none'"))
         s.page.wait_for_selector("#visitModal:not([hidden])", timeout=3000)
         check("телефон: после анимации открылась форма", True)
+        s.page.wait_for_timeout(400)   # шторка формы ещё въезжает снизу — меряем, когда встала
         s.no_clip("форма «Добавить баню» на телефоне", "#visitModal")
         check("телефон: «Отправить» видна сразу, без прокрутки формы (прилипает к низу)",
-              s.js("() => { const r = document.getElementById('vSubmit').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }"))
+              s.js("() => { const r = document.getElementById('vSubmit').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }"),
+              s.js("() => [document.getElementById('vSubmit').getBoundingClientRect().toJSON(), innerHeight, scrollY]"))
         s.page.click("#vComp button"); s.page.click("#vDursToggle"); s.page.wait_for_timeout(200)
         check("телефон: строки «у каждого своё» — кнопки под палец (не ниже 36 px), строка — в одну линию",
               s.js("""() => { const b = [...document.querySelectorAll('#vDurs .durs-seg button')], r = document.querySelector('#vDurs .durs-row');

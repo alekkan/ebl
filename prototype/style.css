@@ -35,6 +35,7 @@
     --ink: #edf1ec; --ink-2: #aeb9b1; --ink-3: #75817a;
     --oak: #93c47a; --oak-deep: #6f9f5b; --oak-lite: #b9dca3; --oak-ink: #0e170f; --oak-soft: #213020;
     --ember: #ff8a4f; --ember-soft: #3b2418; --honey: #f2c160; --honey-soft: #362b16; --wood: #c8925e; --seal-ink: #3a2400;
+    --venik-bg: #4f8744;   /* веник «+ Баня»: белый на светло-зелёном не читался — дуб потемнее */
     --gold: #b88a2a; --silver: #5b6368; --bronze: #8a5a3a;
     --t-public: #93c47a; --t-spa: #7fb0e0; --t-private: #d29a6a; --t-unknown: #6c7870;
     --shadow-s: 0 1px 2px rgba(0, 0, 0, .3); --shadow: 0 18px 40px -14px rgba(0, 0, 0, .7);
@@ -46,6 +47,7 @@
   --ink: #edf1ec; --ink-2: #aeb9b1; --ink-3: #75817a;
   --oak: #93c47a; --oak-deep: #6f9f5b; --oak-lite: #b9dca3; --oak-ink: #0e170f; --oak-soft: #213020;
   --ember: #ff8a4f; --ember-soft: #3b2418; --honey: #f2c160; --honey-soft: #362b16; --wood: #c8925e; --seal-ink: #3a2400;
+  --venik-bg: #4f8744;
   --gold: #b88a2a; --silver: #5b6368; --bronze: #8a5a3a;
   --t-public: #93c47a; --t-spa: #7fb0e0; --t-private: #d29a6a; --t-unknown: #6c7870;
   --shadow-s: 0 1px 2px rgba(0, 0, 0, .3); --shadow: 0 18px 40px -14px rgba(0, 0, 0, .7);
@@ -269,10 +271,8 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .item:focus-visible { outline-offset: -2px; }   /* снаружи рамку срезал край прокручиваемого списка (19.10) */
 .it-name { display: block; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .it-meta { display: block; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.it-heat { display: grid; justify-items: end; gap: 4px; min-width: 44px; }
-.it-heat b { font: 700 13px/1 var(--display); color: var(--ink); }
-.it-heat i { display: block; height: 4px; width: 44px; border-radius: 4px; background: var(--line); overflow: hidden; }
-.it-heat i::after { content: ""; display: block; height: 100%; width: var(--w); border-radius: 4px; background: linear-gradient(90deg, var(--honey), var(--ember)); }
+.it-heat { display: grid; justify-items: end; gap: 3px; min-width: 44px; }
+.it-heat b { font: 700 15px/1 var(--display); color: var(--ink); }
 .more { padding: 10px; font-size: 13px; color: var(--ink-3); text-align: center; }
 
 /* гонка недели */
@@ -1005,7 +1005,7 @@ tr.below { color: var(--ink-2); }
   .filters { display: contents; }
   .filters > * { margin: 0 16px 10px; }
   .panel > *, .filters > * { flex-shrink: 0; }   /* шторка ниже содержимого: иначе строка типов (прокрутка вбок) сжималась в ноль */
-  .searchbox { order: 1; } #fSeason { order: 2; } .chips.types { order: 3; } .selrow, #fPrec { order: 4; }
+  .searchbox { order: 1; } .chips.types { order: 3; } .filt-more { order: 4; }
   .countrow { order: 5; } .pot-note { order: 6; }
   .list { order: 7; flex: none; overflow: visible; padding-bottom: 16px; }
   .panel-head { order: 8; padding: 14px 16px 20px; border-top: 1px solid var(--line); background: none; }
@@ -1290,3 +1290,126 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .radar-sug button { display: flex; justify-content: space-between; gap: 12px; padding: 6px 8px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 14px; }
 @media (hover: hover) { .radar-sug button:hover { background: var(--panel); } }
 .radar-sug small { color: var(--ink-3); flex: none; }
+
+/* ---------- главный экран 02.11 (макет «карта и навигация»): значки типов, фильтры, нижнее меню с веником ---------- */
+/* значок типа — линейный, цвета типа на светлой подложке того же тона (колонны, гантель, домик) */
+.dot { --c: var(--t-unknown); width: 18px; height: 18px; background: color-mix(in srgb, var(--c) 16%, var(--panel)); color: var(--c); }
+.dot svg { width: 13px; height: 13px; }
+.dot.t-public { --c: var(--t-public); background: color-mix(in srgb, var(--c) 16%, var(--panel)); }
+.dot.t-spa { --c: var(--t-spa); background: color-mix(in srgb, var(--c) 16%, var(--panel)); }
+.dot.t-private { --c: var(--t-private); background: color-mix(in srgb, var(--c) 16%, var(--panel)); }
+.item { grid-template-columns: 36px minmax(0, 1fr) auto; }
+.item .dot { width: 36px; height: 36px; border-radius: 11px; }
+.item .dot svg { width: 20px; height: 20px; }
+.dot.t-unknown::after { content: ""; width: 28%; height: 28%; border-radius: 50%; background: currentColor; opacity: .55; }   /* тип не указан — точка, а не пустая плитка */
+.it-heat small { font-size: 11px; color: var(--ink-3); }
+/* точка бани на карте — белый кружок с значком цвета типа */
+.pin { background: var(--panel); color: var(--c); border: 0; box-shadow: 0 2px 7px rgba(20, 30, 20, .3); }
+.pin svg { width: 66%; height: 66%; }
+.pin .pin-dot { width: 32%; height: 32%; border-radius: 50%; background: var(--t-unknown); }
+.pin-drop > svg:not(.pin-drop-bg) { color: var(--panel); }
+
+/* типы — чипы со значком; выбранный — дубовая рамка, как в макете (без «Все»: нажал ещё раз — снова все) */
+.chips.types { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips.types button { justify-content: center; padding: 5px 11px 5px 6px; }
+.chips.types .dot { background: none; width: 18px; height: 18px; }
+.chips.types button[aria-pressed="true"] { background: color-mix(in srgb, var(--oak) 9%, var(--panel)); border-color: var(--oak); color: var(--oak-deep); }
+.radar-chip .ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ember); background: var(--panel); margin-left: 4px; }
+.chips.types .radar-chip[aria-pressed="true"] { border-color: var(--ember); background: var(--ember-soft); color: var(--ink); }
+
+/* «N бань» крупно и подпись; сортировка — текстом с шевроном */
+.count b { display: block; font: 800 16px/1.2 var(--display); color: var(--ink); }
+.count span { display: block; margin-top: 2px; }
+.near-btn { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 4px 0 8px; border: 0; background: none; color: var(--ink-2); font-weight: 500; font-size: 13px; }
+.near-btn .ic { width: 15px; height: 15px; }
+.near-btn[aria-pressed="true"] { background: none; color: var(--oak); }
+
+/* кнопка фильтров в поиске и шторка фильтров — на телефоне; на компьютере фильтры строкой в панели */
+.filt-btn { position: relative; display: none; place-items: center; flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: var(--panel-2); color: var(--ink); }
+.filt-btn .ic { width: 18px; height: 18px; }
+.filt-n { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; border-radius: 9px; background: var(--oak); color: var(--oak-ink); font: 700 10px/17px var(--body); text-align: center; padding: 0 4px; }
+.filt-head, .filt-foot { display: none; }
+.filt-more { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
+.filt-more .selrow, .filt-more .who-pick { display: contents; }
+/* на компьютере — текстом со стрелкой, в одну строку («Все бани ▾ · Все страны ▾ · Все участники ▾ · Я») */
+.filt-more .sel { flex: none; width: auto; max-width: 150px; text-overflow: ellipsis; height: 30px; padding: 0 16px 0 0; border: 0; background-color: transparent; background-position: calc(100% - 5px) 50%, 100% 50%; font-size: 14px; font-weight: 500; color: var(--ink-2); cursor: pointer; }
+.filt-more .sel:focus-visible { outline: 2px solid var(--oak); }
+.filt-more .who-pick .me-pick { height: 30px; min-width: 0; padding: 0 10px; border-radius: 999px; font-size: 13px; }
+.panel-head { display: none; }   /* цифры сезона — в «Таблице»; на телефоне — в конце шторки (ниже) */
+
+/* «Ещё» — только телефон */
+.nav-gap, .nav .nav-more, .map-bar, .map-chips, .cta-venik { display: none; }
+.more-sheet { padding: 10px 0; }
+.more-it { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 8px 20px; border: 0; background: none; text-align: left; color: var(--ink); }
+.more-it + .more-it { border-top: 1px solid var(--line); }
+.more-it .ic { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: var(--panel-2); color: var(--ink-2); flex: none; box-sizing: border-box; }
+.more-it.kom .ic { background: none; padding: 4px; }
+.more-it b { display: block; font-size: 16px; font-weight: 600; }
+.more-it small { display: block; font-size: 13px; color: var(--ink-3); }
+@media (hover: hover) { .more-it:hover { background: var(--panel-2); } }
+
+@media (max-width: 760px) {
+  main { grid-row: 2; }
+  .brand { display: none; }
+  .top { justify-content: flex-end; flex-wrap: wrap; row-gap: 8px; }
+  /* на «Карте» поиск, кнопка фильтров, аватарка и типы — поверх карты, без полосы шапки */
+  body[data-view="map"] .top { position: fixed; top: 0; left: 0; right: 0; padding: 12px 12px 0; background: none; pointer-events: none; }
+  body[data-view="map"] .top > * { pointer-events: auto; }
+  body[data-view="map"] .map-bar { display: flex; order: 1; flex: 1; min-width: 0; }
+  body[data-view="map"] .me-btn { order: 2; }
+  body[data-view="map"] .map-chips { display: block; order: 3; flex: 0 0 calc(100% + 24px); width: calc(100% + 24px); margin: 0 -12px; min-width: 0; }
+  body[data-view="map"] .me-btn:not(.guest) { padding: 3px; border: 0; box-shadow: 0 4px 18px rgba(23, 33, 27, .14); }
+  body[data-view="map"] .me-btn:not(.guest) .ava { --s: 42px; }
+  body[data-view="map"] .me-btn.guest { height: 48px; border: 0; box-shadow: 0 4px 18px rgba(23, 33, 27, .14); }
+  body[data-view="map"] .me-btn.guest .ic { display: none; }   /* «Войти» без галочки — подсказке в поиске нужно место */
+  .map-bar .searchbox { flex: 1; min-width: 0; height: 48px; margin: 0; padding: 0 6px 0 16px; border-radius: 24px; border: 0; background: var(--panel); box-shadow: 0 4px 18px rgba(23, 33, 27, .14); font-size: 16px; }
+  .map-bar .filt-btn { display: grid; }
+  .map-chips .chips.types { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0; padding: 0 12px 8px; }
+  .map-chips .chips.types::-webkit-scrollbar { display: none; }
+  .map-chips .chips.types button { flex: none; height: 36px; padding: 0 14px 0 10px; font-size: 14px; font-weight: 500; color: var(--ink); border: 2px solid var(--panel); box-shadow: 0 2px 10px rgba(23, 33, 27, .12); }
+  .map-chips .chips.types button[aria-pressed="true"] { border-color: var(--oak); }
+  .map-chips .chips.types .radar-chip[aria-pressed="true"] { border-color: var(--ember); }
+  /* шторка — под поиском и типами; свёрнутая показывает «N бань» */
+  .panel { top: 112px; }
+  #map .leaflet-bottom.leaflet-right { top: 112px; }
+  .countrow { padding: 2px 8px 6px 0; }
+  .count { padding: 4px 16px; }
+  .count b { font-size: 18px; }
+  .panel-head { display: block; }
+  /* шторка фильтров */
+  .filt-sheet { padding: 6px 20px calc(22px + env(safe-area-inset-bottom, 0px)); }
+  .filt-sheet .filt-more { display: flex; flex-direction: column; gap: 12px; }
+  .filt-sheet .filt-head { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; }
+  .filt-sheet .filt-head h2 { margin: 0; font: 800 22px var(--display); }
+  .filt-sheet .filt-head .x { position: static; }
+  .filt-sheet .sel { height: 48px; font-size: 16px; }
+  .filt-sheet .selrow { display: flex; flex-direction: column; gap: 12px; }
+  .filt-sheet .who-pick .me-pick { height: 48px; min-width: 56px; }
+  .filt-sheet .filt-foot { display: flex; gap: 10px; margin-top: 6px; }
+  .filt-sheet .filt-foot .btn { flex: none; padding: 0 18px; height: 54px; border-radius: 16px; }
+  .filt-sheet .filt-foot .cta { flex: 1; height: 54px; border-radius: 16px; font-size: 16px; }
+
+  /* нижнее меню: Карта, Таблица, веник «+ Баня», Лента, Ещё */
+  .nav [data-view="owners"], .nav [data-view="rules"], .nav [data-view="dir"] { display: none !important; }
+  .nav [data-view="map"] { order: 1; } .nav [data-view="table"] { order: 2; } .nav-gap { display: block; order: 3; flex: 1 1 0; }
+  .nav [data-view="feed"] { order: 4; } .nav .nav-more { display: flex; order: 5; }
+  .cta#addVisitBtn {
+    position: fixed; z-index: 1600; left: 50%; bottom: calc(15px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); margin: 0;
+    flex-direction: column; gap: 3px; padding: 0; width: 72px; background: none; box-shadow: none; color: var(--oak); font-size: 11px; font-weight: 600;
+  }
+  .cta#addVisitBtn:hover, .cta#addVisitBtn:active { transform: translateX(-50%); filter: none; box-shadow: none; }
+  .cta#addVisitBtn :is(.ic-swap, .cta-puff, .cta-long) { display: none; }
+  .cta#addVisitBtn .cta-short { display: block; animation: none !important; }
+  .cta-venik { position: relative; display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; background: var(--venik-bg, var(--oak)); border: 4px solid var(--panel); box-sizing: border-box; box-shadow: 0 8px 20px color-mix(in srgb, var(--oak) 35%, transparent); }
+  .cta-venik > svg { width: 40px; height: 40px; overflow: visible; }
+  .cta-venik use { fill: #fff; stroke: var(--venik-bg, var(--oak)); stroke-width: 1; paint-order: stroke; color: var(--oak-soft); }
+  .cta-venik use.v-mid { fill: #f2f6ef; } .cta-venik use.v-back { fill: #dfe8da; }
+  .cta-venik .v-handle { fill: #e9d2b6; } .cta-venik .v-twine { fill: var(--honey); }
+  .cta-venik .v-swat { transform-box: view-box; transform-origin: 24px 40px; }
+  .cta-venik b { position: absolute; top: -4px; right: -4px; width: 20px; height: 20px; border-radius: 50%; background: var(--panel); color: var(--venik-bg, var(--oak)); display: grid; place-items: center; box-shadow: 0 1px 4px rgba(23, 33, 27, .25); }
+  .cta-venik b .ic { width: 12px; height: 12px; stroke-width: 3.4; }
+}
+@media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
+  #addVisitBtn.pour .v-swat { animation: swat .5s ease-out; }
+  @keyframes swat { 0% { transform: rotate(0); } 30% { transform: rotate(-28deg); } 55% { transform: rotate(22deg); } 75% { transform: rotate(-6deg); } 100% { transform: rotate(0); } }
+}
