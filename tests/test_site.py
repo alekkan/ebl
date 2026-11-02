@@ -505,7 +505,7 @@ with sync_playwright() as pw:
         s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_timeout(700)
         check("участнику переименовать баню и сменить её тип нельзя, фильтра по точкам нет — это Комиссии",
-              s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && !document.getElementById('dCloseBtn') && !document.getElementById('dPlaceBtn') && document.getElementById('fPrec').hidden"))
+              s.js("() => !document.getElementById('dRename') && !document.getElementById('dTypeBtn') && !document.getElementById('dCloseBtn') && !document.getElementById('dPlaceBtn') && document.getElementById('fPrecGrp').hidden"))
         s.page.click("#geoFixBtn"); s.page.fill("#geoFixInput", "55.783951, 37.354822"); s.page.click('#geoFixForm button[type="submit"]')
         s.page.wait_for_function("() => /Передал Комиссии|Не нашёл|Войди/.test(document.querySelector('#drawer .geo-move')?.innerText || '')", timeout=15000)
         req_row = sql(f"select status || ' ' || source || ' ' || round(lat::numeric, 4) from bath_point_requests where bath_id = {bath}")
@@ -1188,10 +1188,10 @@ with sync_playwright() as pw:
         check("типы без «Все»: нажал «Общественные» — только они, ещё раз — снова все",
               pub and s.js("() => !document.querySelector('#fType [aria-pressed=true]') && [...document.querySelectorAll('#list .item .dot')].some((d) => !d.classList.contains('t-public'))"))
         s.page.click("#filtBtn"); s.page.wait_for_selector("#filtModal:not([hidden])", timeout=3000)
-        check("кнопка в поиске открывает шторку фильтров: сезон, страна, участник",
-              s.js("() => ['fSeason', 'fCountry', 'fPlayer'].every((id) => document.getElementById(id).closest('#filtModal') && document.getElementById(id).offsetParent)"))
+        check("кнопка в поиске открывает шторку фильтров: сезон кнопками, страна, «Все» и участник",
+              s.js("() => ['fSeasonSeg', 'fCountry', 'fPlayer', 'fWhoAll'].every((id) => document.getElementById(id).closest('#filtModal') && document.getElementById(id).offsetParent)"))
         s.no_clip("шторка фильтров на телефоне", "#filtModal .sheet")
-        s.page.select_option("#fSeason", "2026"); s.page.click("#filtShow")
+        s.page.click('#fSeasonSeg [data-v="2026"]'); s.page.click("#filtShow")
         check("…выбрал «Были в 2026» — шторка закрылась, на кнопке фильтров «1»",
               s.js("() => document.getElementById('filtModal').hidden && document.getElementById('filtN').textContent === '1' && !document.getElementById('filtN').hidden"))
         s.page.click("#filtBtn"); s.page.click("#filtReset"); s.page.click("#filtShow")
@@ -1228,9 +1228,9 @@ with sync_playwright() as pw:
         s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'); w.scrollLeft = w.scrollWidth; }"); s.page.wait_for_timeout(300)
         check("таблица на телефоне: тень у правого края, пока можно листать вбок, и пропадает в конце", had and not hint())
         s.view("map"); s.page.wait_for_timeout(300)
-        s.page.click("#filtBtn"); s.page.click("#fMe"); s.page.select_option("#fSeason", "never"); s.page.click("#filtShow"); s.page.wait_for_timeout(500)
+        s.page.click("#filtBtn"); s.page.click("#fMe"); s.page.click('#fSeasonSeg [data-v="never"]'); s.page.click("#filtShow"); s.page.wait_for_timeout(500)
         s.no_clip("телефон: «Я» + «Не были в 2026» с очками", "#view-map")
-        s.page.click("#filtBtn"); s.page.click("#fMe"); s.page.select_option("#fSeason", "2026"); s.page.click("#filtShow"); s.page.wait_for_timeout(300)
+        s.page.click("#filtBtn"); s.page.click("#fWhoAll"); s.page.click('#fSeasonSeg [data-v="2026"]'); s.page.click("#filtShow"); s.page.wait_for_timeout(300)
         s.view("table"); s.js(open_shurik)
         s.no_clip("карточка участника с датами на телефоне", "#playerModal")
         s.js("() => (document.getElementById('playerModal').hidden = true)")
