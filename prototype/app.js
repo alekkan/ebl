@@ -215,6 +215,9 @@
   const icon = (id) => `<svg class="ic" aria-hidden="true"><use href="#i-${id}"/></svg>`;
   // значок типа бани — тот же силуэт, что на карте
   const tdot = (t) => `<i class="dot t-${t}">${TYPE_LABEL[t] && t !== "unknown" ? `<svg aria-hidden="true"><use href="#bt-${t}"/></svg>` : ""}</i>`;
+  // веник-оценка (02.11): пять листьев веером из одной рукояти; тёмных — сколько полных баллов, следующий — посветлее
+  const fanSvg = (v) => `<svg class="fan" viewBox="-15 -19 30 26" aria-hidden="true">${[-62, -31, 0, 31, 62].map((a, i) => ({ a, i }))
+    .sort((x, y) => Math.abs(y.a) - Math.abs(x.a)).map(({ a, i }) => `<use href="#oak-leaf" class="${i < Math.floor(v + 0.25) ? "on" : i < Math.ceil(v) ? "half" : ""}" transform="rotate(${a}) scale(${i === 2 ? 1.1 : i % 2 ? 0.98 : 0.84})"/>`).join("")}<rect x="-1.6" y="-.5" width="3.2" height="7" rx="1.6"/></svg>`;
   const leafSvg = (on) => `<svg class="leaf ${on ? "on" : ""}" viewBox="-6 -17 12 18" aria-hidden="true"><use href="#oak-leaf"/></svg>`;
   const leaves = (n, cls = "") => `<span class="leaves ${cls}" title="${fmt(n)} из 5">${[1, 2, 3, 4, 5].map((i) => leafSvg(i <= Math.round(n))).join("")}</span>`;
   const where = (b) => [b.region, b.country].filter(Boolean).join(", ") || "регион не указан";
@@ -586,7 +589,6 @@
       if (phone.matches && b.ll) map.panTo(aboveCard(b.ll, map.getZoom()), { animate: !calm });
       selectPin();
     }
-    const who = Object.entries(b.v26 || {}).sort((x, y) => y[1] - x[1]);
     const pv = prices[id] || [];   // по возрастанию price_date — последняя цена в конце
     const lastP = pv[pv.length - 1], olderP = pv.slice(0, -1).reverse();
     const bv = beerPrices[id] || [];
@@ -611,17 +613,25 @@
     const flags = [b.closed_on && `закрыта с ${closedWhen(b)}`, b.isNew && "новая, на модерации", !b.n26 && !b.nHist && !b.isNew && "кандидат в ультрауникальные", b.n26 >= 15 && "🔥 место силы"].filter(Boolean);
     const long = b.name.length > 18;   // длинное название — обычным жирным: широкий шрифт его рвёт на три строки
     if (cardFor !== id) { cardFor = id; cardOpen.clear(); }
+    // кто парился — за всё время, с 2023-го (02.11, Леха: не делать упор на 2026); хозяин — по сезону, так и подписан
+    const allBy = {};
+    for (const y of Object.values(b.histBy || {})) for (const [n, k] of Object.entries(y)) allBy[n] = (allBy[n] || 0) + k;
+    for (const [n, k] of Object.entries(b.v26 || {})) allBy[n] = (allBy[n] || 0) + k;
+    const whoAll = Object.entries(allBy).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ru")), own = ownerOf(b);
+    const years = [...hist.map(([y, n]) => [y, n]), ["2026", b.n26]].filter(([, n]) => n > 0);
+    // карты — сразу поиском по названию; придут факты сверки — подставим их ссылки
+    const qMap = encodeURIComponent([b.name, b.region || b.country].filter(Boolean).join(", "));
+    const yaUrl = exact ? `https://yandex.ru/maps/?pt=${b.ll[1]},${b.ll[0]}&z=17&text=${encodeURIComponent(b.name)}` : `https://yandex.ru/maps/?text=${qMap}`;
+    const gisUrl = exact ? `https://2gis.ru/geo/${b.ll[1]},${b.ll[0]}` : `https://2gis.ru/search/${qMap}`;
     d.innerHTML = `
       <button type="button" class="grab d-grab" aria-label="Развернуть карточку на весь экран"><i></i></button>
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
-      <button type="button" class="x x-share" id="dShare" aria-label="Поделиться ссылкой на баню" title="Поделиться">${icon("share")}</button>
       <div class="d-body">
         <div class="d-hero t-${b.t}">
           <div class="d-meta">
             ${canModerate && D.live
               ? `<button type="button" class="t t-pick" id="dTypeBtn" aria-expanded="false" aria-controls="dTypeAsk" title="Сменить тип — Комиссия">${tdot(b.t)}${TYPE_LABEL[b.t]}<span aria-hidden="true">▾</span></button>`
               : `<span class="t">${tdot(b.t)}${TYPE_LABEL[b.t]}</span>`}
-            ${b.t === "public" ? '<span class="plus">+1 очко</span>' : ""}
             ${flags.map((f) => `<span class="flag">${f}</span>`).join("")}
           </div>
           ${canModerate && D.live ? `<div class="type-ask" id="dTypeAsk" hidden>
@@ -653,21 +663,55 @@
             ${b.closed_on ? "" : `<label class="lab">Закрылась в <input class="inp sm" type="month" id="dCloseMonth" value="${new Date().toISOString().slice(0, 7)}" max="${new Date().toISOString().slice(0, 7)}"></label>`}
             <div class="type-acts"><button type="button" class="btn sm solid" id="dCloseGo">${b.closed_on ? "Работает" : "Закрыта"}</button><button type="button" class="linkbtn" id="dCloseCancel">Отмена</button></div>
           </div>` : ""}
-          <div class="d-info" id="dInfo" hidden></div>
         </div>
+        <section class="d-main" id="dMain">
+          <div class="d-key">
+            <button type="button" class="d-k" id="dToday" aria-expanded="false" aria-controls="dWeek"><span class="k-l">Сегодня${icon("chev")}</span><b id="dTodayV">—</b><small id="dTodaySub">часы не указали</small></button>
+            <div class="d-k"><span class="k-l">Вход</span><b id="dPriceV">${lastP ? `${money(lastP.price)} ${curSign(lastP.currency)}` : "—"}</b><small id="dPriceSub">${lastBeer ? `пиво ${money(lastBeer.price)} ${curSign(lastBeer.currency)}` : lastP ? dayLabel(lastP.price_date) : "не указали"}</small></div>
+            <div class="d-k" id="dRateTile">${rateTile(id)}</div>
+          </div>
+          <div class="d-week" id="dWeek" hidden></div>
+          <div class="rate-rows" id="dRating" ${ratings[id] ? "" : "hidden"}>${rateRows(id)}</div>
+        </section>
         <div class="d-photos" id="dPhotos" hidden></div>
-        <div class="facts">
-          <div><b>${b.n26}</b><span>${plural(b.n26, "поход", "похода", "походов")} в 2026</span></div>
-          <div><b>${who.length}</b><span>${plural(who.length, "участник", "участника", "участников")}</span></div>
-          <div id="dRateTile">${rateTile(id)}</div>
-        </div>
-        <section class="d-rating" id="dRating" ${ratings[id] ? "" : "hidden"}>${rateRows(id)}</section>
         <div id="dRateInvite">${rateInvite(id)}</div>
-        ${(() => {
-          const who = $("#fPlayer").value || myNick; if (!who) return "";
-          const parts = potentialFor(who)(b); if (!parts) return "";
-          return `<div class="pot"><b>+${parts.length}</b><div><span>${who === myNick ? "тебе" : esc(who)} за первый поход в 2026</span><small>${parts.join(" · ")}</small></div></div>`;
-        })()}
+        <section class="d-about" id="dAbout" hidden><div class="d-info" id="dInfo"></div></section>
+        <div class="d-acts">
+          <a id="dYa" target="_blank" rel="noopener" href="${yaUrl}">${icon("pin")}<span>Яндекс</span></a>
+          <a id="dGis" target="_blank" rel="noopener" href="${gisUrl}">${icon("map")}<span>2ГИС</span></a>
+          <a id="dSite" target="_blank" rel="noopener" hidden>${icon("globe")}<span>Сайт</span></a>
+          <button type="button" id="dShare">${icon("share")}<span>Поделиться</span></button>
+        </div>
+        <section class="d-who">
+          <div class="d-sh"><h3>Кто парился</h3>${whoAll.length > 6 ? `<button type="button" class="linkbtn" id="dWhoAll">все ${whoAll.length}</button>` : ""}</div>
+          ${own && own.kind !== "free" ? `<div class="d-owner"><span class="d-owner-ava">${ava(own.who[0])}<i class="hat-on" aria-hidden="true"></i></span><span>
+            <b>${own.kind === "owner" ? `${esc(own.who[0])} — хозяин бани в 2026` : `${esc(own.who.join(" и "))} делят шапку в 2026`}</b>
+            <small>${own.n} ${plural(own.n, "поход", "похода", "походов")} из ${b.n26} в сезоне</small></span></div>` : ""}
+          ${whoAll.length ? `<div class="who" id="dWho">${whoAll.map(([p, n], i) => `<button data-player="${esc(p)}" ${i >= 6 ? "hidden" : ""}>${ava(p, "sm")}${esc(p)}${n > 1 ? `<b>×${n}</b>` : ""}</button>`).join("")}</div>`
+            : `<p class="hint" style="margin:0">С 2023 года здесь никого из лиги не было — первые, кто сходит, возьмут +1 за ультрауникальную и +1 за уникальную.</p>`}
+          ${years.length > 1 ? `<p class="hint" style="margin:10px 0 0">Походы лиги по годам с ${years[0][0]}: <b>${years.map(([, n]) => n).join(" → ")}</b></p>` : ""}
+          ${lastV ? `<p class="hint last-visit" style="margin:6px 0 0">Последний раз — <b>${dayLabel(lastV.date)}</b>: ${esc([lastV.player, ...(lastV.companions || [])].join(", "))}</p>` : ""}
+          ${pending ? `<p class="hint" style="margin:6px 0 0">Ещё ${pending} на модерации</p>` : ""}
+        </section>
+        <section>
+          <h3 class="d-big">Отзывы${rv.length ? " · " + rv.length : ""}</h3>
+          <div class="reviews">
+            ${rv.length ? rv.map((r) => `<div class="review">${ava(r.author)}<div>
+              <div class="rh"><b>${esc(r.author)}${r.sample ? '<span class="sample">пример</span>' : ""}</b><span class="rv-rate"><b>${r.rate}</b>${fanSvg(r.rate)}</span>${r.at ? `<small class="hint">${dayLabel(mskIso(r.at))}</small>` : ""}</div>
+              <p>${esc(r.text)}</p>${r.id && (r.mine || canModerate) ? `<button type="button" class="linkbtn" data-rvdel="${r.id}">удалить</button>` : ""}</div></div>`).join("") : `<p class="hint" style="margin:0">Отзывов пока нет — расскажи про пар первым.</p>`}
+          </div>
+          ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Отзывы пишут участники лиги.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>` : `
+          <button type="button" class="addbtn" id="rvOpen" ${cardOpen.has("rv") ? "hidden" : ""}>+ ${iWrote ? "Ещё отзыв" : "Написать отзыв"}</button>
+          <form class="rvform" id="rvForm" ${cardOpen.has("rv") ? "" : "hidden"}>
+            <div class="row">
+              <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === myRate}" aria-label="${n} из 5">${leafSvg(n <= myRate).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
+              ${D.live ? `<span class="hint">от имени <b>${esc(me.nick)}</b></span>` : `<select id="rvAuthor" class="sel" aria-label="Автор">${players.map((p) => `<option ${p === store.get("me", "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`}
+            </div>
+            <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва"></textarea>
+            <button class="btn solid" type="submit" style="justify-self:start">${iWrote ? "Добавить ещё отзыв" : "Опубликовать отзыв"}</button>
+            ${iWrote ? '<span class="hint">Прошлый отзыв останется — это будет ещё один.</span>' : ""}
+          </form>`}
+        </section>
         <section>
           <h3>Цена</h3>
           <div class="price-now">
@@ -730,41 +774,6 @@
             <button class="btn solid" type="submit" style="justify-self:start">Сохранить</button>
           </form>` : ""}
         </section>
-        <section>
-          <h3>Кто парился в 2026</h3>
-          ${who.length ? `<div class="who">${who.map(([p, n]) => `<button data-player="${esc(p)}">${ava(p, "sm")}${esc(p)}${n > 1 ? `<b>×${n}</b>` : ""}</button>`).join("")}</div>`
-            : `<p class="hint" style="margin:0">${!b.nHist && !b.isNew
-                ? "С 2023 года здесь никого из лиги не было — первые, кто сходит, возьмут +1 за ультрауникальную и +1 за уникальную."
-                : "В этом сезоне здесь ещё никого не было — каждому, кто сходит, +1 за уникальную."}</p>`}
-          ${lastV ? `<p class="hint last-visit" style="margin:10px 0 0">Последний раз — <b>${dayLabel(lastV.date)}</b>: ${esc([lastV.player, ...(lastV.companions || [])].join(", "))}</p>` : ""}
-          ${hist.length ? `<p class="hint" style="margin:6px 0 0">Прошлые сезоны: ${hist.map(([y, n]) => `${y} — ${n}`).join(" · ")} · всего с 2023 — <b>${b.nAll}</b></p>` : ""}
-          ${pending ? `<p class="hint" style="margin:6px 0 0">Ещё ${pending} на модерации</p>` : ""}
-        </section>
-        <section>
-          <h3>Отзывы${rv.length ? " · " + rv.length : ""}</h3>
-          <div class="reviews">
-            ${rv.length ? rv.map((r) => `<div class="review">${ava(r.author)}<div>
-              <div class="rh"><b>${esc(r.author)}${r.sample ? '<span class="sample">пример</span>' : ""}</b>${leaves(r.rate)}${r.at ? `<small class="hint">${dayLabel(mskIso(r.at))}</small>` : ""}</div>
-              <p>${esc(r.text)}</p>${r.id && (r.mine || canModerate) ? `<button type="button" class="linkbtn" data-rvdel="${r.id}">удалить</button>` : ""}</div></div>`).join("") : `<p class="hint" style="margin:0">Отзывов пока нет — расскажи про пар первым.</p>`}
-          </div>
-          ${!member ? `<div class="rvform"><p class="hint" style="margin:0">Отзывы пишут участники лиги.</p><button class="btn solid" type="button" id="rvLogin" style="justify-self:start">${D.live && me ? "Кто ты в таблице?" : "Войти через Telegram"}</button></div>` : `
-          <button type="button" class="addbtn" id="rvOpen" ${cardOpen.has("rv") ? "hidden" : ""}>+ ${iWrote ? "Ещё отзыв" : "Написать отзыв"}</button>
-          <form class="rvform" id="rvForm" ${cardOpen.has("rv") ? "" : "hidden"}>
-            <div class="row">
-              <div class="rate" id="rvRate" role="radiogroup" aria-label="Оценка в вениках">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-r="${n}" role="radio" aria-checked="${n === myRate}" aria-label="${n} из 5">${leafSvg(n <= myRate).replace('class="leaf', 'class="leaf big')}</button>`).join("")}</div>
-              ${D.live ? `<span class="hint">от имени <b>${esc(me.nick)}</b></span>` : `<select id="rvAuthor" class="sel" aria-label="Автор">${players.map((p) => `<option ${p === store.get("me", "") ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`}
-            </div>
-            <textarea id="rvText" class="inp" placeholder="Какой пар, веники, купель, мужские часы, цены…" required aria-label="Текст отзыва"></textarea>
-            <button class="btn solid" type="submit" style="justify-self:start">${iWrote ? "Добавить ещё отзыв" : "Опубликовать отзыв"}</button>
-            ${iWrote ? '<span class="hint">Прошлый отзыв останется — это будет ещё один.</span>' : ""}
-          </form>`}
-        </section>
-      </div>
-      <div class="d-foot">
-        <button class="cta" id="dVisit">${icon("plus")}<span>Я тут парился</span></button>
-        <a class="btn" target="_blank" rel="noopener" href="${exact
-          ? `https://yandex.ru/maps/?rtext=~${b.ll[0]},${b.ll[1]}&rtt=auto`   /* точка есть — маршрут прямо до неё */
-          : `https://yandex.ru/maps/?text=${encodeURIComponent(b.name + " " + (b.region || b.country || ""))}`}">${icon("route")}Маршрут</a>
       </div>`;
     d.hidden = false;
     history.replaceState(null, "", "#bath=" + id);   // ссылку на открытую баню можно скопировать из адресной строки
@@ -773,10 +782,10 @@
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
     }
     if (!schedCache.has(id)) schedCache.set(id, D.bathSchedule(id).catch(() => { schedCache.delete(id); return null; }));
-    schedCache.get(id).then((sc) => { schedNow.set(id, sc); renderSchedule(id, sc); });
+    schedCache.get(id).then((sc) => { schedNow.set(id, sc); renderSchedule(id, sc); syncToday(id); });
     if (D.live) {
       if (!factCache.has(id)) factCache.set(id, D.bathFacts(id).catch(() => { factCache.delete(id); return null; }));
-      factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); });
+      factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); syncToday(id); });
     }
     $(".x", d).onclick = closeBath;
     $("#dShare", d).onclick = () => shareBath(id);
@@ -843,7 +852,9 @@
         } catch (err) { e.target.disabled = false; toast("Не получилось: " + err.message); }
       };
     }
-    $("#dVisit", d).onclick = () => openVisit({ bathId: id });
+    $("#dWhoAll", d)?.addEventListener("click", (e) => { $$("#dWho [hidden]", d).forEach((x) => (x.hidden = false)); e.currentTarget.remove(); });
+    $("#dToday", d).onclick = () => { const w = $("#dWeek", d); if (!w.innerHTML) return; w.hidden = !w.hidden; $("#dToday", d).setAttribute("aria-expanded", String(!w.hidden)); };
+    syncToday(id);
     $(".d-grab", d).onclick = () => d.classList.toggle("full");
     $("#prMore", d)?.addEventListener("click", () => { $("#prMore", d).hidden = true; $("#prExtra", d).hidden = false; });
     $$("#prWeekend button", d).forEach((b) => b.addEventListener("click", () => $$("#prWeekend button", d).forEach((x) => x.setAttribute("aria-pressed", String(x === b)))));
@@ -1004,33 +1015,18 @@
     if (f.address && $("#dWhereTxt")) $("#dWhereTxt").textContent = f.address;   // адрес вместо «Москва, Россия»
     const box = $("#dInfo");
     if (box) {
-      // часы: главное — сегодня; всё расписание — по нажатию
-      const byDay = hoursByDay(f.hours), today = byDay?.[(new Date().getDay() + 6) % 7];
-      const edit = member ? ` <button type="button" class="linkbtn" data-hedit>изменить</button>` : "";
-      const hours = !f.hours ? "" : byDay
-        ? `<p id="dHoursRow">${icon("clock")}<span>${today ? `<b>Сегодня ${today === "закрыто" ? "закрыто" : today}</b>` : "<b>Сегодня не работает</b>"}
-            <button type="button" class="linkbtn" id="dHoursBtn" aria-expanded="false">все часы</button>
-${edit}
-            <span class="d-hours" id="dHours" hidden>${hoursRows(byDay).map(esc).join("<br>")}</span></span></p>`
-        : `<p id="dHoursRow">${icon("clock")}<span><span class="d-clamp">${esc(tidy(f.hours))}</span>${edit}</span></p>`;
       const gender = tidy(f.gender_days);
       const tags = [...new Set([...(f.sections || []), ...(f.amenities || [])].map((x) => String(x).trim()).filter(Boolean))].slice(0, 10);
-      const q = encodeURIComponent([byId.get(id)?.name, f.address].filter(Boolean).join(", "));
-      const a = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`;
-      // две группы — «сайт и телефон» и «карты»: переносятся целиком, а не по одной ссылке
-      const contacts = [site && a(site, "Сайт"), f.phone && `<a href="tel:${esc(f.phone.replace(/[^\d+]/g, ""))}">${esc(f.phone)}</a>`].filter(Boolean).join("");
-      const maps = a(own(f.yandex_url) || `https://yandex.ru/maps/?text=${q}`, "Яндекс Карты") + a(own(f.twogis_url) || `https://2gis.ru/search/${q}`, "2ГИС");
-      const links = (contacts ? `<span class="l-grp">${contacts}</span>` : "") + `<span class="l-grp">${maps}</span>`;
-      box.innerHTML = hours + (gender ? `<p>${icon("users")}<span class="d-clamp">${esc(gender)}</span></p>` : "")
-        + (tags.length ? `<div class="d-tags">${tags.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : "")
-        + `<p class="d-links">${links}</p>`;
+      box.innerHTML = (gender ? `<p>${icon("users")}<span class="d-clamp">${esc(gender)}</span></p>` : "")
+        + (tags.length ? `<div class="d-tags">${tags.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : "");
       box.title = `По картам и сайту бани, проверила Комиссия${when ? ` · ${when}` : ""}`;
-      box.hidden = false;
-      const hb = $("#dHoursBtn", box);
-      if (hb) hb.onclick = () => { const h = $("#dHours", box); h.hidden = !h.hidden; hb.textContent = h.hidden ? "все часы" : "свернуть"; hb.setAttribute("aria-expanded", String(!h.hidden)); };
-      $("[data-hedit]", box)?.addEventListener("click", () => editHours(id));
-      syncHours(id);
+      $("#dAbout").hidden = !box.innerHTML;
+      // карты и сайт — кнопками под «О бане»; на справочники (Zoon, Yell) не ведём
+      if (own(f.yandex_url)) $("#dYa").href = own(f.yandex_url);
+      if (own(f.twogis_url)) $("#dGis").href = own(f.twogis_url);
+      if (site) { $("#dSite").href = site; $("#dSite").hidden = false; }
     }
+    syncHours(id);
     // цена с сайта: первая — крупно, остальные варианты — под «ещё», откуда — подписью
     const ps = $("#dPriceSite");
     if (f.price && ps) {
@@ -1044,7 +1040,25 @@ ${edit}
         <small>по сайту бани${when ? `, ${when}` : ""}${src ? ` · <a href="${esc(src)}" target="_blank" rel="noopener">откуда</a>` : ""}</small>`;
       ps.hidden = false;
       if ($("#dPriceNone")) $("#dPriceNone").hidden = true;
+      if ($("#dPriceV")?.textContent === "—") {
+        const m = main.match(/^[\d\s]+(?:[.,]\d+)?\s*(?:₽|руб\.?|€|\$|¥|BYN|₸)/);
+        if (m) { $("#dPriceV").textContent = m[0].replace(/руб\.?/, "₽").trim(); $("#dPriceSub").textContent = "по сайту бани"; }
+      }
     }
+  }
+  // «Сегодня» в главном блоке: часы работы (участники новее сверки) и ближайший пар; по нажатию — вся неделя
+  function syncToday(id) {
+    if (openId !== id || !$("#dToday")) return;
+    const sc = schedNow.get(id), f = factNow.get(id), byDay = hoursByDay(f?.hours), wd = (new Date().getDay() + 6) % 7;
+    const h = sc?.hours, today = h ? (h.open === h.close ? "круглосуточно" : `${h.open}–${h.close}`) : byDay ? byDay[wd] || "не работает" : null;
+    const ts = sc?.steam?.times || [], now = mskNow().slice(11, 16), next = ts.find((t) => t > now);
+    $("#dTodayV").textContent = today || "—";
+    $("#dTodaySub").textContent = next ? `пар в ${next}` : ts.length ? "пары кончились" : today ? (f?.gender_days ? "есть муж. и жен. дни" : "пары не указали") : "часы не указали";
+    $("#dTodaySub").classList.toggle("steam", !!next);
+    const week = [h ? `${h.open === h.close ? "круглосуточно" : `ежедневно ${h.open}–${h.close}`}` : byDay ? hoursRows(byDay).map(esc).join("<br>") : f?.hours ? esc(f.hours) : "",
+      ts.length ? `пары: ${ts.join(" · ")}` : "", f?.gender_days ? esc(String(f.gender_days).replace(/\s*\([^)]*\)/g, "")) : ""].filter(Boolean);
+    $("#dWeek").innerHTML = week.map((x) => `<p>${x}</p>`).join("");
+    $("#dToday").classList.toggle("has-more", week.length > 0);
   }
   function renderSchedule(id, sc) {
     const box = $("#dSched");
@@ -1143,11 +1157,12 @@ ${edit}
   const CRIT = [["stove", "Печь"], ["steam", "Пар"], ["aqua", "Аквазона"], ["outdoor", "Выход на улицу"], ["kitchen", "Кухня"],
     ["atmosphere", "Атмосфера"], ["service", "Сервис"], ["prices", "Цены"]];
   let ratings = {};
+  // главная цифра бани — крупно, за ней веник-оценка (02.11, макет карточки); под ней — восемь пунктов
   const rateTile = (id) => { const r = ratings[id];
-    return r ? `<b>${fmt(+r.overall)}</b><span>${leaves(+r.overall)}<br>${r.n} ${plural(r.n, "оценка", "оценки", "оценок")}</span>` : "<b>—</b><span>нет оценок</span>"; };
+    return `<span class="k-l">Оценка</span>` + (r ? `<b class="k-rate" aria-label="Оценка лиги ${fmt(+r.overall)} из 5">${fmt(+r.overall)}${fanSvg(+r.overall)}</b><small>${r.n} ${plural(r.n, "оценка", "оценки", "оценок")}</small>`
+      : "<b>—</b><small>нет оценок</small>"); };
   const rateRows = (id) => { const r = ratings[id]; if (!r) return "";
-    return `<h3>Рейтинг · ${fmt(+r.overall)}</h3><div class="rate-rows">${CRIT.map(([k, t]) =>
-      `<div><span>${t}</span><i style="--w:${(+r[k] / 5) * 100}%"></i><b>${fmt(+r[k])}</b></div>`).join("")}</div>`; };
+    return CRIT.map(([k, t]) => `<div><span>${t}</span><b>${fmt(+r[k])}</b><i style="--w:${(+r[k] / 5) * 100}%;--c:${+r[k] >= 4.5 ? "var(--oak)" : +r[k] >= 4 ? "color-mix(in srgb, var(--oak) 70%, var(--panel))" : "color-mix(in srgb, var(--oak) 40%, var(--panel))"}"></i></div>`).join(""); };
   // «Ты тут был … · Оцени баню — 1 минута» (01.11, вариант Б): участнику, который был в бане (любой поход — с портала или
   // из таблицы) и ещё её не оценивал; ведёт на лёгкую страницу оценки по бане. Дата — последнего похода с портала, иначе год
   let myRated = null;   // null — ещё не знаем, кто что оценил: приглашение не показываем
@@ -1617,9 +1632,11 @@ ${edit}
     const b = $("#addVisitBtn"); b.classList.remove("pour"); void b.offsetWidth; b.classList.add("pour");
     setTimeout(() => b.classList.remove("pour"), 2600);
     const wait = calm || !matchMedia("(hover: none)").matches ? 0 : phone.matches ? 520 : 950;
-    if (!wait) return openVisit();
+    // открыта карточка бани — она и подставлена (закрытую форма похода не предлагает — тогда обычный поиск)
+    const here = !$("#drawer").hidden && openId && !byId.get(openId)?.closed_on ? { bathId: openId } : {};
+    if (!wait) return openVisit(here);
     pouring = true;
-    setTimeout(() => { pouring = false; openVisit(); }, wait);
+    setTimeout(() => { pouring = false; openVisit(here); }, wait);
   };
 
   const PHOTOS_HINT = $("#vPhotosState").textContent;
