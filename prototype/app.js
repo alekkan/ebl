@@ -2098,7 +2098,8 @@
       return (v.dur > 150 ? "долгая" : "экспресс") + (diff.length ? ` · ${diff.map(esc).join(", ")} — ${v.dur > 150 ? "экспресс" : "долгая"}` : ""); };
     const stack = (names, cls = "") => `<span class="stack ${cls}">${names.slice(0, 3).map((n) => ava(n)).join("")}</span>`;
     const people = (v) => [v.player, ...v.companions];
-    const rateLine = (list) => list.map((r) => `<div class="f-rate"><span class="rv-rate"><b>${fmt(r.score)}</b>${fanSvg(r.score)}</span><span><b>${esc(r.nick)}</b> ${r.text ? `«${esc(r.text.length > 90 ? r.text.slice(0, 88) + "…" : r.text)}»` : "оценил без отзыва"}</span></div>`).join("");
+    // оценка в строке похода: «Леха 5 🌿», отзыв — ниже с того же края, без отступов (03.11)
+    const rateLine = (list) => list.map((r) => `<div class="f-rate"><div class="f-rate-h">${esc(r.nick)} <span class="rv-rate"><b>${fmt(r.score)}</b>${fanSvg(r.score)}</span></div>${r.text ? `<blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote>` : ""}</div>`).join("");
     const card = (v) => {
       const b = byId.get(v.bathId), who = people(v);
       const rep = repeatOf(v);
@@ -2139,6 +2140,7 @@
     }).join("");
   }
   $("#feed").addEventListener("click", (e) => {
+    const rv = e.target.closest(".f-rv"); if (rv) { rv.classList.toggle("open"); return; }   // длинный отзыв — две строки, нажал — целиком
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
     if (ed) return openEdit(visits.find((x) => x.id === +ed));
