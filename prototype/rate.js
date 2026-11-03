@@ -173,8 +173,7 @@
           <textarea id="rateText" class="inp" rows="3" placeholder="Какой пар, веники, купель, кухня…" aria-label="Отзыв"></textarea></div>
         ${visit ? `<div class="thx-photos"><span class="rate-photos" id="ratePhotoPrev"></span>
           <label class="btn rate-add"><input type="file" id="ratePhotos" accept="image/*" multiple hidden>${icon("plus")}<span>Фото</span></label></div>` : ""}
-        <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button>
-          <button type="button" class="linkbtn" id="rateSkip">Без этого</button></div>
+        <div class="rate-foot"><button class="cta" type="submit">${icon("check")}<span>Готово</span></button></div>
       </form>`;
     // уже писал отзыв об этой бане (02.11) — он в поле, сохранение его правит, а не добавляет второй
     let myRv = null;
@@ -184,7 +183,6 @@
     }).catch(() => {});
     lastPrice().then((p) => { if (p) $("#ratePrev", body).textContent = `по желанию · в прошлый раз ${money(p.price)} ${curSign(p.currency)}`; else $("#ratePrev", body).textContent = "по желанию"; });
     const done = () => say("Готово, спасибо!", `Оценка уже в рейтинге бани <b class="nw">«${esc(f.name)}»</b>.`, true, [`./#bath=${f.bath}`, "Открыть баню на карте"]);
-    $("#rateSkip", body).onclick = done;
     $("#rateMore", body).onclick = (e) => { const x = $("#rateExtra", body); x.hidden = !x.hidden; e.currentTarget.setAttribute("aria-expanded", String(!x.hidden)); };
     $$("#rateWeekend [data-w]", body).forEach((b) => (b.onclick = () => {
       weekend = b.dataset.w === "" ? null : b.dataset.w === "1";
