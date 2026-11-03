@@ -1673,3 +1673,14 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .f-pending .post-actions .btn { flex: none; padding-inline: 14px; }
 .f-pending .post-actions .btn.solid { flex: 1; }
 .f-pending .post-actions .btn[aria-label] { width: 42px; padding: 0; justify-content: center; }
+
+/* карточка бани: «Походы лиги по годам» — нажал, раскрылось кто был в какой год (03.11, для сверки) */
+.d-years-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 0; border: 0; background: none; font-size: 13px; color: var(--ink-3); cursor: pointer; text-align: left; }
+.d-years-btn b { color: var(--ink-2); }
+.d-years-btn .ic { width: 14px; height: 14px; transition: transform .2s var(--ease); }
+.d-years-btn[aria-expanded="true"] .ic { transform: rotate(180deg); }
+.d-years { display: grid; gap: 6px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); font-size: 13px; color: var(--ink-2); }
+.d-years[hidden] { display: none; }
+.d-years p { display: grid; grid-template-columns: 38px 30px minmax(0, 1fr); gap: 8px; margin: 0; line-height: 1.45; }
+.d-years .dy-n { color: var(--ink-3); text-align: right; }
+.d-years .linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; }

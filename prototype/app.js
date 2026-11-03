@@ -713,7 +713,13 @@
             <small>${own.n} ${plural(own.n, "поход", "похода", "походов")} из ${b.n26} в сезоне</small></span></div>` : ""}
           ${whoAll.length ? `<div class="who" id="dWho">${whoAll.map(([p, n], i) => `<button data-player="${esc(p)}" ${i >= 6 ? "hidden" : ""}>${ava(p, "sm")}${esc(p)}${n > 1 ? `<b>×${n}</b>` : ""}</button>`).join("")}</div>`
             : `<p class="hint" style="margin:0">С 2023 года здесь никого из лиги не было — первые, кто сходит, возьмут +1 за ультрауникальную и +1 за уникальную.</p>`}
-          ${years.length > 1 ? `<p class="hint" style="margin:10px 0 0">Походы лиги по годам с ${years[0][0]}: <b>${years.map(([, n]) => n).join(" → ")}</b></p>` : ""}
+          ${years.length ? `<button type="button" class="d-years-btn" id="dYearsBtn" aria-expanded="false" aria-controls="dYears">Походы лиги по годам: <b>${years.map(([, n]) => n).join(" → ")}</b>${icon("chev")}</button>
+          <div class="d-years" id="dYears" hidden>${years.slice().reverse().map(([y]) => {
+            // кто был в этот год (03.11, Витёк: при сверке — у кого спросить); свежие годы сверху, по пять ников
+            const by = Object.entries(y === "2026" ? b.v26 || {} : b.histBy?.[y] || {}).sort((a, c) => c[1] - a[1] || a[0].localeCompare(c[0], "ru"));
+            const n = by.reduce((a, [, k]) => a + k, 0);
+            return `<p><b>${y}</b><span class="dy-n">${n}</span><span>${by.slice(0, 5).map(([nick, k]) => `<button type="button" class="linkbtn" data-player="${esc(nick)}">${esc(nick)}</button>${k > 1 ? ` ×${k}` : ""}`).join(", ")}${by.length > 5 ? ` и ещё ${by.length - 5}` : ""}</span></p>`;
+          }).join("")}</div>` : ""}
           ${lastV ? `<p class="hint last-visit" style="margin:6px 0 0">Последний раз — <b>${dayLabel(lastV.date)}</b>: ${esc([lastV.player, ...(lastV.companions || [])].join(", "))}</p>` : ""}
           ${pending ? `<p class="hint" style="margin:6px 0 0">Ещё ${pending} на модерации</p>` : ""}
         </section>
@@ -863,6 +869,7 @@
         } catch (err) { e.target.disabled = false; toast("Не получилось: " + err.message); }
       };
     }
+    $("#dYearsBtn", d)?.addEventListener("click", (e) => { const y = $("#dYears", d); y.hidden = !y.hidden; e.currentTarget.setAttribute("aria-expanded", String(!y.hidden)); });
     $("#dWhoAll", d)?.addEventListener("click", (e) => { $$("#dWho [hidden]", d).forEach((x) => (x.hidden = false)); e.currentTarget.remove(); });
     $("#dToday", d).onclick = () => { const w = $("#dWeek", d); if (!w.innerHTML) return; w.hidden = !w.hidden; $("#dToday", d).setAttribute("aria-expanded", String(!w.hidden)); };
     syncToday(id);
