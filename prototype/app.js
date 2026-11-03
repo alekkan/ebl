@@ -2098,8 +2098,14 @@
       return (v.dur > 150 ? "долгая" : "экспресс") + (diff.length ? ` · ${diff.map(esc).join(", ")} — ${v.dur > 150 ? "экспресс" : "долгая"}` : ""); };
     const stack = (names, cls = "") => `<span class="stack ${cls}">${names.slice(0, 3).map((n) => ava(n)).join("")}</span>`;
     const people = (v) => [v.player, ...v.companions];
-    // оценка в строке похода: «Леха 5 🌿», отзыв — ниже с того же края, без отступов (03.11)
-    const rateLine = (list) => list.map((r) => `<div class="f-rate"><div class="f-rate-h">${esc(r.nick)} <span class="rv-rate"><b>${fmt(r.score)}</b>${fanSvg(r.score)}</span></div>${r.text ? `<blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote>` : ""}</div>`).join("");
+    // оценки в строке похода (03.11): без текста — одной строкой чипов «Фил 4,8 🌿», с отзывом — имя и оценка, ниже цитата
+    // в две строки (нажал — целиком). В большой компании так не растягивается на экран
+    const rchip = (r) => `<span class="f-rchip">${esc(r.nick)} <b>${fmt(r.score)}</b>${fanSvg(r.score)}</span>`;
+    const rateLine = (list) => {
+      const bare = list.filter((r) => !r.text), said = list.filter((r) => r.text);
+      return (bare.length ? `<div class="f-rates">${bare.map(rchip).join("")}</div>` : "")
+        + said.map((r) => `<div class="f-rate">${rchip(r)}<blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote></div>`).join("");
+    };
     const card = (v) => {
       const b = byId.get(v.bathId), who = people(v);
       const rep = repeatOf(v);
