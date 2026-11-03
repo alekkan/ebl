@@ -469,7 +469,7 @@ with sync_playwright() as pw:
         check("строка «Когда зашёл»: «Сегодня, ЧЧ:ММ · МСК · W…»", s.js("() => /^Сегодня, \\d\\d:\\d\\d$/.test(document.getElementById('vWhenTxt').innerText) && /МСК · W\\d+/.test(document.getElementById('vWeekHint').innerText)"))
         check("выбранное фото — плиткой рядом с камерой", s.js("() => document.querySelectorAll('#vPhotosPrev img').length === 1"))
         check("очки по людям: «Ты +N …» и у попутчика своя строка",
-              s.js(f"() => {{ const r = [...document.querySelectorAll('#calc .t-who')].map((x) => x.innerText); return r.length === 2 && /^Ты\\s*\\+[1-9]/.test(r[0]) && r[1].startsWith('{mate}'); }}"),
+              s.js(f"() => {{ const r = [...document.querySelectorAll('#calc .t-who')].map((x) => x.querySelector('b').innerText + ' ' + x.querySelector('em').innerText); return r.length === 2 && /^Ты \\+[1-9]/.test(r[0]) && r[1].startsWith('{mate} +'); }}"),
               s.js("() => document.getElementById('calc').innerText"))
         check("кнопка — «Отправить в Комиссию»", s.js("() => /Отправить в Комиссию/.test(document.getElementById('vSubmit').innerText)"))
         s.page.click("#vSubmit")
