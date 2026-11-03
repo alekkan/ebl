@@ -33,6 +33,8 @@ async function fromBotApi(tgId: number): Promise<{ src: string; download: string
 
 // deno-lint-ignore no-explicit-any
 export async function syncAvatar(sb: any, acc: Account, photoUrl?: string | null): Promise<Stored | null> {
+  // своя аватарка, загруженная на сайте, — важнее фото из Telegram
+  if (acc.tg_photo_src === "own") { lastBotApiNote = "своя аватарка с сайта"; return null; }
   let source = await fromBotApi(acc.tg_id);
   if (!source && photoUrl && TG_PHOTO.test(photoUrl)) source = { src: photoUrl, download: photoUrl };
   if (!source || source.src === acc.tg_photo_src) return null;

@@ -1269,6 +1269,26 @@ with sync_playwright() as pw:
         s.page.click("#meBtn"); s.page.wait_for_timeout(300)
         check("профиль: мой сезон, мои бани на карте, мои походы в ленте", s.js("() => ['myProfile', 'myMap', 'myFeed', 'logoutBtn'].every((id) => !!document.getElementById(id))"))
         s.no_clip("профиль на телефоне", "#loginModal .sheet")
+        # 03.11: своя аватарка — нажал на аватарку в профиле, выбрал фото; «вернуть из Telegram» — обратно
+        was = sql("select coalesce(p.photo_url, '') || '|' || coalesce(a.tg_photo, '') || '|' || coalesce(a.tg_photo_src, '') from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик'")
+        check("профиль: аватарка — кнопка с камерой и ссылка «Сменить/Добавить фото»",
+              s.js("() => !!document.querySelector('#loginBody .ava-edit .ava-cam') && /(Сменить|Добавить) фото/.test(document.querySelector('#loginBody .ava-links').innerText)"))
+        s.page.set_input_files("#loginBody [data-ava-file]", files=[{"name": "me.png", "mimeType": "image/png", "buffer": TILE}])
+        s.page.wait_for_function("() => (document.querySelector('#meBtn .ava img')?.src || '').includes('/avatars/own/')", timeout=15000)
+        own = sql("select p.photo_url || '|' || a.tg_photo_src from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик'")
+        check("своё фото: в бакете avatars/own/<id>.jpg, у участника на сайте, бот его не перезапишет (src = own)",
+              "/storage/v1/object/public/avatars/own/" in own and own.endswith("|own")
+              and sql("select count(*) from storage.objects where bucket_id = 'avatars' and name like 'own/%'") != "0", own)
+        check("…появилась ссылка «вернуть из Telegram»", s.js("() => !!document.querySelector('#loginBody [data-ava-reset]')"))
+        s.page.click("#loginBody [data-ava-reset]")
+        s.page.wait_for_function("() => !document.querySelector('#meBtn .ava img')", timeout=10000)
+        check("«вернуть из Telegram» — своё фото снято, до входа — инициалы",
+              sql("select coalesce(p.photo_url, '-') || '|' || coalesce(a.tg_photo_src, '-') from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик'") == "-|-")
+        photo, tgp, src = was.split("|")
+        q = lambda v: f"'{v}'" if v else "null"
+        sql(f"update player_accounts set tg_photo = {q(tgp)}, tg_photo_src = {q(src)} where player_id = (select id from players where nick = 'Шурик')")
+        sql(f"update players set photo_url = {q(photo)} where nick = 'Шурик'")
+        sql("delete from storage.objects where bucket_id = 'avatars' and name like 'own/%'")
         s.page.click("#myMap"); s.page.wait_for_timeout(500)
         check("…«Мои бани на карте» — карта с моими банями", s.js("() => !document.getElementById('view-map').hidden && document.getElementById('fPlayer').value === 'Шурик' && document.getElementById('loginModal').hidden"))
         s.js("() => { const f = document.getElementById('fPlayer'); f.value = ''; f.dispatchEvent(new Event('change')); }"); s.page.wait_for_timeout(300)
