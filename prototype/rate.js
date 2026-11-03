@@ -9,8 +9,8 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmt = (n) => String(Math.round(n * 100) / 100).replace(".", ",");
   const icon = (n) => `<svg class="ic"><use href="#i-${n}"/></svg>`;
-  const leafSvg = (on) => `<svg class="leaf ${on ? "on" : ""}" viewBox="-6 -17 12 18" aria-hidden="true"><use href="#oak-leaf"/></svg>`;
-  const leaves = (n, cls = "") => `<span class="leaves ${cls}" title="${fmt(n)} из 5">${[1, 2, 3, 4, 5].map((i) => leafSvg(i <= Math.round(n))).join("")}</span>`;
+  const fanSvg = (v) => `<svg class="fan" viewBox="-15 -19 30 26" aria-hidden="true">${[-62, -31, 0, 31, 62].map((a, i) => ({ a, i }))
+    .sort((x, y) => Math.abs(y.a) - Math.abs(x.a)).map(({ a, i }) => `<use href="#oak-leaf" class="${i < Math.floor(v + 0.25) ? "on" : i < Math.ceil(v) ? "half" : ""}" transform="rotate(${a}) scale(${i === 2 ? 1.1 : i % 2 ? 0.98 : 0.84})"/>`).join("")}<rect x="-1.6" y="-.5" width="3.2" height="7" rx="1.6"/></svg>`;
   const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
   const mskDay = (t) => new Date(t + 3 * 3600e3).toISOString().slice(0, 10);
   const dayLabel = (iso) => {
@@ -29,8 +29,10 @@
   const body = $("#rateBody");
   // «Закрыть» (03.11, Витёк): назад туда, откуда пришёл оценивать (список бань, карточка); пришёл из бота — на карту
   const back = () => { if (history.length > 1 && document.referrer && new URL(document.referrer).origin === location.origin) history.back(); else location.href = "./"; };
-  const say = (title, text, close) => {
-    body.innerHTML = `<div class="rate-done"><h2 class="rate-title">${esc(title)}</h2><p class="lead">${text}</p>${close ? '<button type="button" class="cta big" id="rateClose">Закрыть</button>' : ""}</div>`;
+  // link — вторая, тихая ссылка под «Закрыть» (например, «Открыть баню на карте»): в тексте она рвала строку посередине
+  const say = (title, text, close, link) => {
+    body.innerHTML = `<div class="rate-done"><h2 class="rate-title">${esc(title)}</h2><p class="lead">${text}</p>${close ? '<button type="button" class="cta big" id="rateClose">Закрыть</button>' : ""}`
+      + `${link ? `<a class="linkbtn" href="${link[0]}">${esc(link[1])}</a>` : ""}</div>`;
     $("#rateClose", body)?.addEventListener("click", back);
   };
 
@@ -90,7 +92,7 @@
     }
     const a = avg(), n = filled();
     $("#rScore", body).textContent = n ? fmt(Math.round(a * 10) / 10) : "—";
-    $("#rLeaves", body).innerHTML = n ? leaves(a) : "<small>0 из 8</small>";
+    $("#rLeaves", body).innerHTML = n ? fanSvg(a) : "<small>0 из 8</small>";
     $("span", save).textContent = full() ? `${f.scores ? "Сохранить" : "Оценить"} · ${fmt(a)}` : `Осталось ${CRIT.length - n} из 8`;
     save.disabled = !full();
   };
@@ -148,12 +150,12 @@
     let weekend = null;   // null — любой день, false — будни, true — выходной
     const cur0 = curOf(f.country);
     body.innerHTML = `<header class="thx-head"><b>${fmt(overall)}</b>
-        <div><h1>${esc(f.name)}</h1>${leaves(overall)}<p>Спасибо! Уже в рейтинге</p></div></header>
+        <div><h1>${esc(f.name)}</h1><p>${fanSvg(overall)}Спасибо! Уже в рейтинге</p></div></header>
       <form class="rate-rv" id="rateRv">
         <div class="thx-sec"><span>Цены <small id="ratePrev"></small></span>
           <div class="thx-prices">
-            <label class="thx-inp"><i aria-hidden="true">♨️</i><input id="ratePrice" inputmode="decimal" placeholder="Вход" autocomplete="off" aria-label="Цена входа"></label>
-            <label class="thx-inp"><i aria-hidden="true">🍺</i><input id="rateBeer" inputmode="decimal" placeholder="Пиво" autocomplete="off" aria-label="Цена пива"></label>
+            <label class="thx-inp"><svg class="ic" aria-hidden="true"><use href="#i-steam"/></svg><input id="ratePrice" inputmode="decimal" placeholder="Вход" autocomplete="off" aria-label="Цена входа"></label>
+            <label class="thx-inp"><svg class="ic" aria-hidden="true"><use href="#i-beer"/></svg><input id="rateBeer" inputmode="decimal" placeholder="Пиво" autocomplete="off" aria-label="Цена пива"></label>
             <select class="sel" id="rateCur" aria-label="Валюта">${CUR.map((c) => `<option value="${c}" ${c === cur0 ? "selected" : ""}>${curSign(c)}</option>`).join("")}</select>
           </div>
           <button type="button" class="linkbtn" id="rateMore" aria-expanded="false">ещё: сеанс · будни/выходной · скидка до часа</button>
@@ -162,7 +164,7 @@
               <button type="button" data-w="" aria-pressed="true">Любой день</button><button type="button" data-w="0" aria-pressed="false">Будни</button><button type="button" data-w="1" aria-pressed="false">Выходной</button>
             </div>
             <div class="thx-two">
-              <label class="thx-inp"><i aria-hidden="true">⏱</i><input id="rateDur" inputmode="numeric" placeholder="Сеанс, мин" autocomplete="off"></label>
+              <label class="thx-inp"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><input id="rateDur" inputmode="numeric" placeholder="Сеанс, мин" autocomplete="off"></label>
               <label class="thx-inp"><span class="thx-lbl">Скидка до</span><input id="rateBefore" type="time" aria-label="Скидка до часа"></label>
             </div>
           </div>
@@ -181,7 +183,7 @@
       myRv = r; $("#rateText", body).value = r.text || ""; $("#rateRvNote", body).textContent = "твой прошлый — можно поправить";
     }).catch(() => {});
     lastPrice().then((p) => { if (p) $("#ratePrev", body).textContent = `по желанию · в прошлый раз ${money(p.price)} ${curSign(p.currency)}`; else $("#ratePrev", body).textContent = "по желанию"; });
-    const done = () => say("Готово, спасибо!", `Оценка «${esc(f.name)}» — в рейтинге бани. <a href="./#bath=${f.bath}">Открыть баню на карте</a>`, true);
+    const done = () => say("Готово, спасибо!", `Оценка уже в рейтинге бани <b class="nw">«${esc(f.name)}»</b>.`, true, [`./#bath=${f.bath}`, "Открыть баню на карте"]);
     $("#rateSkip", body).onclick = done;
     $("#rateMore", body).onclick = (e) => { const x = $("#rateExtra", body); x.hidden = !x.hidden; e.currentTarget.setAttribute("aria-expanded", String(!x.hidden)); };
     $$("#rateWeekend [data-w]", body).forEach((b) => (b.onclick = () => {

@@ -1069,7 +1069,7 @@ with sync_playwright() as pw:
         check("все восемь — на ручках цифры, слова, общая крупно (4) с листьями, «Оценить · 4» включилась",
               s.js("() => [...document.querySelectorAll('#rateBody .heat-knob')].map((x) => x.innerText).join('')") == "55342544"
               and s.js("() => document.querySelector('[data-line=\"stove\"] .rl-w').innerText") == "огонь"
-              and s.js("() => document.getElementById('rScore').innerText") == "4" and s.js("() => !!document.querySelector('#rLeaves .leaves')")
+              and s.js("() => document.getElementById('rScore').innerText") == "4" and s.js("() => !!document.querySelector('#rLeaves .fan')")
               and not s.js("() => document.getElementById('rateSave').disabled"))
         s.page.focus('#rateBody [data-heat="kitchen"]'); s.page.keyboard.press("ArrowRight")
         check("…стрелкой на клавиатуре — на деление выше", s.js("() => document.querySelector('[data-heat=\"kitchen\"] .heat-knob').innerText") == "3")

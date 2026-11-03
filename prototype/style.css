@@ -1778,3 +1778,17 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .dur2 button b { font-family: var(--body); font-weight: 700; font-size: 15px; }
 .vs-ticket .t-who { align-items: start; }
 .vs-ticket .t-who span { white-space: normal; padding-top: 1px; }
+/* оценка (03.11): веер как в карточке, значки цен — линиями, как в форме похода; текст «Готово» — ровными строками */
+.thx-head > div { flex: 1; min-width: 0; }
+.thx-head .fan { width: 46px; height: 40px; }
+.thx-inp .ic { width: 18px; height: 18px; flex: none; color: var(--ink-3); }
+.rate-done .lead { text-wrap: balance; max-width: 34ch; margin: 0; }
+.rate-done .cta { min-width: 220px; margin-top: 8px; }
+.rate-done .linkbtn { font-size: 14px; }
+.rate-score .fan { width: 40px; height: 34px; }
+.thx-head p { display: flex; align-items: center; gap: 6px; }
+.thx-head .fan { width: 26px; height: 22px; }
+.rate-score { display: grid; justify-items: end; gap: 2px; }
+.rate-score .fan { width: 34px; height: 30px; }
+.rate-done .lead { max-width: 40ch; }
+.rate-done .nw { white-space: nowrap; font-weight: 600; color: var(--ink); }
