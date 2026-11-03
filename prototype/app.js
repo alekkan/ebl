@@ -2147,7 +2147,9 @@
     const row = (e) => {
       if (e.kind === "rate") {
         const r = e.r, b = byId.get(r.bathId);
-        return `<div class="frow">${stack([r.nick])}<a class="f-main" href="#map" data-bath="${r.bathId}"><b>${esc(r.nick)} оценил ${esc(b?.name || "баню")}</b><small>${r.text ? `«${esc(r.text.length > 70 ? r.text.slice(0, 68) + "…" : r.text)}»` : "оценка лиги · без отзыва"}</small></a><span class="rv-rate"><b>${fmt(r.score)}</b>${fanSvg(r.score)}</span></div>`;
+        // оценка без похода: отзыв — такой же цитатой, как в строке похода (две строки, нажал — целиком)
+        return `<div class="frow">${stack([r.nick])}<div class="f-main"><a class="f-title" href="#map" data-bath="${r.bathId}">${esc(r.nick)} оценил ${esc(b?.name || "баню")}</a>${r.text ? "" : "<small>оценка лиги · без отзыва</small>"}
+          ${r.text ? `<div class="f-rate"><blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote></div>` : ""}</div><span class="rv-rate">${fmt(r.score) ? `<b>${fmt(r.score)}</b>` : ""}${fanSvg(r.score)}</span></div>`;
       }
       const v = e.v, b = byId.get(v.bathId), who = people(v);
       const split = who.map((n) => `<span class="f-pt${n === myNick ? " me" : ""}">${esc(n)}${v.pts?.[n] != null ? ` <b>+${fmt(v.pts[n])}</b>` : ""}</span>`).join("");

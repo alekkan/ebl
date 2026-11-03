@@ -1628,7 +1628,9 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .frow:has(.f-acts) .f-title { padding-right: 64px; }
 .f-rate .rv-rate b { font-size: 13px; }
 .f-rate .rv-rate .fan { width: 16px; height: 14px; }
-.frow > .rv-rate { flex: none; align-self: center; }
+/* оценка без похода — в углу на уровне названия; цитата под ним — на всю ширину, как в строке похода */
+.frow > .rv-rate { position: absolute; top: 12px; right: 14px; }
+.frow:has(> .rv-rate) .f-title { padding-right: 70px; }
 .frow.rejected .f-title { color: var(--ink-3); text-decoration: line-through; }
 .f-no { color: var(--ember); }
 .f-acts { display: flex; gap: 2px; flex: none; }
