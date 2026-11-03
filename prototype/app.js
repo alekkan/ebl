@@ -1579,6 +1579,7 @@
     const barsSummary = best ? `в среднем ${avgW} за неделю · рекорд ${best} — W${bestW}` : "";
     // сверху — свежие походы с портала (по дате), ниже — бани из таблицы Комиссии (там дат нет); гостю журнал не виден
     const guest = D.live && !member;
+    const own = D.live && me?.nick === name;   // своя карточка — аватарку можно сменить
     const jr = guest ? new Map() : journalOf(name);
     const lastDay = [...jr.values()].filter((r) => r.ok).reduce((a, r) => (r.last > a ? r.last : a), "");
     const onlyJournal = [...jr.keys()].filter((id) => !byId.get(id).v26?.[name]).map((id) => byId.get(id));   // ещё на проверке
@@ -1592,7 +1593,7 @@
       + (undated.length && !guest ? `<div class="bl-sep">${dated.length ? "Раньше — по таблице Комиссии, там без дат" : "По таблице Комиссии — там без дат"}</div>` : "")
       + undated.map(bRow).join("");
     $("#playerBody").innerHTML = `
-      <div class="p-head">${ava(name, "xl")}<div>
+      <div class="p-head">${own ? avaEdit("xl") : ava(name, "xl")}<div>
         <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${empty ? "участник лиги" : `${s.place} место в сезоне`}</div>
         <h2>${esc(name)}</h2>
         <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${best ? ` · рекорд — ${best} ${plural(best, "баня", "бани", "бань")} за неделю` : ""}${lastDay ? ` · последняя — ${dayLabel(lastDay)}` : ""}`}</div>
@@ -1623,6 +1624,7 @@
           </section>
         </div>
       </div>`}`;
+    if (own) bindAvaEdit($("#playerBody"));
     $("#playerModal").hidden = false;
     $$("#playerBody [data-bath]").forEach((x) => (x.onclick = () => { $("#playerModal").hidden = true; show("map"); openBath(+x.dataset.bath, true); }));
     if ($("#pOnMap")) $("#pOnMap").onclick = () => { $("#playerModal").hidden = true; playerOnMap(name); };
@@ -2611,7 +2613,7 @@
       const mine = visits.filter((v) => v.player === me.nick || v.companions.includes(me.nick));
       const pend = mine.filter((v) => v.status === "pending").length;
       const place = ranked.find((r) => r.name === me.nick)?.place;
-      $("#loginBody").innerHTML = `<div class="p-mini">${ava(me.nick, "lg")}<div><div class="eyebrow">${me.isCommission ? "Комиссия ЕБЛ" : "Участник лиги"}</div><h2>${esc(me.nick)}</h2></div></div>
+      $("#loginBody").innerHTML = `<div class="p-mini">${avaEdit("lg")}<div><div class="eyebrow">${me.isCommission ? "Комиссия ЕБЛ" : "Участник лиги"}</div><h2>${esc(me.nick)}</h2>${avaLinks()}</div></div>
         <div class="me-acts">
           <button type="button" class="me-act" id="myProfile">${icon("trophy")}<span>Мой сезон</span><small>${place ? `${place} место` : ""}</small></button>
           <button type="button" class="me-act" id="myMap">${icon("map")}<span>Мои бани на карте</span><small></small></button>
@@ -2622,8 +2624,63 @@
       $("#myMap").onclick = () => { $("#loginModal").hidden = true; playerOnMap(me.nick); };
       $("#myFeed").onclick = () => { $("#loginModal").hidden = true; show("feed"); $(`#feedFilter button[data-f="${pend ? "pending" : "mine"}"]`)?.click(); };
       $("#logoutBtn").onclick = async () => { await D.logout(); location.reload(); };
+      bindAvaEdit($("#loginBody"));
       $("#loginModal").hidden = false;
     };
+  }
+  // своя аватарка (03.11): нажал на свою аватарку — выбрал фото — оно сразу на месте, пока грузится — тонкое кольцо.
+  // Браузер сам обрезает до квадрата (у вертикальных — ближе к верху, где обычно лицо) и уменьшает до 400 px
+  const avaEdit = (cls) => `<label class="ava-edit" title="Сменить фото">${ava(me.nick, cls)}<span class="ava-cam">${icon("camplus")}</span>`
+    + `<input type="file" accept="image/*" data-ava-file aria-label="Сменить фото"></label>`;
+  const avaLinks = () => `<div class="ava-links"><button type="button" class="linkbtn" data-ava-pick>${photos[me.nick] ? "Сменить фото" : "Добавить фото"}</button>`
+    + `${me.ownPhoto ? ' · <button type="button" class="linkbtn" data-ava-reset>вернуть из Telegram</button>' : ""}</div>`;
+  async function squareJpeg(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error("Это не картинка — выбери фото")); i.src = url; });
+      const w = img.naturalWidth, h = img.naturalHeight, side = Math.min(w, h), S = Math.min(400, side);
+      const c = document.createElement("canvas"); c.width = c.height = S;
+      c.getContext("2d").drawImage(img, (w - side) / 2, h > w ? (h - side) * 0.25 : (h - side) / 2, side, side, 0, 0, S, S);
+      const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.86));
+      if (!blob) throw new Error("Фото не сжалось — попробуй другое");
+      return blob;
+    } finally { URL.revokeObjectURL(url); }
+  }
+  async function saveAvatar(root, blob) {
+    const boxes = $$(".ava-edit", root);
+    const prev = photos[me.nick], local = blob && URL.createObjectURL(blob);
+    boxes.forEach((b) => {
+      b.classList.add("busy");
+      const a = $(".ava", b); $("img", a)?.remove();
+      if (local) a.insertAdjacentHTML("beforeend", `<img src="${local}" alt="">`);
+    });
+    try {
+      const url = await D.setAvatar(blob);
+      if (url) photos[me.nick] = url; else delete photos[me.nick];
+      me.ownPhoto = !!url;
+      render(); renderMe();
+      if (!$("#view-feed").hidden) renderFeed();
+      $$(".ava-links", root).forEach((x) => (x.outerHTML = avaLinks()));
+      bindAvaLinks(root);
+      toast(url ? "Фото обновлено" : "Вернули фото из Telegram — подтянется при следующем входе");
+    } catch (err) {
+      if (prev) photos[me.nick] = prev;
+      boxes.forEach((b) => { const a = $(".ava", b); $("img", a)?.remove(); if (prev) a.insertAdjacentHTML("beforeend", `<img src="${esc(prev)}" alt="">`); });
+      toast("Фото не сохранилось: " + err.message);
+    } finally {
+      boxes.forEach((b) => b.classList.remove("busy"));
+    }
+  }
+  function bindAvaLinks(root) {
+    $$("[data-ava-pick]", root).forEach((b) => (b.onclick = () => $("[data-ava-file]", root)?.click()));
+    $$("[data-ava-reset]", root).forEach((b) => (b.onclick = () => saveAvatar(root, null)));
+  }
+  function bindAvaEdit(root) {
+    $$("[data-ava-file]", root).forEach((inp) => (inp.onchange = async () => {
+      const f = inp.files[0]; inp.value = ""; if (!f) return;
+      try { await saveAvatar(root, await squareJpeg(f)); } catch (err) { toast(err.message); }
+    }));
+    bindAvaLinks(root);
   }
   // таблица шире экрана (телефон): мягкая тень у правого края, пока её можно листать вбок — колонки «Бань», «У»… не прячутся молча
   $$(".tablewrap").forEach((w) => {

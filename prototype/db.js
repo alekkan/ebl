@@ -114,10 +114,10 @@ window.EBLData = (() => {
   async function whoami() {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) return null;
-    const acc = check(await sb.from("player_accounts").select("id, player_id, claimed_nick, tg_username, players(nick, is_commission)").eq("auth_user", session.user.id).maybeSingle());
+    const acc = check(await sb.from("player_accounts").select("id, player_id, claimed_nick, tg_username, tg_photo_src, players(nick, is_commission)").eq("auth_user", session.user.id).maybeSingle());
     if (!acc) return { accountId: null, nick: null };
     return { accountId: acc.id, playerId: acc.player_id, nick: acc.players?.nick ?? null, isCommission: !!acc.players?.is_commission,
-      claimedNick: acc.claimed_nick, tgUsername: acc.tg_username };
+      claimedNick: acc.claimed_nick, tgUsername: acc.tg_username, ownPhoto: acc.tg_photo_src === "own" };
   }
 
   // журнал (последние 300 походов) — сразу с очками: одним запросом и параллельно со всем остальным, а не после
@@ -265,6 +265,20 @@ window.EBLData = (() => {
       return body;
     },
     async logout() { await sb.auth.signOut(); },
+    // своя аватарка (03.11): квадрат JPEG от браузера → avatars/own/<id>.jpg, ссылку с версией — в профиль.
+    // Возвращает ссылку для показа (через шлюз, как остальные фото); null вместо файла — вернуть фото из Telegram
+    async setAvatar(blob) {
+      const me = cache?.me; if (!me?.playerId) throw new Error("Сначала войди");
+      let url = null;
+      if (blob) {
+        const path = `own/${me.playerId}.jpg`;
+        check(await sb.storage.from("avatars").upload(path, blob, { upsert: true, contentType: "image/jpeg", cacheControl: "604800" }));
+        url = `${cfg.supabaseUrl}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
+      }
+      check(await sb.rpc("set_my_photo", { p_url: url }));
+      me.ownPhoto = !!url;
+      return viaApi(url);
+    },
     // «решения Комиссии уже видел» — отметка в аккаунте, а не в браузере (25.10: телефон, компьютер и браузер Telegram
     // показывали одно и то же «Комиссия засчитала» каждый своё). Свежая — с сервера, а не из сохранённой сессии
     async decisionsSeen() {

@@ -1792,3 +1792,20 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .rate-score .fan { width: 34px; height: 30px; }
 .rate-done .lead { max-width: 40ch; }
 .rate-done .nw { white-space: nowrap; font-weight: 600; color: var(--ink); }
+
+/* своя аватарка (03.11): аватарка — кнопка, в углу кружок с камерой; пока грузится — тонкое кольцо вокруг */
+.ava-edit { position: relative; display: inline-grid; flex: none; cursor: pointer; border-radius: 50%; }
+.ava-edit input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.ava-edit .ava { transition: filter .15s var(--ease); }
+.ava-edit:hover .ava { filter: brightness(.92); }
+.ava-edit:focus-within { outline: 2px solid var(--oak); outline-offset: 3px; }
+.ava-cam { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--panel); color: var(--oak); box-shadow: 0 1px 4px rgba(20, 30, 20, .22); }
+.ava-cam .ic { width: 15px; height: 15px; }
+.ava-edit.busy .ava { filter: saturate(.6) brightness(.95); }
+.ava-edit.busy::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--oak); border-right-color: var(--oak);
+  animation: ava-spin .8s linear infinite; }
+@keyframes ava-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ava-edit.busy::after { animation-duration: 3s; } }
+.ava-links { margin-top: 4px; font-size: 13px; color: var(--ink-3); }
+.ava-links .linkbtn { font-size: 13px; }
