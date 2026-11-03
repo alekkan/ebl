@@ -960,7 +960,7 @@
       const acts = [it.mine && D.live && `<a role="menuitem" class="rv-edit" href="rate.html?b=${id}">Изменить оценку и отзыв</a>`,
         it.id && (it.mine || canModerate) && `<button type="button" role="menuitem" data-rvdel="${it.id}">Удалить отзыв</button>`].filter(Boolean);
       return acts.length ? `<button type="button" class="rv-more" data-rvmenu aria-haspopup="menu" aria-expanded="false" aria-label="Действия с ${it.mine ? "моей оценкой" : "отзывом"}">${icon("dots")}</button>
-        <div class="rv-menu" role="menu" hidden>${acts.join("")}</div>` : "";
+        <div class="rv-menu" role="menu" hidden>${acts.join("")}</div>` : '<span class="rv-more" aria-hidden="true"></span>';   // пустое место под «⋯» — даты в ленте встают в одну колонку
     };
     return `<h3 class="d-big">Отзывы и оценки${items.length ? ` · ${items.length}` : ""}</h3>
       <div class="reviews">${items.length ? items.map((it, i) => `<div class="review${it.mine ? " mine" : ""}" ${i >= FB_SHOW ? "hidden" : ""}>${ava(it.author)}<div>

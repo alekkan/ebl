@@ -1534,3 +1534,11 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   .d-k { padding: 0 12px; }
   .d-k b { font-size: 15px; }
 }
+@media (max-width: 760px) {
+  /* тип и «место силы» — одной строкой; колонки главного: часы шире, оценка не вылезает за край (03.11) */
+  .d-meta { flex-wrap: nowrap; gap: 8px; }
+  .d-meta .flag { white-space: nowrap; font-size: 12.5px; }
+  .d-key { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.1fr); }
+  .d-k .k-rate { font-size: 22px; }
+  .d-k .k-rate .fan { width: 26px; height: 22px; }
+}
