@@ -1147,7 +1147,11 @@ with sync_playwright() as pw:
         check("«Не были в 2026» у участника — очки за первый поход, выгодные сверху", len(pots) == len(ids) > 0 and min(pots) >= 2 and pots == sorted(pots, reverse=True), pots)
         been = sql(f"select count(*) from bath_counts where nick = 'Шурик' and year = 2026 and bath_id in ({','.join(map(str, ids))})")
         check("в этом списке нет бань, где он уже был в 2026", been == "0", been)
-        s.page.click("#fNear"); s.page.wait_for_timeout(1200)
+        # 03.11: сортировка — меню «по походам / по рейтингу / рядом со мной»
+        s.page.click("#fNear"); s.page.click('#sortMenu [data-sort="rating"]'); s.page.wait_for_timeout(500)
+        rates = s.js("() => [...document.querySelectorAll('#list .item .it-rate')].slice(0, 10).map((x) => +x.textContent.replace(',', '.'))")
+        check("«по рейтингу» — справа оценка лиги, лучшие сверху", s.js("() => document.querySelector('#fNear span').textContent") == "по рейтингу" and rates == sorted(rates, reverse=True), rates)
+        s.page.click("#fNear"); s.page.click('#sortMenu [data-sort="near"]'); s.page.wait_for_timeout(1200)
         check("сортировка «по походам» сменилась на «рядом»", s.js("() => document.querySelector('#fNear span').textContent") == "рядом")
         meters = s.js("""() => [...document.querySelectorAll('#list .item .it-meta')].slice(0, 12).map((m) => {
           const x = m.textContent.match(/~?([\\d\\s,]+)\\s(км|м)(?![а-я])/); if (!x) return null;

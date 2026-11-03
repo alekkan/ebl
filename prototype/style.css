@@ -1542,3 +1542,13 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   .d-k .k-rate { font-size: 22px; }
   .d-k .k-rate .fan { width: 26px; height: 22px; }
 }
+
+/* сортировка списка бань — меню у «по походам ▾» (03.11) */
+.countrow { position: relative; }
+.sort-menu { position: absolute; z-index: 20; top: calc(100% - 6px); right: 12px; min-width: 190px; padding: 6px; border-radius: 14px; background: var(--panel);
+  box-shadow: 0 12px 32px -8px rgba(23, 33, 27, .28), 0 0 0 1px var(--line); display: grid; }
+.sort-menu[hidden] { display: none; }
+.sort-menu button { padding: 10px 12px; border: 0; border-radius: 9px; background: none; text-align: left; font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.sort-menu button[aria-checked="true"] { color: var(--oak); font-weight: 700; }
+@media (hover: hover) { .sort-menu button:hover { background: var(--panel-2); } }
+.it-heat .it-rate { color: var(--oak); }

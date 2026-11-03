@@ -209,7 +209,13 @@
       </div>
       <div class="countrow">
         <div class="count" id="count"></div>
-        <button type="button" class="near-btn" id="fNear" aria-pressed="false" title="Сортировка: по походам или рядом со мной"><span>по походам</span><svg class="ic"><use href="#i-chev"/></svg></button>
+        <button type="button" class="near-btn" id="fNear" aria-pressed="false" aria-haspopup="menu" aria-expanded="false" title="Сортировка"><span>по походам</span><svg class="ic"><use href="#i-chev"/></svg></button>
+        <!-- сортировка (03.11): по походам, по рейтингу лиги, рядом со мной -->
+        <div class="sort-menu" id="sortMenu" role="menu" hidden>
+          <button type="button" role="menuitemradio" data-sort="visits" aria-checked="true">По походам</button>
+          <button type="button" role="menuitemradio" data-sort="rating" aria-checked="false">По рейтингу</button>
+          <button type="button" role="menuitemradio" data-sort="near" aria-checked="false">Рядом со мной</button>
+        </div>
       </div>
       <div class="pot-note" id="potNote" hidden></div>
       <div class="list" id="list"></div>

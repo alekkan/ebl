@@ -396,10 +396,20 @@
   const myNick = D.live ? me?.nick : null;
   $("#fMe").hidden = !myNick;
   $("#fMe").addEventListener("click", () => { $("#fPlayer").value = $("#fPlayer").value === myNick ? "" : myNick; render(true); });
-  // «📍 Рядом» — сортировка по расстоянию. Геопозицию спрашиваем только по нажатию, никуда её не отправляем
-  let here = null, hereMarker = null;
-  $("#fNear").addEventListener("click", () => {
-    if (here) { here = null; hereMarker?.remove(); hereMarker = null; render(); return; }
+  // сортировка (03.11): по походам, по рейтингу лиги или рядом — меню у «по походам ▾». «Рядом» — по расстоянию:
+  // геопозицию спрашиваем только по нажатию, никуда её не отправляем
+  let here = null, hereMarker = null, sortBy = "visits";
+  const sortMenu = $("#sortMenu");
+  const closeSort = () => { sortMenu.hidden = true; $("#fNear").setAttribute("aria-expanded", "false"); };
+  $("#fNear").addEventListener("click", (e) => { e.stopPropagation(); sortMenu.hidden = !sortMenu.hidden; $("#fNear").setAttribute("aria-expanded", String(!sortMenu.hidden)); });
+  document.addEventListener("click", (e) => { if (!sortMenu.hidden && !e.target.closest("#sortMenu")) closeSort(); });
+  sortMenu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sort]"); if (!b) return;
+    closeSort();
+    if (b.dataset.sort === "near") return askNear();
+    sortBy = b.dataset.sort; here = null; hereMarker?.remove(); hereMarker = null; render();
+  });
+  function askNear() {
     if (!navigator.geolocation) { toast("Браузер не отдаёт геопозицию"); return; }
     $("#fNear").disabled = true;
     navigator.geolocation.getCurrentPosition((pos) => {
@@ -409,7 +419,7 @@
       render(true);
     }, () => { $("#fNear").disabled = false; toast("Нет доступа к геопозиции — разреши его сайту в настройках браузера"); },
     { timeout: 10000, maximumAge: 300000 });
-  });
+  }
 
   // «Лига не была» (02.11, Леха: карту потом объединим с Радаром) — места Радара, где лига ещё не была, пустыми кружками.
   // Пока только Комиссии: Радар открыт ей; всем — когда решим. Те, что у точной бани лиги ближе 150 м, — это она, не рисуем
@@ -461,15 +471,19 @@
       b._m = metric(b); b._pot = pot ? pot(b) : null;
       b._km = here && b.lat != null && b.prec !== "country" ? distKm(here, [b.lat, b.lng]) : null;   // точка «по центру страны» — не расстояние
     });
+    const rateOfB = (b) => +(ratings[b.id]?.overall || 0);
     if (here) current.sort((a, b) => (a._km ?? 1e9) - (b._km ?? 1e9));
+    else if (sortBy === "rating") current.sort((a, b) => rateOfB(b) - rateOfB(a) || (ratings[b.id]?.n || 0) - (ratings[a.id]?.n || 0) || b._m - a._m);
     else if (pot) current.sort((a, b) => b._pot.length - a._pot.length || b.n26 - a.n26 || a.name.localeCompare(b.name, "ru"));
     else current.sort((a, b) => b._m - a._m || a.name.localeCompare(b.name, "ru"));
     $("#fMe").setAttribute("aria-pressed", String(!!myNick && player === myNick));
     $("#fWhoAll").setAttribute("aria-pressed", String(!player));
     $$("#fSeasonSeg [data-v]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === season)));
     $("#fPlayer").classList.toggle("on", !!player && player !== myNick);
-    $("#fNear").setAttribute("aria-pressed", String(!!here));
-    $("#fNear span").textContent = here ? "рядом" : pot ? "по очкам" : "по походам";
+    $("#fNear").setAttribute("aria-pressed", String(!!here || sortBy !== "visits"));
+    $("#fNear span").textContent = here ? "рядом" : sortBy === "rating" ? "по рейтингу" : pot ? "по очкам" : "по походам";
+    const sortNow = here ? "near" : sortBy;
+    $$("#sortMenu [data-sort]").forEach((x) => x.setAttribute("aria-checked", String(x.dataset.sort === sortNow)));
     // сколько фильтров включено в шторке — числом на кнопке в поиске
     const nf = [season !== "all", country, player, prec].filter(Boolean).length;
     $("#filtN").hidden = !nf; $("#filtN").textContent = nf;
@@ -507,6 +521,7 @@
         ${tdot(b.t)}
         <span><span class="it-name">${esc(b.name)}</span><span class="it-meta">${esc(meta)}</span></span>
         ${b._pot ? `<span class="it-pot" title="${esc(b._pot.join(" · "))}"><b>+${b._pot.length}</b><small>${plural(b._pot.length, "очко", "очка", "очков")}</small></span>`
+          : sortBy === "rating" && !here ? `<span class="it-heat">${ratings[b.id] ? `<b class="it-rate">${fmt(+ratings[b.id].overall)}</b><small>${ratings[b.id].n} ${plural(ratings[b.id].n, "оценка", "оценки", "оценок")}</small>` : '<small>нет оценок</small>'}</span>`
           : `<span class="it-heat">${n ? `<b>${n}</b><small>${plural(n, "поход", "похода", "походов")}</small>` : ""}</span>`}
       </button>`;
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
@@ -1205,6 +1220,7 @@
   function loadRatings() {
     return D.bathRatings().then((r) => {
       ratings = r || {};
+      if (sortBy === "rating") render();   // оценки пришли позже списка
       if (openId && $("#dRateTile")) { $("#dRateTile").innerHTML = rateTile(openId); const box = $("#dRating"); box.innerHTML = rateRows(openId); box.hidden = !ratings[openId]; }
     }).catch(() => {});
   }
