@@ -27,7 +27,12 @@
     document.body.append(t); tt = setTimeout(() => t.remove(), 3500);
   };
   const body = $("#rateBody");
-  const say = (title, text) => { body.innerHTML = `<div class="rate-done"><h2 class="rate-title">${esc(title)}</h2><p class="lead">${text}</p></div>`; };
+  // «Закрыть» (03.11, Витёк): назад туда, откуда пришёл оценивать (список бань, карточка); пришёл из бота — на карту
+  const back = () => { if (history.length > 1 && document.referrer && new URL(document.referrer).origin === location.origin) history.back(); else location.href = "./"; };
+  const say = (title, text, close) => {
+    body.innerHTML = `<div class="rate-done"><h2 class="rate-title">${esc(title)}</h2><p class="lead">${text}</p>${close ? '<button type="button" class="cta big" id="rateClose">Закрыть</button>' : ""}</div>`;
+    $("#rateClose", body)?.addEventListener("click", back);
+  };
 
   const CRIT = [["stove", "Печь"], ["steam", "Пар"], ["aqua", "Аквазона"], ["outdoor", "Выход на улицу"], ["kitchen", "Кухня"],
     ["atmosphere", "Атмосфера"], ["service", "Сервис"], ["prices", "Цены"]];
@@ -176,7 +181,7 @@
       myRv = r; $("#rateText", body).value = r.text || ""; $("#rateRvNote", body).textContent = "твой прошлый — можно поправить";
     }).catch(() => {});
     lastPrice().then((p) => { if (p) $("#ratePrev", body).textContent = `по желанию · в прошлый раз ${money(p.price)} ${curSign(p.currency)}`; else $("#ratePrev", body).textContent = "по желанию"; });
-    const done = () => say("Готово, спасибо!", `Оценка «${esc(f.name)}» — в рейтинге бани. <a href="./#bath=${f.bath}">Открыть баню на карте</a>`);
+    const done = () => say("Готово, спасибо!", `Оценка «${esc(f.name)}» — в рейтинге бани. <a href="./#bath=${f.bath}">Открыть баню на карте</a>`, true);
     $("#rateSkip", body).onclick = done;
     $("#rateMore", body).onclick = (e) => { const x = $("#rateExtra", body); x.hidden = !x.hidden; e.currentTarget.setAttribute("aria-expanded", String(!x.hidden)); };
     $$("#rateWeekend [data-w]", body).forEach((b) => (b.onclick = () => {

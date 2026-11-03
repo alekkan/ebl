@@ -1684,3 +1684,8 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-years p { display: grid; grid-template-columns: 38px 30px minmax(0, 1fr); gap: 8px; margin: 0; line-height: 1.45; }
 .d-years .dy-n { color: var(--ink-3); text-align: right; }
 .d-years .linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; }
+
+/* профиль: бани по годам — строкой под именем (03.11) */
+.p-years { margin-top: 4px; font-size: 13px; color: var(--ink-3); }
+.p-years b { color: var(--ink-2); white-space: nowrap; }
+.rate-done #rateClose { margin-top: 18px; }

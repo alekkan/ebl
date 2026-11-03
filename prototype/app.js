@@ -1563,6 +1563,14 @@
     const regions = new Set(mine.filter((b) => b.region && b.country).map(placeKey));
     const ctry = new Set(mine.map((b) => b.country).filter(Boolean));
     const empty = !s.baths;
+    // бани по годам (03.11, Витёк): сколько разных бань и походов у участника в каждом сезоне — из таблицы и 2026
+    const byYear = {};
+    for (const b of baths) {
+      for (const [y, who] of Object.entries(b.histBy || {})) if (who[name]) { const r = (byYear[y] ||= { baths: 0, n: 0 }); r.baths++; r.n += who[name]; }
+      if (b.v26?.[name]) { const r = (byYear["2026"] ||= { baths: 0, n: 0 }); r.baths++; r.n += b.v26[name]; }
+    }
+    const ys = Object.keys(byYear).sort();
+    const yearsLine = ys.length > 1 ? `<div class="p-years" title="${ys.map((y) => `${y}: ${byYear[y].baths} ${plural(byYear[y].baths, "баня", "бани", "бань")}, ${byYear[y].n} ${plural(byYear[y].n, "поход", "похода", "походов")}`).join("; ")}">Бань по годам: <b>${ys.map((y) => byYear[y].baths).join(" → ")}</b></div>` : "";
     const types = mine.reduce((a, b) => ((a[b.t] = (a[b.t] || 0) + b.v26[name]), a), {});
     const best = Math.max(...weeks.map((w) => s.weekBaths[w] ?? 0));
     // строка над графиком (24.10, Леха: «непонятно, сколько бань»): итог, а на наведённом или нажатом столбике — его неделя
@@ -1588,6 +1596,7 @@
         <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${empty ? "участник лиги" : `${s.place} место в сезоне`}</div>
         <h2>${esc(name)}</h2>
         <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${best ? ` · рекорд — ${best} ${plural(best, "баня", "бани", "бань")} за неделю` : ""}${lastDay ? ` · последняя — ${dayLabel(lastDay)}` : ""}`}</div>
+        ${yearsLine}
       </div></div>
       ${empty ? `<div class="p-body"><div class="empty" style="padding:28px 8px">${markSvg()}<b>Сезон ещё впереди</b><p>Первая баня — сразу +1 за поход и +1 за уникальную.</p></div></div>` : `<div class="p-body">
         <div class="stats four">
