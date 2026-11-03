@@ -1212,6 +1212,11 @@ for _ in range(3):
     sql(f"update rating_asks set next_at = now() - interval '1 minute' where visit_id = {rtv}"); rate_run()
 check("всего три сообщения — приглашение и два напоминания, дальше не пишем",
       sql(f"select stage from rating_asks where visit_id = {rtv} and player_id = (select id from players where nick = 'Леха')") == "3")
+# 03.11: Леху по ошибке отметили в походе, потом заменили — его просьба оценить снимается вместе с ним
+sql(f"delete from visit_players where visit_id = {rtv} and player_id = (select id from players where nick = 'Леха')")
+check("убрали человека из похода — его просьбы оценить больше нет (бот не напомнит)",
+      sql(f"select count(*) from rating_asks where visit_id = {rtv} and player_id = (select id from players where nick = 'Леха')") == "0"
+      and sql(f"select count(*) from rating_asks where visit_id = {rtv} and player_id = (select id from players where nick = 'Шурик')") == "1")
 sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}"); sql("delete from player_accounts where tg_id = 909")
 
 print("Действия бота по просьбе владельца (bot_actions)")
