@@ -90,6 +90,7 @@
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z"/></symbol>
     <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
+    <symbol id="i-camplus" viewBox="0 0 24 24"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0 1 19 8.5V11"/><path d="M3 8.5V18a1.5 1.5 0 0 0 1.5 1.5H13"/><circle cx="11" cy="12.5" r="3.2"/><path d="M19 15v6M16 18h6"/></symbol>
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
@@ -149,7 +150,33 @@
 </header>
 
 <main>
-  <div class="boot" id="boot" role="status">Готовлю парок…</div>
+  <!-- заставка (03.11): на весь экран, пока грузятся данные, — иначе на секунду видна голая разметка старого вида -->
+  <div class="boot" id="boot" role="status">
+    <div class="boot-art" aria-hidden="true">
+      <svg class="boot-steam" viewBox="0 0 60 40"><path class="s1" d="M14 38c-5-6 5-10 0-16s5-10 0-16"/><path class="s2" d="M30 38c-5-6 5-10 0-16s5-10 0-16"/><path class="s3" d="M46 38c-5-6 5-10 0-16s5-10 0-16"/></svg>
+      <svg class="boot-mark" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="24" class="m-bg"/>
+      <g transform="rotate(-32 24 27)"><g class="m-venik">
+        <g class="m-leaf back">
+          <use href="#oak-leaf" transform="translate(24 31) rotate(-64) scale(.85)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(64) scale(.85)"/>
+        </g>
+        <g class="m-leaf mid">
+          <use href="#oak-leaf" transform="translate(24 31) rotate(-42)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(42)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(-20) scale(1.1)"/>
+          <use href="#oak-leaf" transform="translate(24 31) rotate(20) scale(1.1)"/>
+        </g>
+        <g class="m-leaf front"><use href="#oak-leaf" transform="translate(24 31) scale(1.22)"/></g>
+        <rect class="m-handle" x="21.9" y="31" width="4.2" height="10.5" rx="2.1"/>
+        <rect class="m-twine" x="20.6" y="29.6" width="6.8" height="3" rx="1.5"/>
+        <rect class="m-twine" x="21" y="33.6" width="6" height="2.2" rx="1.1"/>
+      </g></g>
+    </svg>
+    </div>
+    <b class="boot-word">ЕБЛ</b>
+    <span class="boot-txt">Готовлю парок…</span>
+  </div>
   <!-- КАРТА -->
   <section class="view view-map" id="view-map">
     <div id="map"></div>

@@ -406,6 +406,15 @@ window.EBLData = (() => {
     },
     // фото походов в эту баню (docs/photos.md) — по запросу, когда открыли карточку: на загрузке сайта лишних запросов не надо.
     // Видят только участники (RLS), файлы — в бакете Яндекса по случайному ключу. Свежие походы — первыми, внутри похода — по порядку.
+    // фото свежих походов (03.11) — превью в строках ленты: { поход: [фото] }
+    async feedPhotos() {
+      if (!live || !cfg.photosUrl || !cache?.me?.playerId) return {};
+      const rows = check(await sb.from("visit_photos").select("id, key, w, h, visit_id, visits!inner(entered_at)").eq("ready", true).order("id", { ascending: false }).limit(400)) || [];
+      const by = {};
+      for (const p of rows.reverse()) (by[p.visit_id] ||= []).push({ id: p.id, visitId: p.visit_id, date: mskLocal(p.visits.entered_at), w: p.w, h: p.h,
+        src: `${cfg.photosUrl}/${p.key}.jpg`, thumb: `${cfg.photosUrl}/${p.key}_s.jpg` });
+      return by;
+    },
     async bathPhotos(bathId) {
       if (!live || !cfg.photosUrl || !cache?.me?.playerId) return [];
       const rows = check(await sb.from("visit_photos").select("id, key, w, h, visit_id, visits!inner(bath_id, entered_at)")

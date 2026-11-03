@@ -151,10 +151,25 @@ a { color: var(--oak); }
 
 main { min-height: 0; position: relative; }
 /* пока грузятся данные — видно, что сайт жив; при ошибке — понятно, что делать */
-.boot { position: absolute; z-index: 2000; top: 40%; left: 50%; transform: translate(-50%, -50%); padding: 12px 20px; border-radius: 999px;
-  background: var(--panel); box-shadow: var(--shadow); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-.boot.err { white-space: normal; max-width: calc(100% - 32px); border-radius: 16px; color: var(--ember); text-align: center; }
-@media (prefers-reduced-motion: no-preference) { .boot:not(.err) { animation: bootpulse 1.2s ease-in-out infinite alternate; } @keyframes bootpulse { from { opacity: .55; } } }
+/* заставка на весь экран: веник качается, над ним пар; ошибка загрузки — карточкой посередине */
+.boot { position: fixed; inset: 0; z-index: 3000; display: grid; place-content: center; justify-items: center; gap: 10px; background: var(--bg); color: var(--ink-3); transition: opacity .25s var(--ease); }
+.boot.done { opacity: 0; pointer-events: none; }
+.boot-art { position: relative; width: 96px; height: 120px; display: grid; align-items: end; justify-items: center; }
+.boot-mark { width: 88px; height: 88px; overflow: visible; }
+.boot-mark .m-venik { transform-box: view-box; transform-origin: 24px 40px; }
+.boot-word { font: 800 28px/1 var(--display); letter-spacing: .03em; color: var(--ink); margin-top: 6px; }
+.boot-txt { font-size: 14px; font-weight: 600; }
+.boot-steam { position: absolute; top: -4px; left: 18px; width: 60px; height: 40px; overflow: visible; }
+.boot-steam path { fill: none; stroke: color-mix(in srgb, var(--ink-3) 70%, transparent); stroke-width: 2.6; stroke-linecap: round; opacity: 0; }
+.boot.err { place-content: center; padding: 24px; }
+.boot.err { color: var(--ember); font-weight: 600; text-align: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .boot:not(.err) .m-venik { animation: bootswing 1.6s ease-in-out infinite; }
+  .boot:not(.err) .boot-steam path { animation: bootsteam 2.4s ease-out infinite; }
+  .boot .boot-steam .s2 { animation-delay: .8s; } .boot .boot-steam .s3 { animation-delay: 1.6s; }
+  @keyframes bootswing { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(12deg); } }
+  @keyframes bootsteam { 0% { opacity: 0; transform: translateY(14px); } 35% { opacity: .85; } 100% { opacity: 0; transform: translateY(-12px); } }
+}
 .view { height: 100%; }
 
 /* ---------- инпуты ---------- */
@@ -1634,4 +1649,8 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .f-rchip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 12px; background: var(--panel-2); font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
 .f-rchip b { font: 700 12.5px/1 var(--display); color: var(--oak); }
 .f-rchip .fan { width: 15px; height: 13px; }
-.f-rate .f-rchip { margin-top: 2px; background: none; padding: 0; height: 20px; }
+.f-rate .f-rates { margin-top: 6px; }
+/* фото похода в строке ленты — лентой превью */
+.f-photos { display: flex; gap: 4px; margin-top: 6px; overflow-x: auto; scrollbar-width: none; }
+.f-ph { flex: none; width: 64px; height: 64px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--panel-2); cursor: pointer; font-weight: 700; color: var(--ink-2); }
+.f-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
