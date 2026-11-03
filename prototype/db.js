@@ -233,6 +233,11 @@ window.EBLData = (() => {
       const seen = new Set();
       return rows.filter((r) => !seen.has(r.player_id) && seen.add(r.player_id));
     },
+    // свежие оценки бань (03.11) — в ленту: к походу или отдельной строкой «оценил»
+    async recentRatings() {
+      if (!live) return [];
+      return check(await sb.from("bath_ratings").select("visit_id, bath_id, player_id, overall, updated_at").order("updated_at", { ascending: false }).limit(300)) || [];
+    },
     // мой последний отзыв о бане — странице оценки: показать и поправить, а не писать второй
     async myReview(bathId, playerId) {
       if (!live || !playerId) return null;

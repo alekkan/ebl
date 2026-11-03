@@ -1552,3 +1552,70 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .sort-menu button[aria-checked="true"] { color: var(--oak); font-weight: 700; }
 @media (hover: hover) { .sort-menu button:hover { background: var(--panel-2); } }
 .it-heat .it-rate { color: var(--oak); }
+
+/* ---------- лента 03.11 (макет): заголовок с неделей, чипы, дни, карточка на проверке, строки с очками по людям ---------- */
+.feed-head { margin: 8px 0 14px; }
+.feed-head h1 { margin: 0; }
+.feed-week { margin-top: 6px; font-size: 14px; color: var(--ink-3); }
+.feed-week b { padding: 1px 7px; border-radius: 6px; background: var(--honey-soft); color: color-mix(in srgb, var(--honey) 55%, var(--ink)); font-weight: 700; }
+.feed-filter { display: flex; gap: 8px; margin: 0 0 6px; max-width: none; }
+.feed-filter button { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px; border: 1.5px solid var(--line); border-radius: 19px; background: var(--panel); color: var(--ink-2); font-size: 14px; font-weight: 600; cursor: pointer; }
+.feed-filter button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--panel); }
+.feed-filter button b { min-width: 18px; height: 18px; margin: 0; padding: 0 5px; border-radius: 9px; background: var(--ember); color: #fff; font-size: 11px; display: inline-grid; place-items: center; box-sizing: border-box; }
+.feed { gap: 6px; }
+.f-day { display: grid; gap: 8px; }
+.f-day h3 { margin: 14px 2px 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+/* поход на проверке — развёрнутой карточкой */
+.f-pending { gap: 10px; padding: 14px; border-radius: 20px; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--honey) 45%, var(--panel)); }
+.f-head { display: flex; align-items: center; gap: 10px; }
+.f-head .ava { --s: 34px; }
+.f-who { flex: 1; min-width: 0; }
+.f-who b { display: block; font-size: 15px; }
+.f-who small, .f-bath small, .frow small { display: block; font-size: 12.5px; color: var(--ink-3); }
+.f-bath { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+.f-bath .dot { width: 36px; height: 36px; border-radius: 11px; }
+.f-bath .dot svg { width: 19px; height: 19px; }
+.f-bath b { font-size: 16px; }
+.f-pts { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; border-radius: 12px; background: var(--panel-2); font-size: 14px; }
+.f-pts.muted small { color: var(--ink-3); font-size: 12.5px; }
+.f-pt b { color: var(--ember); font-weight: 700; }
+.f-pt.me { font-weight: 600; }
+.f-pending .post-actions { display: flex; gap: 8px; }
+.f-pending .post-actions .btn { height: 42px; border-radius: 14px; }
+.f-pending .post-actions .solid { flex: 1; justify-content: center; }
+.f-pending .warn { font-size: 13px; color: var(--ember); }
+.f-tg { font-size: 13px; }
+/* засчитанные и оценки — строками в одной белой карточке на день */
+.f-list { background: var(--panel); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow-s); }
+.frow { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; }
+.frow + .frow { border-top: 1px solid var(--line); }
+.frow .stack { flex: none; padding-top: 2px; }
+.frow .stack .ava { --s: 30px; }
+.f-main { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.f-main > b, .f-title { display: block; font-size: 15px; font-weight: 700; color: var(--ink); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f-split { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; font-size: 13px; color: var(--ink-2); }
+.f-rate { margin-top: 5px; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.f-rate .rv-rate { display: inline-flex; margin-right: 6px; vertical-align: -2px; }
+.f-rate .rv-rate b { font-size: 13px; }
+.f-rate .rv-rate .fan { width: 16px; height: 14px; }
+.frow > .rv-rate { flex: none; align-self: center; }
+.frow.rejected .f-title { color: var(--ink-3); text-decoration: line-through; }
+.f-no { color: var(--ember); }
+.f-acts { display: flex; gap: 2px; flex: none; }
+.f-ic { width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; font-size: 15px; }
+.f-ic .ic { width: 16px; height: 16px; }
+@media (hover: hover) { .f-ic:hover { background: var(--panel-2); color: var(--ink); } }
+/* стол Комиссии — компактной жёлтой карточкой */
+#secPanel .post.sec { padding: 12px 14px; border: 0; border-radius: 16px; background: var(--honey-soft); gap: 8px; }
+#secPanel .kom-title { font-size: 14px; }
+#secPanel h3 { margin: 4px 0 0; font-size: 12px; }
+@media (max-width: 760px) {
+  /* вкладки, кроме карты: аватарка — в строке заголовка раздела (app.js переносит её туда), пустой полосы сверху нет (03.11) */
+  /* в шапке остались только нижнее меню и веник (они fixed) — сама полоса нулевая */
+  body:not([data-view="map"]):not([data-view="owners"]) .top { height: 0; min-height: 0; padding: 0; overflow: visible; background: none; }
+  .page-head { position: relative; }
+  .page-head > :first-child { padding-right: 56px; }   /* место под аватарку справа сверху */
+  .page-head > .me-btn { position: absolute; top: 0; right: 0; margin: 0; }
+  .page-head > .me-btn:not(.guest) { padding: 3px; border: 0; box-shadow: 0 4px 18px rgba(23, 33, 27, .14); }
+  .page-head > .me-btn:not(.guest) .ava { --s: 38px; }
+}
