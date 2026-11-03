@@ -91,6 +91,9 @@
     <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
     <symbol id="i-camplus" viewBox="0 0 24 24"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0 1 19 8.5V11"/><path d="M3 8.5V18a1.5 1.5 0 0 0 1.5 1.5H13"/><circle cx="11" cy="12.5" r="3.2"/><path d="M19 15v6M16 18h6"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></symbol>
+    <symbol id="i-steam" viewBox="0 0 24 24"><path d="M4 9h16v8a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path d="M8 5c-.8-1 .8-2 0-3M12 5c-.8-1 .8-2 0-3M16 5c-.8-1 .8-2 0-3"/></symbol>
+    <symbol id="i-beer" viewBox="0 0 24 24"><path d="M6 8h10v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/><path d="M16 11h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2"/><path d="M6 8c0-2 1.5-3 3-3 .5-1.2 1.6-2 3-2s2.5.8 3 2c1.2 0 1 1.6 1 3"/></symbol>
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
@@ -464,11 +467,10 @@
     <button class="x" data-close aria-label="Закрыть"><svg class="ic"><use href="#i-close"/></svg></button>
     <form id="visitForm" class="visit">
       <div class="visit-main">
-        <div class="eyebrow">С лёгким паром</div>
-        <h2 id="visitTitle">Добавить баню</h2>
+        <h2 id="visitTitle">Новый поход</h2>
 
         <div class="field">
-          <label for="vBathQ">Где парился</label>
+          <label for="vBathQ" class="v-lab" id="vBathLab">Где парился</label>
           <div id="vBathPicked" hidden></div>
           <label class="searchbox big" id="vBathBox"><svg class="ic"><use href="#i-search"/></svg><input id="vBathQ" type="search" placeholder="Сандуны, Екатеринбург, onsen…" autocomplete="off"></label>
           <div class="suggest" id="vSuggest" hidden></div>
@@ -500,15 +502,20 @@
             <select id="vPlayer" class="sel"></select>
             <span class="hint" id="vPlayerHint" hidden>Комиссия может отметить поход за другого — даже если сама там не была</span>
           </div>
-          <div class="field">
-            <label for="vDate">Когда зашёл, МСК</label>
-            <input id="vDate" class="inp" type="datetime-local" required>
-            <span class="hint" id="vWeekHint"></span>
+          <!-- 03.11 (макет): когда — одной строкой «Сегодня, 19:06 · МСК · W45 · изменить»; само поле даты лежит прозрачным
+               поверх строки — нажал, открылся выбор даты и времени телефона -->
+          <div class="field v-when-row">
+            <label for="vDate" class="v-lab">Когда зашёл</label>
+            <div class="v-when-box">
+              <svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>
+              <b id="vWhenTxt">Сегодня</b><span class="hint" id="vWeekHint"></span><span class="v-when-edit">изменить</span>
+              <input id="vDate" class="inp" type="datetime-local" required>
+            </div>
           </div>
         </div>
 
         <div class="field">
-          <span class="lab">С кем был <span class="hint" id="vCompCount"></span></span>
+          <span class="lab v-lab-row"><span>С кем был <span class="hint" id="vCompCount"></span></span></span>
           <!-- сначала выбранные и те, с кем чаще ходишь; остальные — по «Все участники», с поиском по нику -->
           <div class="people" id="vComp"></div>
           <div class="comp-more">
@@ -518,27 +525,23 @@
         </div>
 
         <div class="field">
-          <span class="lab">Сколько парились</span>
+          <span class="lab v-lab-row"><span>Сколько парились</span><button type="button" class="linkbtn durs-toggle" id="vDursToggle" hidden>у кого-то иначе</button></span>
           <div class="dur2" id="vDurChips" role="group" aria-label="Сколько парились">
-            <button type="button" data-m="120" aria-pressed="true"><b>⚡ Экспресс</b><span>до 2,5 часа</span></button>
-            <button type="button" data-m="180" aria-pressed="false" class="long"><b>🔥 Долгая</b><span>больше 2,5 часа · +1 очко</span></button>
+            <button type="button" data-m="120" aria-pressed="true"><svg class="ic d-bolt" aria-hidden="true"><use href="#i-bolt"/></svg><b>Экспресс</b><span>до 2,5 ч</span></button>
+            <button type="button" data-m="180" aria-pressed="false" class="long"><svg class="ic d-flame" aria-hidden="true"><use href="#i-flame"/></svg><b>Долгая</b><span>+1</span></button>
           </div>
           <!-- редкий случай: кто-то из компании ушёл раньше или остался дольше — тогда у каждого своя строка, ты первым -->
           <div class="durs" id="vDurs" hidden></div>
-          <button type="button" class="linkbtn durs-toggle" id="vDursToggle" hidden>Кто-то ушёл раньше или остался дольше?</button>
-          <span class="hint">Меньше часа поход не засчитывается.</span>
           <input type="hidden" id="vDur" value="120">
         </div>
 
         <div class="v-optional">
-          <div class="eyebrow">По желанию — остальным пригодится</div>
           <div class="field">
-            <span class="lab">Цена</span>
-            <div class="grid2 price2">
-              <input class="inp" id="vPrice" inputmode="decimal" autocomplete="off" placeholder="♨️ Вход, ₽" aria-label="Цена входа, ₽">
-              <input class="inp" id="vPrBeer" inputmode="decimal" autocomplete="off" placeholder="🍺 Пиво, ₽" aria-label="Цена пива, ₽">
+            <span class="lab v-lab-row"><span>Цена и фото</span><span class="hint">по желанию · <button type="button" class="linkbtn" id="vPrMore">сеанс, валюта</button></span></span>
+            <div class="price2 v-prices">
+              <label class="v-price"><svg class="ic" aria-hidden="true"><use href="#i-steam"/></svg><span>Вход</span><input id="vPrice" inputmode="decimal" autocomplete="off" placeholder="—" aria-label="Цена входа, ₽"><i>₽</i></label>
+              <label class="v-price"><svg class="ic" aria-hidden="true"><use href="#i-beer"/></svg><span>Пиво</span><input id="vPrBeer" inputmode="decimal" autocomplete="off" placeholder="—" aria-label="Цена пива, ₽"><i>₽</i></label>
             </div>
-            <button type="button" class="linkbtn" id="vPrMore">ещё: сеанс, будни или выходной, валюта →</button>
             <div class="grid2" id="vPrExtra" hidden style="margin-top:4px">
               <input class="inp" id="vPrDur" type="number" min="1" placeholder="Продолжительность сеанса, мин">
               <div class="seg" id="vPrWeekend" role="radiogroup" aria-label="Будни или выходной">
@@ -551,19 +554,20 @@
             </div>
           </div>
 
-          <div class="field" id="vPhotosField">
-            <span class="lab">Фото <span class="hint">— видят только участники лиги</span></span>
-            <label class="btn sm photo-pick"><input type="file" id="vPhotos" accept="image/*" multiple>📷 Выбрать фото</label>
-            <span class="hint" id="vPhotosState">До 10 штук. Браузер уменьшит их и уберёт геометки.</span>
+          <div class="field v-photos-row" id="vPhotosField">
+            <label class="photo-pick v-ph-add" aria-label="Добавить фото"><input type="file" id="vPhotos" accept="image/*" multiple><svg class="ic" aria-hidden="true"><use href="#i-camplus"/></svg></label>
+            <span class="v-ph-list" id="vPhotosPrev"></span>
+            <span class="hint" id="vPhotosState">до 10 фото, видят участники лиги</span>
           </div>
         </div>
       </div>
 
       <aside class="visit-side">
         <div class="ticket" id="calc"></div>
-        <button type="submit" class="cta big" id="vSubmit"><svg class="ic"><use href="#i-check"/></svg><span>Отправить</span></button>
-        <p class="hint center">Комиссия проверит и засчитает</p>
+        <button type="submit" class="cta big" id="vSubmit"><span>Отправить в Комиссию</span></button>
       </aside>
+      <!-- 03.11 (макет): после отправки форма не закрывается молча — в ней же «С лёгким паром!», талон и «Оцени баню» -->
+      <div class="v-sent" id="vSent" hidden></div>
     </form>
   </div>
 </div>

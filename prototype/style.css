@@ -1689,3 +1689,92 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .p-years { margin-top: 4px; font-size: 13px; color: var(--ink-3); }
 .p-years b { color: var(--ink-2); white-space: nowrap; }
 .rate-done #rateClose { margin-top: 18px; }
+
+/* форма похода (03.11, макет «один экран»): подписи строкой, время одной строкой, длительность и цены — в строку, фото плитками */
+.visit-main { gap: 16px; }
+.visit-main h2 { font-size: 26px; }
+.v-lab-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.v-lab-row .hint { font-weight: 400; }
+.v-lab-row .linkbtn { font-size: 12px; font-weight: 600; }
+.grid2.v-when { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.v-when-box { position: relative; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: var(--r); border: 1.5px solid var(--line); background: var(--panel); font-size: 14px; white-space: nowrap; overflow: hidden; }
+.v-when-box .ic { width: 18px; height: 18px; color: var(--ink-3); flex: none; }
+.v-when-box b { font-weight: 600; }
+.v-when-box .hint { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.v-when-edit { margin-left: auto; padding-left: 8px; font-size: 13px; font-weight: 600; color: var(--oak); }
+.v-when-box input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; cursor: pointer; }
+.v-when-box:focus-within { border-color: var(--oak); }
+.dur2 button { display: flex; align-items: center; gap: 7px; padding: 0 12px; min-height: 44px; white-space: nowrap; }
+.dur2 button .ic { width: 18px; height: 18px; flex: none; color: var(--ink-3); }
+.dur2 button b { font-weight: 600; font-size: 14px; }
+.dur2 button span { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.dur2 button[aria-pressed="true"] .d-bolt { color: var(--oak); }
+.dur2 button.long[aria-pressed="true"] .d-flame { color: var(--ember); }
+.v-optional { display: grid; gap: 10px; }
+.v-prices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.v-price { display: flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 12px; border-radius: var(--r); border: 1.5px solid var(--line); background: var(--panel); font-size: 14px; color: var(--ink-2); cursor: text; }
+.v-price:focus-within { border-color: var(--oak); }
+.v-price .ic { width: 18px; height: 18px; flex: none; color: var(--ink-3); }
+.v-price input { flex: 1; min-width: 0; border: 0; background: none; font-weight: 600; font-size: 15px; font-family: inherit; color: var(--ink); text-align: right; outline: none; padding: 0; }
+.v-price i { font-style: normal; color: var(--ink-3); }
+.v-photos-row { display: flex; align-items: center; gap: 8px; }
+.v-ph-add { display: grid; place-items: center; width: 52px; height: 52px; flex: none; border-radius: 12px; border: 1.5px dashed var(--line); background: var(--panel); color: var(--ink-3); }
+.v-ph-add:hover { border-color: var(--oak); color: var(--oak); }
+.v-ph-add .ic { width: 22px; height: 22px; }
+.v-ph-list { display: flex; gap: 6px; overflow: hidden; }
+.v-ph-list:empty { display: none; }
+.v-ph-list img { width: 52px; height: 52px; flex: none; object-fit: cover; border-radius: 12px; }
+.v-photos-row .hint { font-size: 12px; line-height: 1.3; }
+/* талон — по людям: ник, очки, за что — одной строкой */
+.t-who { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); align-items: center; gap: 7px; padding: 4px 0; font-size: 13px; }
+.t-who .ava { --s: 22px; box-shadow: none; }
+.t-who b { font-weight: 700; white-space: nowrap; }
+.t-who em { font: 700 14px var(--display); font-style: normal; color: var(--ember); }
+.t-who span { color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-warn { font-size: 12px; line-height: 1.35; color: var(--ink-3); padding-bottom: 6px; }
+.visit-side .ticket::before, .visit-side .ticket::after { display: none; }
+/* «Отправлено» */
+.visit.is-sent { grid-template-columns: 1fr; }
+.visit.is-sent > :not(.v-sent) { display: none; }
+.v-sent { display: grid; gap: 14px; justify-items: center; text-align: center; padding: 36px 22px calc(22px + env(safe-area-inset-bottom, 0px)); max-width: 420px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.vs-mark { width: 76px; height: 76px; border-radius: 50%; background: var(--oak-soft); display: grid; place-items: center; }
+.vs-mark svg { width: 46px; height: 46px; }
+.v-sent h2 { font: 800 26px/1.1 var(--display); margin: 0; }
+.vs-sub { margin: -6px 0 0; color: var(--ink-2); }
+.vs-ticket { width: 100%; text-align: left; box-sizing: border-box; background: var(--panel-2); box-shadow: none; }
+.vs-ticket::before, .vs-ticket::after { display: none; }
+.vs-bath { display: grid; gap: 2px; padding-bottom: 10px; margin-bottom: 6px; border-bottom: 2px dashed var(--line); }
+.vs-bath b { font: 700 16px/1.25 var(--display); }
+.vs-bath small { color: var(--ink-3); }
+.vs-ticket .t-foot { margin-top: 8px; }
+.v-sent .rate-invite { width: 100%; box-sizing: border-box; text-align: left; }
+.v-sent .cta { width: 100%; }
+@media (max-width: 760px) {
+  .visit-main { padding: 18px 16px 10px; gap: 14px; }
+  .visit-main h2 { font-size: 22px; margin-top: -8px; }
+  .grid2.v-when { grid-template-columns: 1fr; }
+  .dur2 button { padding: 0 10px; gap: 6px; }
+  /* низ формы — прилипший подвал: очки по людям и кнопка; талон без «билетных» вырезов */
+  .visit-side { display: grid; gap: 8px; position: sticky; bottom: 0; z-index: 5; padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--panel); border-top: 1px solid var(--line); border-left: 0; }
+  .visit-side .ticket { margin: 0; padding: 0; background: none; box-shadow: none; }
+  #vSubmit { position: static; margin: 0; width: 100%; box-shadow: none; }
+}
+/* сетка формы не растёт по самой длинной строке (время, очки) — иначе на телефоне форма шире экрана */
+.visit-main, .visit-side { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.v-when-box b, .v-when-edit { flex: none; }
+.v-optional { padding-top: 0; border-top: 0; }
+.vs-mark svg use { fill: var(--oak-lite); } .vs-mark svg use.v-mid { fill: var(--oak); } .vs-mark svg use.v-back { fill: var(--oak-deep); }
+.vs-mark .v-handle { fill: var(--wood); } .vs-mark .v-twine { fill: var(--honey); }
+@media (max-width: 760px) {
+  .visit-main { gap: 12px; }
+  .visit-main .field { gap: 6px; }
+  .t-who { padding: 2px 0; }
+}
+.visit-main .field { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.dur2, .v-prices { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.dur2 button, .v-price { min-width: 0; }
+.dur2 button.long span { color: var(--ember); font-weight: 600; }
+.dur2 button b { font-family: var(--body); font-weight: 700; font-size: 15px; }
+.vs-ticket .t-who { align-items: start; }
+.vs-ticket .t-who span { white-space: normal; padding-top: 1px; }

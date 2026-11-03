@@ -455,8 +455,8 @@ with sync_playwright() as pw:
         s.page.click("#vComp button")
         # 18.10: своя длительность у попутчика — за ссылкой прямо под выбором длительности, по умолчанию у всех как у автора
         mate = s.js("() => document.querySelector('#vComp button[aria-pressed=true]').dataset.p")
-        check("попутчик выбран — под длительностью ссылка «Кто-то ушёл раньше или остался дольше?», строки спрятаны",
-              s.js("() => !document.getElementById('vDursToggle').hidden && document.getElementById('vDurs').hidden && /ушёл раньше/.test(document.getElementById('vDursToggle').innerText)"))
+        check("попутчик выбран — у «Сколько парились» ссылка «у кого-то иначе», строки спрятаны",
+              s.js("() => !document.getElementById('vDursToggle').hidden && document.getElementById('vDurs').hidden && /иначе/.test(document.getElementById('vDursToggle').innerText)"))
         s.page.click("#vDursToggle")
         check("…вместо больших кнопок — у каждого своё: ты первым, у попутчика как у тебя (🔥 долгая)",
               s.js(f"""() => document.getElementById('vDurChips').hidden && document.querySelectorAll('#vDurs .durs-row').length === 2
@@ -466,11 +466,18 @@ with sync_playwright() as pw:
         s.page.fill("#vPrice", "700"); s.page.fill("#vPrBeer", "280")
         s.page.set_input_files("#vPhotos", files=[{"name": "par.png", "mimeType": "image/png", "buffer": TILE}])
         s.page.wait_for_timeout(500)
-        check("итог — и в кнопке: «Отправить · +N»", s.js("() => /Отправить · \\+[1-9]/.test(document.getElementById('vSubmit').innerText)"))
-        check("в талоне есть очки", s.js("() => /Итого\\s*\\+[1-9]/.test(document.getElementById('calc').innerText)"),
+        check("строка «Когда зашёл»: «Сегодня, ЧЧ:ММ · МСК · W…»", s.js("() => /^Сегодня, \\d\\d:\\d\\d$/.test(document.getElementById('vWhenTxt').innerText) && /МСК · W\\d+/.test(document.getElementById('vWeekHint').innerText)"))
+        check("выбранное фото — плиткой рядом с камерой", s.js("() => document.querySelectorAll('#vPhotosPrev img').length === 1"))
+        check("очки по людям: «Ты +N …» и у попутчика своя строка",
+              s.js(f"() => {{ const r = [...document.querySelectorAll('#calc .t-who')].map((x) => x.innerText); return r.length === 2 && /^Ты\\s*\\+[1-9]/.test(r[0]) && r[1].startsWith('{mate}'); }}"),
               s.js("() => document.getElementById('calc').innerText"))
+        check("кнопка — «Отправить в Комиссию»", s.js("() => /Отправить в Комиссию/.test(document.getElementById('vSubmit').innerText)"))
         s.page.click("#vSubmit")
-        s.page.wait_for_selector("#visitModal", state="hidden", timeout=10000)
+        s.page.wait_for_selector("#vSent:not([hidden])", timeout=10000)
+        check("после отправки — «С лёгким паром!», баня и очки по людям, форма спрятана",
+              s.js("() => /С лёгким паром/.test(document.getElementById('vSent').innerText) && document.querySelectorAll('#vSent .t-who').length === 2 && !document.getElementById('vSubmit').offsetParent"))
+        s.page.click("#vDone")
+        s.page.wait_for_selector("#visitModal", state="hidden", timeout=3000)
         new = set(sql("select coalesce(string_agg(id::text, ','), '') from visits").split(",")) - {""} - before
         vid = max(map(int, new)) if new else None
         row = sql(f"select source || ' ' || status || ' ' || (select count(*) from visit_players where visit_id = {vid}) from visits where id = {vid}") if vid else ""
@@ -771,7 +778,7 @@ with sync_playwright() as pw:
         check("Комиссии «Кто» можно выбрать", s.js("() => !document.getElementById('vPlayer').disabled && !document.getElementById('vPlayerHint').hidden"))
         s.page.select_option("#vPlayer", "Леха")
         s.page.fill("#vDate", "2026-10-01T19:00"); s.page.wait_for_timeout(300)
-        s.page.click("#vSubmit"); s.page.wait_for_selector("#visitModal", state="hidden", timeout=10000)
+        s.page.click("#vSubmit"); s.page.wait_for_selector("#vSent:not([hidden])", timeout=10000); s.page.click("#vDone")
         fv = sql("select coalesce(max(id), 0) from visits where entered_by = (select id from players where nick = 'Витёк')")
         who = sql(f"select a.nick || '/' || (select string_agg(p.nick, ',' order by p.nick) from visit_players vp join players p on p.id = vp.player_id where vp.visit_id = v.id) "
                   f"from visits v join players a on a.id = v.created_by where v.id = {fv}")
@@ -1286,6 +1293,9 @@ with sync_playwright() as pw:
         check("телефон: после анимации открылась форма", True)
         s.page.wait_for_timeout(400)   # шторка формы ещё въезжает снизу — меряем, когда встала
         s.no_clip("форма «Добавить баню» на телефоне", "#visitModal")
+        check("телефон: форма помещается на экран без прокрутки (баня выбрана, без новой бани)",
+              s.js("() => { const sh = document.querySelector('#visitModal .sheet'); return sh.scrollHeight <= sh.clientHeight + 1 || document.getElementById('newBathBox').hidden === false; }"),
+              s.js("() => { const sh = document.querySelector('#visitModal .sheet'); return [sh.scrollHeight, sh.clientHeight]; }"))
         check("телефон: «Отправить» видна сразу, без прокрутки формы (прилипает к низу)",
               s.js("() => { const r = document.getElementById('vSubmit').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }"),
               s.js("() => [document.getElementById('vSubmit').getBoundingClientRect().toJSON(), innerHeight, scrollY]"))

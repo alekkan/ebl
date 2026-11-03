@@ -1660,7 +1660,7 @@
   function openVisit({ bathId } = {}) {
     if (D.live && !me) return openLogin();
     if (D.live && !me.nick) return openClaim();
-    vf.reset();
+    vf.reset(); vf.classList.remove("is-sent"); $("#vSent").hidden = true; photoPrev([]);
     delete $("#nbCountry").dataset.manual; delete $("#nbRegion").dataset.manual;
     $("#vPlayer").value = D.live ? me.nick : store.get("me", players[0]);
     // Комиссия может завести поход за другого участника (сама в бане могла не быть); остальные — только за себя
@@ -1696,10 +1696,16 @@
   };
 
   const PHOTOS_HINT = $("#vPhotosState").textContent;
-  $("#vPhotos").addEventListener("change", () => {
-    const n = $("#vPhotos").files.length;
-    $("#vPhotosState").textContent = n ? `Выбрано: ${n}${n > 10 ? " — возьмём первые 10" : ""}. Загрузятся после отправки похода.` : PHOTOS_HINT;
-  });
+  // выбранные фото — сразу плитками рядом с кнопкой камеры (03.11, макет); в бакет уходят после отправки похода
+  let photoUrls = [];
+  function photoPrev(files) {
+    photoUrls.forEach((u) => URL.revokeObjectURL(u));
+    photoUrls = files.slice(0, 10).map((f) => URL.createObjectURL(f));
+    $("#vPhotosPrev").innerHTML = photoUrls.map((u) => `<img src="${u}" alt="">`).join("");
+    const n = files.length;
+    $("#vPhotosState").textContent = n ? (n > 10 ? "возьмём первые 10" : "загрузятся после отправки") : PHOTOS_HINT;
+  }
+  $("#vPhotos").addEventListener("change", () => photoPrev([...$("#vPhotos").files]));
   function setDur(m) {
     $("#vDur").value = m;
     $$("#vDurChips button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.m === m)));
@@ -1906,18 +1912,21 @@
   // очки похода на проверке — заранее, у каждого свои (03.11, «за что очки»): как в талоне формы, но без самого этого похода
   function previewFor(v, nick) {
     const b = byId.get(v.bathId); if (!b) return null;
+    return pointsFor(b, nick, v.durs?.[nick] ?? v.dur, v.companions.length + 1, v.id);
+  }
+  // b — баня (у новой нет id), skip — сам этот поход, если он уже в журнале
+  function pointsFor(b, nick, dur, n, skip) {
     const bathIds = new Set(), regions = new Set(), countries = new Set();
     const add = (x) => { if (!x) return; bathIds.add(x.id); if (x.region) regions.add(placeKey(x)); if (x.country) countries.add(regionKey(x.country)); };
     baths.forEach((x) => x.v26?.[nick] && add(x));
-    visits.filter((w) => w.id !== v.id && w.status !== "rejected" && (w.player === nick || w.companions.includes(nick))).forEach((w) => add(byId.get(w.bathId)));
+    visits.filter((w) => w.id !== skip && w.status !== "rejected" && (w.player === nick || w.companions.includes(nick))).forEach((w) => add(byId.get(w.bathId)));
     const lines = [["поход", 1]];
     if (b.t === "public") lines.push(["общественная", 1]);
     if (!bathIds.has(b.id)) lines.push(["уникальная", 1]);
     if (!b.n26 && !b.nHist) lines.push(["ультра?", 0]);
     if (b.region && b.country && !regions.has(placeKey(b))) lines.push(["новый регион", 1]);
     if (b.country && !countries.has(regionKey(b.country))) lines.push(["новая страна", 1]);
-    if ((v.durs?.[nick] ?? v.dur) > 150) lines.push(["долгая", 1]);
-    const n = v.companions.length + 1;
+    if (dur > 150) lines.push(["долгая", 1]);
     if (n >= 9) lines.push(["компания ККК", 3]); else if (n >= 6) lines.push(["компания КК", 2]); else if (n >= 3) lines.push(["компания К", 1]);
     return { total: lines.reduce((a, l) => a + l[1], 0), lines };
   }
@@ -1950,26 +1959,46 @@
     if (n >= 9) lines.push([`Компания ККК · ${n}`, 3]);
     else if (n >= 6) lines.push([`Компания КК · ${n}`, 2]);
     else if (n >= 3) lines.push([`Компания К · ${n}`, 1]);
-    return { ...base, lines, total: lines.reduce((a, l) => a + (l[1] || 0), 0) };
+    return { ...base, lines, bath: { ...b, t: bt }, total: lines.reduce((a, l) => a + (l[1] || 0), 0) };
   }
+  // «Сегодня, 19:06» / «Вчера, 23:10» / «1 нояб, 19:00» — строка «Когда зашёл»
+  function whenLabel(date) {
+    const day = date.slice(0, 10), now = mskNow().slice(0, 10), t = date.slice(11, 16);
+    const y = new Date(now + "T12:00Z"); y.setUTCDate(y.getUTCDate() - 1);
+    const d = day === now ? "Сегодня" : day === y.toISOString().slice(0, 10) ? "Вчера"
+      : new Date(day + "T12:00Z").toLocaleDateString("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" }).replace(".", "");
+    return `${d}, ${t}`;
+  }
+  // очки каждого в компании одной строкой: «Ты +4 поход · общественная · уникальная · компания» (03.11, макет)
+  const shortLine = (t) => t.split(" · ")[0].toLowerCase().replace("поход в баню", "поход").replace("долгий поход", "долгая")
+    .replace("ультрауникальная", "ультра").replace(/^компания.*/, "компания");
+  function peopleRows(r) {
+    const n = r.comp.length + 1;
+    const rows = [{ who: r.player, mine: true, total: r.total, lines: r.lines.filter((l) => l[1]).map((l) => shortLine(l[0])) }];
+    for (const p of r.comp) {
+      const x = pointsFor(r.bath, p, durOver?.[p] ?? r.dur, n);
+      rows.push({ who: p, total: x.total, lines: x.lines.filter((l) => l[1]).map((l) => shortLine(l[0])) });
+    }
+    return rows;
+  }
+  const rowHtml = (x, totalId) => `<div class="t-who">${ava(x.who, "sm")}<b>${x.mine && (!D.live || x.who === myNick) ? "Ты" : esc(x.who)}</b>`
+    + `<em${totalId ? ` id="${totalId}"` : ""}>+${x.total}</em><span>${esc(x.lines.join(" · "))}</span></div>`;
   function calc() {
     const date = $("#vDate").value;
     if (date) {
-      const w = weekOf(mskNow());
-      $("#vWeekHint").textContent = date > mskNow() ? "это время ещё не наступило" : `отмечаешь сейчас — поход идёт в неделю W${w}`;
+      // неделя — по моменту отметки, не по времени захода (как в score)
+      $("#vWhenTxt").textContent = whenLabel(date);
+      $("#vWeekHint").textContent = date > mskNow() ? " · ещё не наступило" : ` · МСК · W${weekOf(mskNow())}`;
     }
     const r = score();
-    $("#calc").innerHTML = `
-      <div class="t-head"><span>Талон</span><small>W${r.week} · ${esc(r.player)}</small></div>
-      ${r.empty ? `<div class="t-empty">${esc(r.empty)}</div>` :
-        r.lines.map(([t, p, cls]) => `<div class="t-line ${cls || ""}"><span>${esc(t)}</span><i></i><b>${p ? "+" + p : "0"}</b></div>`).join("")}
-      <div class="t-total"><span>Итого</span><b id="tTotal">+${lastTotal}</b></div>
-      <div class="t-foot">Плюс очки за место в неделе — после её закрытия, в ночь на понедельник</div>`;
-    countUp($("#tTotal"), lastTotal, r.total);
+    // предупреждения (тот же день, тип бани не отмечен) — над строками; «Ультра?» решит Комиссия — не шумим
+    const warn = (r.lines || []).filter((l) => !l[1] && !/^Ультра/.test(l[0])).map((l) => `<div class="t-warn">${esc(l[0])}</div>`).join("");
+    $("#calc").innerHTML = r.empty ? `<div class="t-empty">${esc(r.empty)}</div>`
+      : warn + peopleRows(r).map((x, i) => rowHtml(x, i ? "" : "tTotal")).join("");
+    if (!r.empty) countUp($("#tTotal"), lastTotal, r.total);
     lastTotal = r.total;
     $("#vSubmit").disabled = !r.total;
     $("#vSubmit").style.opacity = r.total ? 1 : .5;
-    if (!vf.dataset.busy) $("#vSubmit span").textContent = r.total ? `Отправить · +${r.total}` : "Отправить";
   }
   function countUp(el, from, to) {
     if (calm || from === to) { el.textContent = "+" + to; return; }
@@ -1998,6 +2027,7 @@
       bathType: picked !== "new" && picked.t === "unknown" ? pickedType : null,
       companions: r.comp, player: r.player, lines: r.lines.filter((l) => l[1]), total: r.total };
     const files = [...($("#vPhotos")?.files || [])];   // форму сбросит следующее открытие — забираем сейчас
+    const rows = peopleRows(r);   // для экрана «Отправлено» — пока выбор компании не сброшен
     vf.dataset.busy = "1"; $("#vSubmit span").textContent = "Отправляю…";
     try {
       const saved = await D.submitVisit(payload);
@@ -2025,17 +2055,32 @@
       if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur, durs: payload.durs,
         lines: [], total: null, preview: r.total, status: "pending", enteredBy: r.player !== myNick ? myNick : null });
       leafBurst($("#vSubmit"));
-      setTimeout(() => { $("#visitModal").hidden = true; }, calm ? 0 : 450);
+      showSent(r, rows, payload.bathId);
       updateBadge(); render();
       if (!$("#view-feed").hidden) renderFeed();
-      toast(`С лёгким паром! <b>+${r.total}</b> ушло на модерацию`, true);
       if (D.live && files.length) setTimeout(() => uploadPhotos(saved.id, payload.bathId, files), 1500);
     } catch (err) {
       toast("Поход не сохранился: " + err.message);
     } finally {
-      delete vf.dataset.busy; $("#vSubmit span").textContent = "Отправить";
+      delete vf.dataset.busy; $("#vSubmit span").textContent = "Отправить в Комиссию";
     }
   });
+  // после отправки (03.11, макет): «С лёгким паром!», талон по людям и — пока помнишь — оценить баню
+  function showSent(r, rows, bathId) {
+    const b = byId.get(bathId) || r.bath;
+    const when = whenLabel(r.date).replace(/^С/, "с").replace(/^В/, "в").replace(",", "");
+    const rated = !!myRated?.has(bathId);
+    $("#vSent").innerHTML = `<div class="vs-mark">${$("#addVisitBtn .cta-venik svg")?.outerHTML || ""}</div>
+      <h2>С лёгким паром!</h2><p class="vs-sub">Комиссия проверит, бот напишет в Telegram.</p>
+      <div class="ticket vs-ticket"><div class="vs-bath"><b>${esc(b?.name || "")}</b><small>${esc(when)} · ${r.dur > 150 ? "долгая" : "экспресс"}</small></div>
+        ${rows.map((x) => rowHtml(x)).join("")}
+        <div class="t-foot">В таблицу — после проверки Комиссии</div></div>
+      ${D.live && bathId && !rated ? `<a class="rate-invite" href="rate.html?b=${bathId}"><span><b>Оцени баню, пока помнишь</b><small>минута, можно с отзывом</small></span><span class="go">Оценить</span></a>` : ""}
+      <button type="button" class="cta big" id="vDone"><span>Готово</span></button>`;
+    vf.classList.add("is-sent"); $("#vSent").hidden = false;
+    $("#visitModal .sheet").scrollTop = 0;
+    $("#vDone").onclick = () => { $("#visitModal").hidden = true; };
+  }
 
   // листопад из дубовых листьев
   function leafBurst(from) {
