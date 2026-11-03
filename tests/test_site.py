@@ -662,7 +662,10 @@ with sync_playwright() as pw:
               s.js(f"async () => {{ try {{ await window.EBLData.moderate({vid}, 'rejected'); return false; }} catch (e) {{ return /уже решили/.test(e.message); }} }}"))
         # правка засчитанного похода: «🔥 Долгая» вместо минут
         s.page.click('#feedFilter button[data-f="all"]'); s.page.wait_for_timeout(300)
-        check("в ленте видно, у кого была другая длительность", s.js(f"() => (document.querySelector('[data-edit=\"{vid}\"]')?.closest('.post')?.innerText || '').includes('— ⚡ экспресс')"))
+        # 03.11: лента — дни, засчитанные строками, очки у каждого свои (общей цифры у похода нет)
+        check("лента: засчитанный поход — строкой, очки по людям", s.js(f"() => {{ const r = document.querySelector('[data-edit=\"{vid}\"]')?.closest('.frow'); return !!r && /\\+\\d/.test(r.querySelector('.f-split')?.innerText || '') && !!r.closest('.f-day'); }}"))
+        check("лента: шапка — неделя, фильтры «Все · Мои · На проверке»", s.js("() => /^W\\d+ · \\d+ поход/.test(document.getElementById('feedWeek').innerText) && [...document.querySelectorAll('#feedFilter button')].map((b) => b.dataset.f).join() === 'all,mine,pending'"))
+        check("в ленте видно, у кого была другая длительность", s.js(f"() => (document.querySelector('[data-edit=\"{vid}\"]')?.closest('.frow, .post')?.innerText || '').includes('— экспресс')"))
         s.page.click(f'[data-edit="{vid}"]'); s.page.wait_for_timeout(300)
         check("в правке у Комиссии строки длительности открыты сразу: у попутчика — экспресс",
               s.js("() => document.querySelector('#ePeople [data-ed][data-m=\"120\"]')?.getAttribute('aria-pressed') === 'true'"))
