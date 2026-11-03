@@ -2098,7 +2098,14 @@
       return (v.dur > 150 ? "долгая" : "экспресс") + (diff.length ? ` · ${diff.map(esc).join(", ")} — ${v.dur > 150 ? "экспресс" : "долгая"}` : ""); };
     const stack = (names, cls = "") => `<span class="stack ${cls}">${names.slice(0, 3).map((n) => ava(n)).join("")}</span>`;
     const people = (v) => [v.player, ...v.companions];
-    const rateLine = (list) => list.map((r) => `<div class="f-rate"><span class="rv-rate"><b>${fmt(r.score)}</b>${fanSvg(r.score)}</span><span><b>${esc(r.nick)}</b> ${r.text ? `«${esc(r.text.length > 90 ? r.text.slice(0, 88) + "…" : r.text)}»` : "оценил без отзыва"}</span></div>`).join("");
+    // оценки в строке похода (03.11): без текста — одной строкой чипов «Фил 4,8 🌿», с отзывом — имя и оценка, ниже цитата
+    // в две строки (нажал — целиком). В большой компании так не растягивается на экран
+    const rchip = (r) => `<span class="f-rchip">${esc(r.nick)} <b>${fmt(r.score)}</b>${fanSvg(r.score)}</span>`;
+    const rateLine = (list) => {
+      const bare = list.filter((r) => !r.text), said = list.filter((r) => r.text);
+      return (bare.length ? `<div class="f-rates">${bare.map(rchip).join("")}</div>` : "")
+        + said.map((r) => `<div class="f-rate">${rchip(r)}<blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote></div>`).join("");
+    };
     const card = (v) => {
       const b = byId.get(v.bathId), who = people(v);
       const rep = repeatOf(v);
@@ -2139,6 +2146,7 @@
     }).join("");
   }
   $("#feed").addEventListener("click", (e) => {
+    const rv = e.target.closest(".f-rv"); if (rv) { rv.classList.toggle("open"); return; }   // длинный отзыв — две строки, нажал — целиком
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
     if (ed) return openEdit(visits.find((x) => x.id === +ed));
