@@ -1887,6 +1887,24 @@
     return { bathIds, regions, countries };
   }
 
+  // очки похода на проверке — заранее, у каждого свои (03.11, «за что очки»): как в талоне формы, но без самого этого похода
+  function previewFor(v, nick) {
+    const b = byId.get(v.bathId); if (!b) return null;
+    const bathIds = new Set(), regions = new Set(), countries = new Set();
+    const add = (x) => { if (!x) return; bathIds.add(x.id); if (x.region) regions.add(placeKey(x)); if (x.country) countries.add(regionKey(x.country)); };
+    baths.forEach((x) => x.v26?.[nick] && add(x));
+    visits.filter((w) => w.id !== v.id && w.status !== "rejected" && (w.player === nick || w.companions.includes(nick))).forEach((w) => add(byId.get(w.bathId)));
+    const lines = [["поход", 1]];
+    if (b.t === "public") lines.push(["общественная", 1]);
+    if (!bathIds.has(b.id)) lines.push(["уникальная", 1]);
+    if (!b.n26 && !b.nHist) lines.push(["ультра?", 0]);
+    if (b.region && b.country && !regions.has(placeKey(b))) lines.push(["новый регион", 1]);
+    if (b.country && !countries.has(regionKey(b.country))) lines.push(["новая страна", 1]);
+    if ((v.durs?.[nick] ?? v.dur) > 150) lines.push(["долгая", 1]);
+    const n = v.companions.length + 1;
+    if (n >= 9) lines.push(["компания ККК", 3]); else if (n >= 6) lines.push(["компания КК", 2]); else if (n >= 3) lines.push(["компания К", 1]);
+    return { total: lines.reduce((a, l) => a + l[1], 0), lines };
+  }
   function score() {
     const player = $("#vPlayer").value, dur = +$("#vDur").value;
     const comp = $$("#vComp button[aria-pressed=true]").map((c) => c.dataset.p);
@@ -2116,7 +2134,7 @@
       return `<article class="post f-pending">
         <div class="f-head">${stack(who)}<div class="f-who"><b>${esc(who.length > 2 ? `${who[0]}, ${who[1]} и ещё ${who.length - 2}` : who.join(" и "))}</b><small>${time(v.date)} · W${v.week ?? weekOf(v.posted || v.date)}${v.enteredBy ? ` · внёс ${esc(v.enteredBy)}` : ""}</small></div><span class="status pending">на проверке</span></div>
         <a class="f-bath" href="#map" data-bath="${v.bathId}">${b ? tdot(b.t) : ""}<span><b>${esc(b?.name || "баня")}</b><small>${[b && esc(where(b)), durLabel(v), v.companions.length && "компания"].filter(Boolean).join(" · ")}</small></span></a>
-        ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-pts muted">${v.preview != null ? `<span class="f-pt">${esc(v.player)} <b>+${fmt(v.preview)}</b> <small>по талону</small></span>` : ""}${v.preview == null ? "<small>очки посчитаются после проверки</small>" : v.companions.length ? "<small>у остальных — после проверки</small>" : ""}</div>`}
+        ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-why">${who.map((n) => { const r = previewFor(v, n); return r ? `<div class="f-why-row"><b>${esc(n)}</b><b class="f-why-pts">+${r.total}</b><small>${r.lines.map(([t, k]) => k ? `${t}${k > 1 ? ` ${k}` : ""}` : t).join(" · ")}</small></div>` : ""; }).join("")}<small class="f-why-note">предварительно — после проверки Комиссии очки встанут в таблицу</small></div>`}
         ${rep.length ? `<div class="warn">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</div>` : ""}
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<a class="f-tg" href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
         ${sec || inVisit(v) ? `<div class="post-actions">
