@@ -134,7 +134,8 @@
     boot(`Не получилось загрузить данные: ${esc(e.message)}. Обнови страницу.`);
     throw e;
   }
-  $("#boot")?.remove();
+  // заставка уходит плавно; тестам и ошибкам — как раньше: элемента #boot больше нет
+  { const b = $("#boot"); if (b) { b.classList.add("done"); setTimeout(() => b.remove(), calm ? 0 : 260); } }
   const me = data.me;                 // null — не вошёл или витрина; me.nick === null — вошёл, но ещё не привязан к участнику
   const member = !D.live || !!me?.nick;
   const canModerate = !D.live || !!me?.isCommission;
@@ -2037,6 +2038,8 @@
   let feedFilter = "all";
   let feedRatings = null;   // свежие оценки — для ленты; пришли — перерисовать, если лента открыта
   if (D.live && member) D.recentRatings().then((r) => { feedRatings = r; if (!$("#view-feed").hidden) renderFeed(); }).catch(() => {});
+  let feedPhotos = {};   // фото походов — превью в строке; нажал — во весь экран
+  if (D.live && member) D.feedPhotos().then((r) => { feedPhotos = r || {}; if (!$("#view-feed").hidden) renderFeed(); }).catch(() => {});
   $$("#feedFilter button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.f === feedFilter)));
   $("#feedFilter").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -2104,7 +2107,7 @@
     const rateLine = (list) => {
       const bare = list.filter((r) => !r.text), said = list.filter((r) => r.text);
       return (bare.length ? `<div class="f-rates">${bare.map(rchip).join("")}</div>` : "")
-        + said.map((r) => `<div class="f-rate">${rchip(r)}<blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote></div>`).join("");
+        + said.map((r) => `<div class="f-rate"><div class="f-rates">${rchip(r)}</div><blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote></div>`).join("");
     };
     const card = (v) => {
       const b = byId.get(v.bathId), who = people(v);
@@ -2135,9 +2138,10 @@
           <a class="f-title" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a>
           <small>${time(v.date)} · ${durLabel(v)}${v.companions.length ? ` · компания` : ""}${rejected ? ` · <span class="f-no">отклонён${v.reason ? `: ${esc(v.reason)}` : ""}</span>` : ""}</small>
           <div class="f-split">${split}</div>
+          ${(feedPhotos[v.id] || []).length ? `<div class="f-photos">${feedPhotos[v.id].slice(0, 6).map((ph, i) => `<button type="button" class="f-ph" data-fph="${v.id}:${i}" aria-label="Фото ${i + 1}"><img src="${esc(ph.thumb)}" alt="" loading="lazy" onerror="this.remove()"></button>`).join("")}${feedPhotos[v.id].length > 6 ? `<button type="button" class="f-ph more" data-fph="${v.id}:6">+${feedPhotos[v.id].length - 6}</button>` : ""}</div>` : ""}
           ${rateLine(attached.get(v.id) || [])}
         </div>
-        ${sec && D.live || inVisit(v) ? `<span class="f-acts">${inVisit(v) && !rejected ? `<button class="f-ic" data-addph="${v.id}" aria-label="Добавить фото">📷</button>` : ""}${sec && D.live ? `<button class="f-ic" data-edit="${v.id}" aria-label="Изменить поход">${icon("pencil")}</button>` : ""}</span>` : ""}
+        ${sec && D.live || inVisit(v) ? `<span class="f-acts">${inVisit(v) && !rejected ? `<button class="f-ic" data-addph="${v.id}" aria-label="Добавить фото" title="Добавить фото">${icon("camplus")}</button>` : ""}${sec && D.live ? `<button class="f-ic" data-edit="${v.id}" aria-label="Изменить поход">${icon("pencil")}</button>` : ""}</span>` : ""}
       </div>`;
     };
     $("#feed").innerHTML = days.map((g) => {
@@ -2146,7 +2150,8 @@
     }).join("");
   }
   $("#feed").addEventListener("click", (e) => {
-    const rv = e.target.closest(".f-rv"); if (rv) { rv.classList.toggle("open"); return; }   // длинный отзыв — две строки, нажал — целиком
+    const rv = e.target.closest(".f-rv"); if (rv) { rv.classList.toggle("open"); return; }
+    const fph = e.target.closest("[data-fph]"); if (fph) { const [vid, i] = fph.dataset.fph.split(":"); return openPhotos(feedPhotos[vid] || [], +i); }   // длинный отзыв — две строки, нажал — целиком
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
     if (ed) return openEdit(visits.find((x) => x.id === +ed));
