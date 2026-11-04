@@ -14,6 +14,8 @@ tmp=$(mktemp -d); idxdir=$(mktemp -d); idx="$idxdir/index"   # индекс git 
 trap 'rm -rf "$tmp" "$idxdir"' EXIT
 cp -R prototype/. "$tmp/"
 find "$tmp" -name .DS_Store -delete
+# аватарки — копиями рядом с сайтом (04.11, scripts/mirror_avatars.py); не вышло — фото пойдут через шлюз, как раньше
+python3 scripts/mirror_avatars.py "$tmp" || echo "Аватарки не скопированы — на сайте они пойдут через шлюз" >&2
 # версия скрипта или стиля — по его содержимому: не поменялся файл — тот же адрес, и браузер берёт его из кэша
 # даже после следующих выкладок (кэш на год, см. ниже); поменялся — новый адрес, старое из кэша не подхватится
 ASSETS="style.css app.js db.js rate.js radar.js config.js vendor/leaflet.min.css vendor/MarkerCluster.min.css vendor/leaflet.min.js vendor/leaflet.markercluster.min.js vendor/supabase.js vendor/qrcode.js"

@@ -234,7 +234,26 @@ def all_views(s, label, mobile=False):
     if mobile:
         s.no_clip(f"{label}: недельный зачёт на телефоне", "#view-table")
     s.page.click('#tMode [data-m="season"]')
-    s.page.click("#standings tbody tr")
+    # таблица по макету (04.11): линия Кубка с подписью, движение за неделю, столбцы словами с расшифровкой
+    check(f"{label}: таблица — линия Кубка после 16-го, столбец движения, расшифровки у столбцов",
+          s.js("() => !!document.querySelector('#standings tr.cupline') && document.querySelectorAll('#standings td.mv').length > 16"
+               " && [...document.querySelectorAll('#standings th[data-tip]')].length >= 7 && !document.querySelector('.legend-cols')"))
+    if mobile:
+        # телефон: «Войти»/аватарка не лежит на подзаголовке; таблица не листается вбок; строка раскрывается, а профиль — кнопкой
+        check(f"{label}: шапка таблицы — кнопка входа не на подзаголовке",
+              s.js("() => { const a = document.querySelector('#view-table .page-head .me-btn')?.getBoundingClientRect(), t = document.querySelector('#tableEyebrow > span')?.getBoundingClientRect();"
+                   " return !!a && !!t && (t.right <= a.left || t.top >= a.bottom); }"))
+        check(f"{label}: таблица на телефоне без прокрутки вбок",
+              s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'); return w.scrollWidth <= w.clientWidth + 1; }"))
+        s.page.click("#standings tbody tr[data-player]")
+        check(f"{label}: нажал на строку — раскрылась (столбцы плитками), профиль не открылся",
+              s.js("() => document.querySelectorAll('#standings tr.row-more .rm-grid > div').length === 7 && document.getElementById('playerModal').hidden"))
+        if s.js("() => !!document.querySelector('#standings tr.tail-more')"):
+            s.page.click("#standings tr.tail-more button")
+            check(f"{label}: «ещё N участников» показывает хвост таблицы", s.js("() => !document.querySelector('#standings tr.tail, #standings tr.tail-more')"))
+        s.page.click("#standings .rm-prof")
+    else:
+        s.page.click("#standings tbody tr")
     check(f"{label}: карточка участника открылась", s.js("() => !document.getElementById('playerModal').hidden"))
     # бани по неделям (24.10): над графиком итог и рекорд; нажал на столбик — его неделя и сколько бань, ещё раз — снова итог
     if s.js("() => !!document.querySelector('#pBars [data-w]:not(.zero)')"):
@@ -1016,7 +1035,7 @@ with sync_playwright() as pw:
 
         print("Даты в карточках")
         # ждём строку таблицы, а не надеемся, что она уже нарисована
-        open_shurik = "async () => { for (let i = 0; i < 50; i++) { const tr = [...document.querySelectorAll('#standings tbody tr')].find((x) => x.innerText.includes('Шурик')); if (tr) { tr.click(); return true; } await new Promise((r) => setTimeout(r, 100)); } return false; }"
+        open_shurik = "async () => { for (let i = 0; i < 50; i++) { const tr = [...document.querySelectorAll('#standings tbody tr')].find((x) => x.innerText.includes('Шурик')); if (tr) { tr.click(); await new Promise((r) => setTimeout(r, 50)); document.querySelector('#standings .rm-prof')?.click(); return true; } await new Promise((r) => setTimeout(r, 100)); } return false; }"
         first_row = "() => document.querySelector('#playerBody .blist button')?.innerText || ''"
         s = Site(browser, url, sess=shurik, name="member-dates")
         s.view("table"); s.js(open_shurik)
@@ -1270,34 +1289,35 @@ with sync_playwright() as pw:
         check("профиль: мой сезон, мои бани на карте, мои походы в ленте", s.js("() => ['myProfile', 'myMap', 'myFeed', 'logoutBtn'].every((id) => !!document.getElementById(id))"))
         s.no_clip("профиль на телефоне", "#loginModal .sheet")
         # 03.11: своя аватарка — нажал на аватарку в профиле, выбрал фото; «вернуть из Telegram» — обратно
-        was = sql("select coalesce(p.photo_url, '') || '|' || coalesce(a.tg_photo, '') || '|' || coalesce(a.tg_photo_src, '') from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик'")
+        was = sql("select coalesce(p.photo_url, '') || '|' || coalesce(a.tg_photo, '') || '|' || coalesce(a.tg_photo_src, '') from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик' and a.tg_id is not null")
         check("профиль: аватарка — кнопка с камерой и ссылка «Сменить/Добавить фото»",
               s.js("() => !!document.querySelector('#loginBody .ava-edit .ava-cam') && /(Сменить|Добавить) фото/.test(document.querySelector('#loginBody .ava-links').innerText)"))
         s.page.set_input_files("#loginBody [data-ava-file]", files=[{"name": "me.png", "mimeType": "image/png", "buffer": TILE}])
         s.page.wait_for_function("() => (document.querySelector('#meBtn .ava img')?.src || '').includes('/avatars/own/')", timeout=15000)
-        own = sql("select p.photo_url || '|' || a.tg_photo_src from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик'")
+        own = sql("select p.photo_url || '|' || a.tg_photo_src from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик' and a.tg_id is not null")
         check("своё фото: в бакете avatars/own/<id>.jpg, у участника на сайте, бот его не перезапишет (src = own)",
               "/storage/v1/object/public/avatars/own/" in own and own.endswith("|own")
               and sql("select count(*) from storage.objects where bucket_id = 'avatars' and name like 'own/%'") != "0", own)
         check("…появилась ссылка «вернуть из Telegram»", s.js("() => !!document.querySelector('#loginBody [data-ava-reset]')"))
         s.page.click("#loginBody [data-ava-reset]")
         s.page.wait_for_function("() => !document.querySelector('#meBtn .ava img')", timeout=10000)
-        check("«вернуть из Telegram» — своё фото снято, до входа — инициалы",
-              sql("select coalesce(p.photo_url, '-') || '|' || coalesce(a.tg_photo_src, '-') from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик'") == "-|-")
+        # картинку сайт снимает сразу, а запись в базу доходит следом — ждём её, а не первый взгляд (04.11: мигало)
+        cleared = lambda: sql("select coalesce(p.photo_url, '-') || '|' || coalesce(a.tg_photo_src, '-') from players p join player_accounts a on a.player_id = p.id where p.nick = 'Шурик' and a.tg_id is not null") == "-|-"
+        for _ in range(30):
+            if cleared(): break
+            s.page.wait_for_timeout(200)
+        check("«вернуть из Telegram» — своё фото снято, до входа — инициалы", cleared())
         photo, tgp, src = was.split("|")
         q = lambda v: f"'{v}'" if v else "null"
-        sql(f"update player_accounts set tg_photo = {q(tgp)}, tg_photo_src = {q(src)} where player_id = (select id from players where nick = 'Шурик')")
+        sql(f"update player_accounts set tg_photo = {q(tgp)}, tg_photo_src = {q(src)} where player_id = (select id from players where nick = 'Шурик') and tg_id is not null")
         sql(f"update players set photo_url = {q(photo)} where nick = 'Шурик'")
         sql("delete from storage.objects where bucket_id = 'avatars' and name like 'own/%'")
         s.page.click("#myMap"); s.page.wait_for_timeout(500)
         check("…«Мои бани на карте» — карта с моими банями", s.js("() => !document.getElementById('view-map').hidden && document.getElementById('fPlayer').value === 'Шурик' && document.getElementById('loginModal').hidden"))
         s.js("() => { const f = document.getElementById('fPlayer'); f.value = ''; f.dispatchEvent(new Event('change')); }"); s.page.wait_for_timeout(300)
-        # таблица шире экрана — тень у правого края, пока можно листать вбок
+        # своя строка в таблице подсвечена (04.11, вместо карточки «Ты 4-й»)
         s.view("table"); s.page.wait_for_timeout(500)
-        hint = lambda: s.js("() => document.getElementById('standings').closest('.tablecard').classList.contains('more-right')")
-        had = hint()
-        s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'); w.scrollLeft = w.scrollWidth; }"); s.page.wait_for_timeout(300)
-        check("таблица на телефоне: тень у правого края, пока можно листать вбок, и пропадает в конце", had and not hint())
+        check("таблица на телефоне: своя строка подсвечена", s.js("() => document.querySelector('#standings tr.me')?.dataset.player === 'Шурик'"))
         s.view("map"); s.page.wait_for_timeout(300)
         s.page.click("#filtBtn"); s.page.click("#fMe"); s.page.click('#fSeasonSeg [data-v="never"]'); s.page.click("#filtShow"); s.page.wait_for_timeout(500)
         s.no_clip("телефон: «Я» + «Не были в 2026» с очками", "#view-map")

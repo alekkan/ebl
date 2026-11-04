@@ -59,13 +59,13 @@ export function regionKey(s) {
 export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits, legacyStandings, visits }) {
   const S = new Map();
   const row = (nick) => {
-    if (!S.has(nick)) S.set(nick, { nick, total: 0, baths: 0, u: 0, uu: 0, long: 0, k: 0, pub: 0, reg: 0, week_pts: {}, week_baths: {} });
+    if (!S.has(nick)) S.set(nick, { nick, total: 0, baths: 0, u: 0, uu: 0, long: 0, k: 0, pub: 0, reg: 0, week_pts: {}, week_baths: {}, week_gain: 0 });
     return S.get(nick);
   };
   for (const l of legacyStandings) {
     Object.assign(row(l.nick), {
       total: +l.total, baths: l.baths, u: l.u, uu: l.uu, long: l.long, k: l.k, pub: l.pub, reg: l.reg,
-      week_pts: { ...l.week_pts }, week_baths: { ...l.week_baths },
+      week_pts: { ...l.week_pts }, week_baths: { ...l.week_baths }, week_gain: 0,
     });
   }
 
@@ -106,6 +106,7 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     if (!everVisited.has(e.v.bath_id) && !ultraDay.has(e.v.bath_id)) ultraDay.set(e.v.bath_id, e.v.day);
   }
 
+  const current = weekOf(now, season);
   const breakdown = {};
   for (const e of entries) {
     const r = row(e.nick), b = baths.get(e.v.bath_id) || {}, lines = [];
@@ -123,12 +124,12 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     r.total += pts;
     r.baths += 1;
     r.week_baths[e.v.week] = (r.week_baths[e.v.week] || 0) + 1;
+    if (e.v.week === current) r.week_gain += pts;   // движение ▲▼ в таблице: набрано с прошлого воскресенья
     (breakdown[e.v.id] ||= {})[e.nick] = { total: pts, lines };
   }
   for (const b of ultraDay.keys()) everVisited.add(b);
 
   // очки за места — только за закрытые недели (п. 7, 8)
-  const current = weekOf(now, season);
   for (let w = cutoverWeek; w < current; w++) {
     const rows = [...S.values()].map((r) => [r.nick, r.week_baths[w] || 0]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]);
     if (!rows.length) continue;
@@ -137,8 +138,9 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
       const r = row(nick);
       r.week_pts[w] = p;
       r.total += p;
+      if (w === current - 1) r.week_gain += p;
     }
   }
-  for (const r of S.values()) r.total = Math.round(r.total * 100) / 100;
+  for (const r of S.values()) { r.total = Math.round(r.total * 100) / 100; r.week_gain = Math.round(r.week_gain * 100) / 100; }
   return { standings: [...S.values()], breakdown, currentWeek: current };
 }

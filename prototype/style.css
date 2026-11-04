@@ -786,8 +786,6 @@ tr.below { color: var(--ink-2); }
 .week-grid tr { cursor: pointer; }
 .cupnote { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); margin: 14px 6px 0; }
 .cupnote i { width: 24px; border-top: 2px dashed var(--ember); flex: none; }
-.legend-cols { font-size: 13px; color: var(--ink-3); margin: 10px 6px 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
-.legend-cols b { color: var(--ink-2); }
 
 /* лента */
 .feed { display: grid; gap: 12px; }
@@ -1809,3 +1807,86 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 @media (prefers-reduced-motion: reduce) { .ava-edit.busy::after { animation-duration: 3s; } }
 .ava-links { margin-top: 4px; font-size: 13px; color: var(--ink-3); }
 .ava-links .linkbtn { font-size: 13px; }
+
+/* ---------- таблица лиги по макету (04.11) ---------- */
+/* подиум ниже: таблица с первыми тремя — сразу под ним, на телефоне — на первом экране */
+.podium { padding-top: 46px; margin-bottom: 18px; max-width: 640px; }
+.pod .ava.xl { --s: 60px; }
+.pod.p1::before { top: -40px; width: 72px; height: 65px; }
+.pod.p1 .pod-step { height: 64px; } .pod.p2 .pod-step { height: 46px; } .pod.p3 .pod-step { height: 34px; }
+.pod-step { font-size: 22px; }
+/* своя строка, движение, подпись «N бань» (её видно только на телефоне — на компьютере есть столбец) */
+#standings tr.me, #standings tr.me td { background: var(--oak-soft); }
+@media (hover: hover) { #standings tr.me:hover { background: color-mix(in srgb, var(--oak-soft) 80%, var(--line)); } }
+#standings td.mv { width: 30px; padding-inline: 0 4px; text-align: center; font-size: 11px; }
+#standings td.mv b { font-weight: 700; } #standings td.mv .up { color: var(--oak); } #standings td.mv .down { color: var(--ember); }
+#standings td.mv i { font-style: normal; color: var(--line); }
+#standings th.mv { padding: 0; }
+#standings .who-t { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#standings .who-t small { display: none; }
+#standings .me-tag { font: 700 11px var(--body); font-style: normal; color: var(--oak); background: color-mix(in srgb, var(--oak) 14%, transparent); padding: 2px 7px; border-radius: 8px; }
+#standings td.chev, #standings th.chev { display: none; }
+/* линия Кубка с подписью вместо пунктира под 16-м */
+#standings tr.cupline { border: 0; cursor: default; }
+#standings tr.cupline td { position: relative; height: 0; padding: 0; border-top: 2px dashed var(--ember); }
+#standings tr.cupline span { position: absolute; right: 14px; top: -11px; padding: 2px 9px; border-radius: 10px; background: var(--ember); color: #fff; font-size: 11px; font-weight: 700; }
+@media (hover: hover) { #standings tr.cupline:hover { background: none; } }
+#standings tr.tail-more { display: none; }
+.eb-left { display: none; }
+/* расшифровка столбца — подсказкой при наведении на заголовок */
+#standings th > span { border-bottom: 1px dotted transparent; }
+#standings th[data-tip] > span { border-bottom-color: currentColor; }
+@media (hover: hover) {
+  #standings th[data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 5; width: max-content; max-width: 240px;
+    padding: 8px 11px; border-radius: 10px; background: var(--ink); color: var(--bg); font: 500 12.5px/1.4 var(--body); text-transform: none; letter-spacing: 0; white-space: normal; text-align: left; box-shadow: var(--shadow); }
+  #standings th.crown-col[data-tip]:hover::after { left: 0; transform: none; }
+}
+/* раскрытая строка (телефон): остальные столбцы плитками, график, разрыв до места выше */
+#standings tr.row-more { cursor: default; background: var(--panel-2); }
+@media (hover: hover) { #standings tr.row-more:hover { background: var(--panel-2); } }
+#standings tr.row-more td { padding: 4px 12px 14px; white-space: normal; text-align: left; }
+.rm-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.rm-grid > div { padding: 7px 9px; border-radius: 10px; background: var(--panel); }
+.rm-grid span { display: block; font-size: 11.5px; color: var(--ink-3); }
+.rm-grid b { font: 700 15px var(--display); }
+.rm-prof { border: 0; border-radius: 10px; background: var(--oak); color: var(--oak-ink); font: 600 13px var(--body); display: flex; align-items: center; justify-content: center; gap: 2px; cursor: pointer; }
+.rm-prof .ic { width: 14px; height: 14px; transform: rotate(-90deg); }
+.rm-spark { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; color: var(--ink-3); }
+.rm-spark .spark { flex: 1; min-width: 0; height: 26px; }
+.rm-gap { margin: 8px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.rm-gap b { color: var(--ink); } .rm-gap .plus { color: var(--ember); }
+
+@media (max-width: 760px) {
+  /* шапка раздела: аватарка или «Войти» — в строке подзаголовка, а не поверх него (04.11) */
+  .page-head > :first-child { padding-right: 0; }
+  .page-head > :first-child > :first-child { min-height: 44px; display: flex; align-items: center; padding-right: 60px; box-sizing: border-box; }
+  .page-head:has(> .me-btn.guest) > :first-child > :first-child { padding-right: 112px; }
+  #view-table .page-head { margin: 12px 0 14px; }
+  #view-table .page-head h1 { font-size: 26px; margin-top: 2px; }
+  #tableTimer, .eb-played { display: none; }
+  .eb-left { display: inline; }
+  .tmode { margin-bottom: 4px; }
+  .podium { padding: 34px 10px 0; gap: 8px; margin-bottom: 14px; }
+  .pod .ava.xl { --s: 42px; } .pod.p1 .ava.xl { --s: 50px; }
+  .pod.p1::before { top: -30px; width: 56px; height: 50px; }
+  .pod-name, .pod.p1 .pod-name { font-size: 14px; }
+  .pod-pts small { display: none; }
+  .pod.p1 .pod-step { height: 44px; } .pod.p2 .pod-step { height: 30px; } .pod.p3 .pod-step { height: 22px; }
+  .pod-step { font-size: 16px; border-radius: 10px 10px 0 0; }
+  #standings th.st, #standings td.st { display: none; }
+  #standings td.chev, #standings th.chev { display: table-cell; width: 16px; padding-left: 0; color: var(--ink-3); }
+  #standings td.chev .ic { width: 14px; height: 14px; transform: rotate(-90deg); }
+  #standings tr.open td.chev .ic { transform: none; }
+  #standings td.pos { width: 30px; padding-inline: 8px 0; }
+  #standings td.mv { width: 26px; }
+  #standings td.who-cell { position: static; background: none; }
+  #standings .who-t { display: block; line-height: 1.2; }
+  #standings .who-t small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-3); }
+  #standings .me-tag { display: none; }
+  #standings th, #standings td { padding-block: 8px; }
+  #standings tr.tail { display: none; }
+  #standings tr.tail-more { display: table-row; cursor: default; }
+  #standings tr.tail-more button { width: 100%; border: 0; background: none; padding: 12px 4px; display: flex; justify-content: space-between; font: 500 14px var(--body); color: var(--ink-2); cursor: pointer; }
+  #standings tr.tail-more b { color: var(--oak); font-weight: 600; }
+  .tablecard.more-right::after { display: none; }
+}
