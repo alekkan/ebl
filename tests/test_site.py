@@ -318,6 +318,24 @@ with sync_playwright() as pw:
               s.js("() => { const k = document.querySelector('#drawer .d-key'), f = document.querySelector('#drawer .fan'); return !!k && getComputedStyle(k).display === 'grid' && (!f || f.getBoundingClientRect().width < 40); }"))
         s.page.click("#drawer .x:not(.x-share)"); s.page.wait_for_timeout(200)
         check("…закрыл карточку — в адресе снова #map", s.js("() => location.hash") == "#map")
+        # 04.11: «Назад» в браузере (кнопка Android) — закрывает верхнее открытое, а не уводит с сайта
+        here = lambda: s.js("() => location.href").startswith(url)
+        back = lambda: (s.page.go_back(wait_until="commit"), s.page.wait_for_timeout(400))
+        s.page.click("#list .item"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=5000)
+        back()
+        check("«Назад» с карточки бани — снова карта, на сайте", here() and s.js("() => document.getElementById('drawer').hidden && location.hash === '#map'"))
+        s.view("table"); s.view("feed"); back()
+        check("«Назад» с вкладки — на прошлую вкладку", here() and s.js("() => document.body.dataset.view") == "table")
+        back()
+        check("…и ещё раз — на карту", here() and s.js("() => document.body.dataset.view") == "map")
+        s.page.click("#addVisitBtn"); s.page.wait_for_selector(".modal:not([hidden])", timeout=5000)
+        back()
+        check("«Назад» в открытом окне — окно закрылось, сайт на месте", here() and s.js("() => ![...document.querySelectorAll('.modal')].some((m) => !m.hidden)"))
+        s.page.click("#list .item"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=5000)
+        s.page.click("#drawer .x:not(.x-share)"); s.page.wait_for_timeout(200)
+        s.view("table"); back()
+        check("закрыл карточку крестиком — «Назад» с вкладки ведёт на карту, а не открывает баню снова",
+              here() and s.js("() => document.body.dataset.view === 'map' && document.getElementById('drawer').hidden"))
         s.close()
         # 08.10: в плохую минуту связи Яндекса с Cloudflare шлюз на первый же запрос ответил 503, сайт счёл его недоступным
         # и ушёл напрямую — а без VPN там режутся большие ответы, и сайт висел на заставке. Отдельной проверки шлюза с 15.10 нет:

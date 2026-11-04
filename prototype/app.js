@@ -38,7 +38,7 @@
   // Данные из адреса убираем сразу: в адресе им не место, а #… сайт читает как вкладку
   const tgHash = new URLSearchParams(location.hash.slice(1)), tgStart = new URLSearchParams(location.search).get("tgWebAppStartParam");
   if (tgHash.get("tgWebAppData")) {
-    history.replaceState(null, "", location.pathname + "#map");
+    history.replaceState(history.state, "", location.pathname + "#map");
     // «готово» и «на весь экран» — события Telegram без его скрипта (в приложении — TelegramWebviewProxy, в вебе — окно-родитель)
     for (const eventType of ["web_app_ready", "web_app_expand"]) {
       try { window.TelegramWebviewProxy ? TelegramWebviewProxy.postEvent(eventType, "{}") : parent.postMessage(JSON.stringify({ eventType, eventData: {} }), "*"); } catch { /* не в Telegram */ }
@@ -279,7 +279,33 @@
 
   // ---------- вкладки ----------
   let radarMode = "dir";   // во вкладке «Бани» у Комиссии: справочник, радар или сверка (ниже, «Радар» и «Сверка»)
-  function show(view) {
+  // «Назад» в браузере (04.11, Android): раньше каждый переход только переписывал адрес — «Назад» уводил с сайта.
+  // Теперь вкладка, карточка бани и окно — шаг в истории; «Назад» закрывает верхний открытый, а не уходит с ebl.su.
+  // Закрыли крестиком — шаг остаётся «пустым», и «Назад» его просто проскакивает.
+  const steps = [];   // steps[d] — что открыли на шаге d истории
+  let depth = 0;
+  const stepLive = (s) => s.type === "view" ? document.body.dataset.view === s.to
+    : s.type === "bath" ? !$("#drawer").hidden : !$("#" + s.id).hidden;
+  function pushStep(step) {
+    steps.length = depth + 1; steps[++depth] = step;
+    history.pushState({ ebl: depth }, "", location.hash);
+  }
+  addEventListener("popstate", (e) => {
+    const to = e.state?.ebl ?? 0;
+    if (to >= depth) { depth = to; return; }   // «Вперёд» — не открываем заново, только запоминаем шаг
+    let closed = false;
+    for (let d = depth; d > to; d--) {
+      const s = steps[d]; if (!s || !stepLive(s)) continue;
+      closed = true;
+      if (s.type === "modal") $("#" + s.id).hidden = true;
+      else if (s.type === "bath") closeBath();
+      else show(s.from, true);
+    }
+    depth = to;
+    if (!closed && to > 0) history.back();   // шаг уже закрыли крестиком — проскакиваем к следующему
+  });
+  function show(view, fromBack) {
+    if (!fromBack && document.body.dataset.view !== view) pushStep({ type: "view", from: document.body.dataset.view, to: view });
     $$(".nav button[data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
     $("#moreBtn").setAttribute("aria-selected", String(["owners", "rules", "dir"].includes(view)));
     document.body.dataset.view = view;   // на телефоне поиск и типы поверх карты — только на вкладке «Карта»
@@ -291,7 +317,7 @@
     if (view === "owners") initOwners();
     if (view === "feed") renderFeed();
     if (view === "dir") renderDir();
-    history.replaceState(null, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
+    history.replaceState(history.state, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
   }
   $$(".nav button[data-view]").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
   document.body.dataset.view = "map";
@@ -788,8 +814,9 @@
           </form>` : ""}
         </section>
       </div>`;
+    if (d.hidden) pushStep({ type: "bath" });
     d.hidden = false;
-    history.replaceState(null, "", "#bath=" + id);   // ссылку на открытую баню можно скопировать из адресной строки
+    history.replaceState(history.state, "", "#bath=" + id);   // ссылку на открытую баню можно скопировать из адресной строки
     if (D.live && member) {
       if (!photoCache.has(id)) photoCache.set(id, D.bathPhotos(id).catch(() => { photoCache.delete(id); return []; }));
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
@@ -1277,7 +1304,7 @@
 
   function closeBath() {
     const d = $("#drawer");
-    if (location.hash.startsWith("#bath=")) history.replaceState(null, "", "#map");
+    if (location.hash.startsWith("#bath=")) history.replaceState(history.state, "", "#map");
     d.hidden = true; d.classList.remove("full", "dragging"); d.style.removeProperty("transform");
     openId = null; selectPin(); $$(".item.active").forEach((x) => x.classList.remove("active"));
   }
@@ -2463,6 +2490,13 @@
 
   // ---------- общее ----------
   $$("[data-close]").forEach((b) => b.addEventListener("click", () => (b.closest(".modal").hidden = true)));
+  // открылось окно — шаг в истории, чтобы «Назад» закрыл его, а не ушёл с сайта
+  const modalSeen = new MutationObserver((ms) => ms.forEach((m) => {
+    const el = m.target;
+    if (el.hidden || m.oldValue === null) return;   // закрылось или уже было открыто
+    if (!steps.slice(1, depth + 1).some((s) => s.type === "modal" && s.id === el.id && stepLive(s))) pushStep({ type: "modal", id: el.id });
+  }));
+  $$(".modal[id]").forEach((el) => modalSeen.observe(el, { attributes: true, attributeFilter: ["hidden"], attributeOldValue: true }));
   // формы (поход, правка заявки) не закрываем случайным тапом мимо и Esc — иначе вписанное пропадает; закрывает крестик
   const FORMS = ["visitModal", "editModal"];
   $$(".modal").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m && !FORMS.includes(m.id)) m.hidden = true; }));
@@ -2605,7 +2639,7 @@
   async function finishTelegramLogin() {
     const m = location.hash.match(/tgAuthResult=([^&]+)/);
     if (!m) return false;
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(history.state, "", location.pathname);
     try {
       const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");
       const json = decodeURIComponent(escape(atob(b64 + "===".slice((b64.length + 3) % 4))));
@@ -3068,7 +3102,7 @@
     $("#dirTitle").textContent = { radar: "Радар", catalog: "Сверка каталога" }[mode] || "Справочник бань";
     if (mode === "radar") renderRadar();
     if (mode === "catalog") renderCat();
-    history.replaceState(null, "", "#" + mode);
+    history.replaceState(history.state, "", "#" + mode);
   }
   $("#dirMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-mode]"); if (b) setDirMode(b.dataset.mode); });
   $("#radarTabs").addEventListener("click", (e) => {
