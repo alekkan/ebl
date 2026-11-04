@@ -1354,10 +1354,10 @@
     ["uu", "Ультра", "Ультрауникальные: в бане никто из лиги не был с 2023 года, +1"], ["long", "Долгие", "Долгие походы, больше 150 минут, +1"],
     ["k", "Компания", "За компанию: от 3 участников в одни сутки, +1…+3"], ["pub", "Общ.", "Общественные бани, +1 за каждую"],
     ["reg", "Регионы", "Новые регионы и страны, +1 за каждый"]];
-  function spark(s, W = 96) {
+  function spark(s) {
     const weeks = Array.from({ length: 12 }, (_, i) => curWeek - 12 + i).filter((w) => w >= 1);
     const vals = weeks.map((w) => s.weekPts[w] ?? 0);
-    const H = 24, step = W / (vals.length - 1 || 1);
+    const W = 96, H = 24, step = W / (vals.length - 1 || 1);
     const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(H - 3 - (v / 15) * (H - 6)).toFixed(1)}`);
     const [lx, ly] = pts[pts.length - 1].split(",");
     return `<svg class="spark" width="${W}" height="${H}" viewBox="-3 0 ${W + 6} ${H}" aria-label="очки за места, последние 12 недель"><polygon points="0,${H} ${pts.join(" ")} ${W},${H}" fill="var(--oak-soft)"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--oak)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${lx}" cy="${ly}" r="3" fill="var(--ember)"/></svg>`;
@@ -1392,38 +1392,24 @@
     const left = $("#tableEyebrow .eb-left b"); if (left) left.textContent = timeLeft();
   };
   renderTimer();
-  // телефон (04.11): в строке — место, движение, кто, шапки, очки; остальные столбцы и график — по нажатию на строку
-  let openRow = null, showTail = false;
-  const moveMark = (m) => (m > 0 ? `<b class="up" title="За неделю поднялся на ${m}">▲${m}</b>` : m < 0 ? `<b class="down" title="За неделю опустился на ${-m}">▼${-m}</b>` : `<i>—</i>`);
-  const NCOLS = COLS.length + 7;
-  function rowMore(s) {
-    const above = ranked[s.place - 2];
-    return `<tr class="row-more"><td colspan="${NCOLS}"><div class="rm">
-      <div class="rm-grid">${COLS.map(([k, l]) => `<div><span>${l}</span><b>${s[k] ?? 0}</b></div>`).join("")}
-        <button type="button" class="rm-prof" data-open="${esc(s.name)}">Профиль ${icon("chev")}</button></div>
-      <div class="rm-spark"><span>12 недель</span>${spark(s, 200)}</div>
-      <p class="rm-gap">${above ? `до ${s.place - 1}-го места <b>${fmt(above.total - s.total)}</b> · ` : "лидер сезона · "}${s.weekGain ? `за неделю <b class="plus">+${fmt(s.weekGain)}</b>` : "за неделю пока без очков"}</p>
-    </div></td></tr>`;
-  }
+  // движение за неделю — под местом (04.11, отзыв: отдельный столбец почти пустой); без движения — ничего
+  const moveMark = (m) => (m > 0 ? `<small class="up" title="За неделю поднялся на ${m}">▲${m}</small>` : m < 0 ? `<small class="down" title="За неделю опустился на ${-m}">▼${-m}</small>` : "");
+  const NCOLS = COLS.length + 5;
   function renderTable() {
     const rows = [...ranked].sort((a, b) => sortDir * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0)) || a.place - b.place);
     const byTotal = sortKey === "total" && sortDir < 0, mine = D.live ? me?.nick : null;
-    // хвост таблицы на телефоне свёрнут: после 19-го места — «ещё N участников»
-    const tail = byTotal && !showTail && rows.length > 22 ? rows.length - 19 : 0;
     const th = (k, l, cls = "", tip = "") => `<th data-k="${k}" class="${cls} ${k === sortKey ? "on" : ""}"${tip ? ` data-tip="${esc(tip)}"` : ""}><span>${l}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</span></th>`;
     $("#standings").innerHTML = `
-      <thead><tr>${th("place", "#")}<th class="mv" aria-label="За неделю"></th><th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col", "Победы в неделях")}${th("total", "Очки")}${COLS.map(([k, l, t]) => th(k, l, "st", t)).join("")}<th class="l st">12 недель</th><th class="chev"></th></tr></thead>
-      <tbody>${rows.map((s, i) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""}${byTotal && s.place > 16 ? " below" : ""}${s.name === mine ? " me" : ""}${tail && i >= 19 ? " tail" : ""}${openRow === s.name ? " open" : ""}">
-        <td class="pos">${s.place}</td>
-        <td class="mv">${moveMark(s.move)}</td>
-        <td class="l who-cell"><span>${ava(s.name, "sm")}<span class="who-t"><b>${esc(s.name)}</b>${s.name === mine ? '<i class="me-tag">это ты</i>' : ""}<small>${s.baths} ${plural(s.baths, "баня", "бани", "бань")}</small></span></span></td>
+      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col", "Победы в неделях")}${th("total", "Очки")}${COLS.map(([k, l, t]) => th(k, l, "st", t)).join("")}<th class="l st">12 недель</th></tr></thead>
+      <tbody>${rows.map((s, i) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""}${byTotal && s.place > 16 ? " below" : ""}${s.name === mine ? " me" : ""}">
+        <td class="pos">${s.place}${moveMark(s.move)}</td>
+        <td class="l who-cell"><span>${ava(s.name, "sm")}<span class="who-t"><b>${esc(s.name)}</b>${s.name === mine ? '<i class="me-tag">это ты</i>' : ""}</span></span></td>
         <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : "Пока без побед в неделях"}">${s.crowns ? `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg><b>${s.crowns}</b>` : ""}</td>
         <td class="pts">${fmt(s.total)}</td>
         ${COLS.map(([k]) => `<td class="st">${s[k] ?? 0}</td>`).join("")}
-        <td class="l st">${spark(s)}</td><td class="chev">${icon("chev")}</td></tr>`
-        + (openRow === s.name ? rowMore(s) : "")
+        <td class="l st">${spark(s)}</td></tr>`
         + (byTotal && s.place === 16 && rows.length > 16 ? `<tr class="cupline" aria-hidden="true"><td colspan="${NCOLS}"><span>Кубок ЕБЛ · первые 16</span></td></tr>` : "")).join("")}
-      ${tail ? `<tr class="tail-more"><td colspan="${NCOLS}"><button type="button">ещё ${tail} ${plural(tail, "участник", "участника", "участников")} <b>показать</b></button></td></tr>` : ""}</tbody>`;
+</tbody>`;
   }
   // ---------- недельный зачёт: как лист «недельный зачёт» у Комиссии ----------
   // W1 — с 1 января до первого воскресенья, дальше пн–вс (п. 6)
@@ -1509,12 +1495,7 @@
   $("#standings").addEventListener("click", (e) => {
     const th = e.target.closest("th[data-k]");
     if (th) { const k = th.dataset.k; sortDir = k === sortKey ? -sortDir : k === "place" ? 1 : -1; sortKey = k; renderTable(); return; }
-    const prof = e.target.closest("[data-open]"); if (prof) { openPlayer(prof.dataset.open); return; }
-    if (e.target.closest(".tail-more")) { showTail = true; renderTable(); return; }
-    const tr = e.target.closest("tr[data-player]"); if (!tr) return;
-    // на телефоне строка раскрывается (остальные столбцы не влезают), на компьютере — сразу профиль
-    if (phone.matches) { openRow = openRow === tr.dataset.player ? null : tr.dataset.player; renderTable(); }
-    else openPlayer(tr.dataset.player);
+    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player);
   });
   $("#podium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player); });
   renderTable();

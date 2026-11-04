@@ -235,25 +235,20 @@ def all_views(s, label, mobile=False):
         s.no_clip(f"{label}: недельный зачёт на телефоне", "#view-table")
     s.page.click('#tMode [data-m="season"]')
     # таблица по макету (04.11): линия Кубка с подписью, движение за неделю, столбцы словами с расшифровкой
-    check(f"{label}: таблица — линия Кубка после 16-го, столбец движения, расшифровки у столбцов",
-          s.js("() => !!document.querySelector('#standings tr.cupline') && document.querySelectorAll('#standings td.mv').length > 16"
+    check(f"{label}: таблица — линия Кубка после 16-го, расшифровки у столбцов",
+          s.js("() => !!document.querySelector('#standings tr.cupline')"
                " && [...document.querySelectorAll('#standings th[data-tip]')].length >= 7 && !document.querySelector('.legend-cols')"))
     if mobile:
         # телефон: «Войти»/аватарка не лежит на подзаголовке; таблица не листается вбок; строка раскрывается, а профиль — кнопкой
         check(f"{label}: шапка таблицы — кнопка входа не на подзаголовке",
               s.js("() => { const a = document.querySelector('#view-table .page-head .me-btn')?.getBoundingClientRect(), t = document.querySelector('#tableEyebrow > span')?.getBoundingClientRect();"
                    " return !!a && !!t && (t.right <= a.left || t.top >= a.bottom); }"))
-        check(f"{label}: таблица на телефоне без прокрутки вбок",
-              s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'); return w.scrollWidth <= w.clientWidth + 1; }"))
-        s.page.click("#standings tbody tr[data-player]")
-        check(f"{label}: нажал на строку — раскрылась (столбцы плитками), профиль не открылся",
-              s.js("() => document.querySelectorAll('#standings tr.row-more .rm-grid > div').length === 7 && document.getElementById('playerModal').hidden"))
-        if s.js("() => !!document.querySelector('#standings tr.tail-more')"):
-            s.page.click("#standings tr.tail-more button")
-            check(f"{label}: «ещё N участников» показывает хвост таблицы", s.js("() => !document.querySelector('#standings tr.tail, #standings tr.tail-more')"))
-        s.page.click("#standings .rm-prof")
-    else:
-        s.page.click("#standings tbody tr")
+        # 04.11 (отзыв): таблица целиком, листается вбок, а участник прилип слева — видно, чьи цифры
+        s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'); w.scrollLeft = w.scrollWidth; }"); s.page.wait_for_timeout(200)
+        check(f"{label}: таблица листается вбок, участник остаётся слева",
+              s.js("() => { const w = document.getElementById('standings').closest('.tablewrap'), c = document.querySelector('#standings tbody td.who-cell').getBoundingClientRect();"
+                   " return w.scrollLeft > 0 && c.left >= w.getBoundingClientRect().left - 1 && c.left < w.getBoundingClientRect().left + 10; }"))
+    s.page.click("#standings tbody tr")
     check(f"{label}: карточка участника открылась", s.js("() => !document.getElementById('playerModal').hidden"))
     # бани по неделям (24.10): над графиком итог и рекорд; нажал на столбик — его неделя и сколько бань, ещё раз — снова итог
     if s.js("() => !!document.querySelector('#pBars [data-w]:not(.zero)')"):
@@ -1053,7 +1048,7 @@ with sync_playwright() as pw:
 
         print("Даты в карточках")
         # ждём строку таблицы, а не надеемся, что она уже нарисована
-        open_shurik = "async () => { for (let i = 0; i < 50; i++) { const tr = [...document.querySelectorAll('#standings tbody tr')].find((x) => x.innerText.includes('Шурик')); if (tr) { tr.click(); await new Promise((r) => setTimeout(r, 50)); document.querySelector('#standings .rm-prof')?.click(); return true; } await new Promise((r) => setTimeout(r, 100)); } return false; }"
+        open_shurik = "async () => { for (let i = 0; i < 50; i++) { const tr = [...document.querySelectorAll('#standings tbody tr')].find((x) => x.innerText.includes('Шурик')); if (tr) { tr.click(); return true; } await new Promise((r) => setTimeout(r, 100)); } return false; }"
         first_row = "() => document.querySelector('#playerBody .blist button')?.innerText || ''"
         s = Site(browser, url, sess=shurik, name="member-dates")
         s.view("table"); s.js(open_shurik)
