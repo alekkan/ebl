@@ -160,11 +160,16 @@ window.EBLData = (() => {
     return pub.rpc("boot_public", {}, { get: true }).then(check);
   }
 
+  // аватарки (04.11): через шлюз фото идут из Supabase за Cloudflare — 1–8 с и «не кэшировать», в таблице секунды висели
+  // буквы. Выкладка копирует их рядом с сайтом (scripts/deploy.sh): data/ava.json — «адрес фото → копия». Новой аватарки
+  // в списке ещё нет — она идёт по-старому, через шлюз
+  const avaMirror = () => fetch("data/ava.json").then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+
   async function loadLive() {
     // всё общее — одним запросом (rpc boot_public, 16.10): было семь, и заставка ждала самый медленный, а через шлюз
     // примерно каждый десятый застревает на секунды. GET, а не POST — такой клиент Supabase сам повторит при 503,
     // а viaBest продублирует, если шлюз задумается
-    const [common, me, rows] = await Promise.all([bootPublic(), whoami(), journal()]);
+    const [common, me, rows, avaCopy] = await Promise.all([bootPublic(), whoami(), journal(), avaMirror()]);
     const { baths, standings, reviews, prices, beer: beerPrices, players } = common;
     const counts = common.counts.map(([bath_id, year, nick, n]) => ({ bath_id, year, nick, n }));
     const byId = new Map(baths.map((b) => [b.id, Object.assign(b, { v26: {}, hist: {}, histBy: {}, isNew: b.status === "pending" })]));
@@ -189,10 +194,10 @@ window.EBLData = (() => {
     return {
       baths,
       standings: standings.map((s) => ({ name: s.nick, total: +s.total, baths: s.baths, u: s.u, uu: s.uu, long: s.long, k: s.k, pub: s.pub, reg: s.reg,
-        weekPts: s.week_pts, weekBaths: s.week_baths, updatedAt: s.updated_at })),
+        weekPts: s.week_pts, weekBaths: s.week_baths, weekGain: +(s.week_gain ?? 0), updatedAt: s.updated_at })),
       reviews: rv, prices: pr, beerPrices: bpr, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
-      photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, viaApi(p.photo_url)])),
+      photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, avaCopy[p.photo_url] || viaApi(p.photo_url)])),
     };
   }
 

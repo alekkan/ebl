@@ -87,6 +87,7 @@ sql("delete from visits where bath_id = 5 and created_at > now() - interval '1 d
 # точка отсчёта — свежий пересчёт: прошлые прогоны тестов засчитывали и удаляли походы, не пересчитывая таблицу
 req("POST", "/functions/v1/recompute", {})
 before = {n: float(sql(f"select total from standings where nick='{n}'") or 0) for n in ("Шурик", "Витёк", "Леха")}
+gain0 = {n: float(sql(f"select week_gain from standings where nick='{n}'") or 0) for n in before}
 s, v = req("POST", "/rest/v1/visits", {"bath_id": 5, "entered_at": "2026-09-26T12:00:00+03", "duration_min": 180, "created_by": me},
            token=shurik, headers={"Prefer": "return=representation"})
 check("Шурик отмечает поход", s == 201, v)
@@ -108,6 +109,9 @@ check("компания из трёх — К у всех", all(any(l[0] == "comp
 check("долгий у всей компании, без фото", all(any(l[0] == "long" for l in p["lines"]) for p in pts.values()))
 after = {n: float(sql(f"select total from standings where nick='{n}'")) for n in before}
 check("таблица выросла ровно на очки похода", all(abs(after[n] - before[n] - float(pts[n]["total"])) < 0.01 for n in before), (before, after))
+gain1 = {n: float(sql(f"select week_gain from standings where nick='{n}'")) for n in before}
+check("…и «набрано за неделю» (движение ▲▼ в таблице) — тоже: поход отмечен на этой неделе",
+      all(abs(gain1[n] - gain0[n] - float(pts[n]["total"])) < 0.01 for n in before), (gain0, gain1))
 # 18.10: своя длительность участника — Леха ушёл раньше (экспресс), Шурик и Витёк — долгую; компания у всех троих
 sql(f"update visit_players set duration_min = 120 where visit_id = {vid} and player_id = '{leha}'")
 req("POST", "/functions/v1/recompute", {})

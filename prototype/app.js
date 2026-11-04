@@ -365,7 +365,7 @@
     const b = e.target.closest("button[data-t]"); if (!b) return;
     const on = b.getAttribute("aria-pressed") !== "true";
     $$("#fType button[data-t]").forEach((x) => x.setAttribute("aria-pressed", String(on && x === b)));
-    render(true);
+    render("soft");   // 04.11: карта отлетала на весь мир — теперь остаётся, где была, если в кадре такие бани есть
   });
   // разрезы по годам с главного экрана убрали (02.11, Леха: фильтры перегружены) — сезон теперь в «Фильтрах» рядом со страной
   $("#fSeason").addEventListener("change", () => render(true));
@@ -531,6 +531,7 @@
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
       : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
     const pad = homePad();
+    if (fit === "soft") { const view = map.getBounds(); if (onMap.some((b) => view.contains(b.ll))) fit = false; }
     if (fit === "home") map.fitBounds(HOME, { ...pad, animate: false });   // рамка HOME — у создания карты
     else if (fit && here) map.fitBounds(L.latLngBounds([here, ...onMap.filter((b) => b._km != null).slice(0, 8).map((b) => b.ll)]).pad(0.2), { maxZoom: 13, ...pad });
     else if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, ...pad });
@@ -1321,11 +1322,15 @@
 
   // ---------- таблица ----------
   let sortKey = "total", sortDir = -1;
-  const COLS = [["baths", "Бань"], ["u", "У"], ["uu", "УУ"], ["long", "Дл"], ["k", "К"], ["pub", "Общ"], ["reg", "Рег"]];
-  function spark(s) {
+  // столбцы словами, расшифровка — подсказкой у заголовка (04.11: «У», «УУ», «Дл» никто не понимал, а легенду внизу не читали)
+  const COLS = [["baths", "Бань", "Засчитанные походы за сезон"], ["u", "Уник.", "Уникальные: баня первая в этом году для тебя, +1"],
+    ["uu", "Ультра", "Ультрауникальные: в бане никто из лиги не был с 2023 года, +1"], ["long", "Долгие", "Долгие походы, больше 150 минут, +1"],
+    ["k", "Компания", "За компанию: от 3 участников в одни сутки, +1…+3"], ["pub", "Общ.", "Общественные бани, +1 за каждую"],
+    ["reg", "Регионы", "Новые регионы и страны, +1 за каждый"]];
+  function spark(s, W = 96) {
     const weeks = Array.from({ length: 12 }, (_, i) => curWeek - 12 + i).filter((w) => w >= 1);
     const vals = weeks.map((w) => s.weekPts[w] ?? 0);
-    const W = 96, H = 24, step = W / (vals.length - 1 || 1);
+    const H = 24, step = W / (vals.length - 1 || 1);
     const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(H - 3 - (v / 15) * (H - 6)).toFixed(1)}`);
     const [lx, ly] = pts[pts.length - 1].split(",");
     return `<svg class="spark" width="${W}" height="${H}" viewBox="-3 0 ${W + 6} ${H}" aria-label="очки за места, последние 12 недель"><polygon points="0,${H} ${pts.join(" ")} ${W},${H}" fill="var(--oak-soft)"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--oak)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${lx}" cy="${ly}" r="3" fill="var(--ember)"/></svg>`;
@@ -1337,33 +1342,61 @@
     const crowns = {};
     for (let w = 1; w < curWeek; w++) for (const r of weekRows(w)) if (r.place === 1) crowns[r.name] = (crowns[r.name] || 0) + 1;
     ranked.forEach((s) => (s.crowns = crowns[s.name] || 0));
+    // движение ▲▼ (04.11): место сейчас против места с прошлого воскресенья — по очкам без набранных за неделю (week_gain)
+    const was = [...ranked].sort((a, b) => b.total - (b.weekGain || 0) - (a.total - (a.weekGain || 0)) || a.place - b.place);
+    const moved = ranked.some((s) => s.weekGain);
+    was.forEach((s, i) => (s.move = moved ? i + 1 - s.place : 0));
     const playedWeeks = Math.max(0, ...standings.flatMap((s) => Object.keys(s.weekPts || {}).map(Number)));
-    $("#tableEyebrow").innerHTML = `Сезон 2026 · разыграно <b>${playedWeeks}</b> ${plural(playedWeeks, "неделя", "недели", "недель")}`;
+    // на телефоне вместо «разыграно…» — сколько до конца недели: отдельной плашки таймера там нет
+    $("#tableEyebrow").innerHTML = `<span>Сезон 2026<span class="eb-played"> · разыграно <b>${playedWeeks}</b> ${plural(playedWeeks, "неделя", "недели", "недель")}</span>`
+      + `<span class="eb-left"> · W${curWeek} · ещё <b>${timeLeft()}</b></span></span>`;
     // в начале сезона (или на пустой базе) участников может быть меньше трёх — пьедестал без пустых ступеней
     $("#podium").innerHTML = [ranked[1], ranked[0], ranked[2]].filter(Boolean).map((s) => `
       <button class="pod p${s.place}" data-player="${esc(s.name)}">
         ${ava(s.name, "xl")}
         <span class="pod-name">${esc(s.name)}</span>
-        <span class="pod-pts"><b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")}</span>
+        <span class="pod-pts"><b>${fmt(s.total)}</b> <small>${plural(s.total, "очко", "очка", "очков")}</small></span>
         <span class="pod-step">${s.place}</span>
       </button>`).join("");
   }
   rankTable();
-  const renderTimer = () => ($("#tableTimer").innerHTML = `${icon("clock")}до конца W${curWeek} <b>${timeLeft()}</b>`);
+  const renderTimer = () => {
+    $("#tableTimer").innerHTML = `${icon("clock")}до конца W${curWeek} <b>${timeLeft()}</b>`;
+    const left = $("#tableEyebrow .eb-left b"); if (left) left.textContent = timeLeft();
+  };
   renderTimer();
+  // телефон (04.11): в строке — место, движение, кто, шапки, очки; остальные столбцы и график — по нажатию на строку
+  let openRow = null, showTail = false;
+  const moveMark = (m) => (m > 0 ? `<b class="up" title="За неделю поднялся на ${m}">▲${m}</b>` : m < 0 ? `<b class="down" title="За неделю опустился на ${-m}">▼${-m}</b>` : `<i>—</i>`);
+  const NCOLS = COLS.length + 7;
+  function rowMore(s) {
+    const above = ranked[s.place - 2];
+    return `<tr class="row-more"><td colspan="${NCOLS}"><div class="rm">
+      <div class="rm-grid">${COLS.map(([k, l]) => `<div><span>${l}</span><b>${s[k] ?? 0}</b></div>`).join("")}
+        <button type="button" class="rm-prof" data-open="${esc(s.name)}">Профиль ${icon("chev")}</button></div>
+      <div class="rm-spark"><span>12 недель</span>${spark(s, 200)}</div>
+      <p class="rm-gap">${above ? `до ${s.place - 1}-го места <b>${fmt(above.total - s.total)}</b> · ` : "лидер сезона · "}${s.weekGain ? `за неделю <b class="plus">+${fmt(s.weekGain)}</b>` : "за неделю пока без очков"}</p>
+    </div></td></tr>`;
+  }
   function renderTable() {
     const rows = [...ranked].sort((a, b) => sortDir * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0)) || a.place - b.place);
-    const byTotal = sortKey === "total" && sortDir < 0;
-    const th = (k, l, cls = "") => `<th data-k="${k}" class="${cls} ${k === sortKey ? "on" : ""}">${l}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</th>`;
+    const byTotal = sortKey === "total" && sortDir < 0, mine = D.live ? me?.nick : null;
+    // хвост таблицы на телефоне свёрнут: после 19-го места — «ещё N участников»
+    const tail = byTotal && !showTail && rows.length > 22 ? rows.length - 19 : 0;
+    const th = (k, l, cls = "", tip = "") => `<th data-k="${k}" class="${cls} ${k === sortKey ? "on" : ""}"${tip ? ` data-tip="${esc(tip)}"` : ""}><span>${l}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</span></th>`;
     $("#standings").innerHTML = `
-      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col")}${th("total", "Очки")}${COLS.map(([k, l]) => th(k, l)).join("")}<th class="l">12 недель</th></tr></thead>
-      <tbody>${rows.map((s) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""} ${byTotal && s.place === 16 ? "cut" : ""} ${byTotal && s.place > 16 ? "below" : ""}">
+      <thead><tr>${th("place", "#")}<th class="mv" aria-label="За неделю"></th><th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col", "Победы в неделях")}${th("total", "Очки")}${COLS.map(([k, l, t]) => th(k, l, "st", t)).join("")}<th class="l st">12 недель</th><th class="chev"></th></tr></thead>
+      <tbody>${rows.map((s, i) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""}${byTotal && s.place > 16 ? " below" : ""}${s.name === mine ? " me" : ""}${tail && i >= 19 ? " tail" : ""}${openRow === s.name ? " open" : ""}">
         <td class="pos">${s.place}</td>
-        <td class="l who-cell"><span>${ava(s.name, "sm")}${esc(s.name)}</span></td>
+        <td class="mv">${moveMark(s.move)}</td>
+        <td class="l who-cell"><span>${ava(s.name, "sm")}<span class="who-t"><b>${esc(s.name)}</b>${s.name === mine ? '<i class="me-tag">это ты</i>' : ""}<small>${s.baths} ${plural(s.baths, "баня", "бани", "бань")}</small></span></span></td>
         <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : "Пока без побед в неделях"}">${s.crowns ? `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg><b>${s.crowns}</b>` : ""}</td>
         <td class="pts">${fmt(s.total)}</td>
-        ${COLS.map(([k]) => `<td>${s[k] ?? 0}</td>`).join("")}
-        <td class="l">${spark(s)}</td></tr>`).join("")}</tbody>`;
+        ${COLS.map(([k]) => `<td class="st">${s[k] ?? 0}</td>`).join("")}
+        <td class="l st">${spark(s)}</td><td class="chev">${icon("chev")}</td></tr>`
+        + (openRow === s.name ? rowMore(s) : "")
+        + (byTotal && s.place === 16 && rows.length > 16 ? `<tr class="cupline" aria-hidden="true"><td colspan="${NCOLS}"><span>Кубок ЕБЛ · первые 16</span></td></tr>` : "")).join("")}
+      ${tail ? `<tr class="tail-more"><td colspan="${NCOLS}"><button type="button">ещё ${tail} ${plural(tail, "участник", "участника", "участников")} <b>показать</b></button></td></tr>` : ""}</tbody>`;
   }
   // ---------- недельный зачёт: как лист «недельный зачёт» у Комиссии ----------
   // W1 — с 1 января до первого воскресенья, дальше пн–вс (п. 6)
@@ -1449,7 +1482,12 @@
   $("#standings").addEventListener("click", (e) => {
     const th = e.target.closest("th[data-k]");
     if (th) { const k = th.dataset.k; sortDir = k === sortKey ? -sortDir : k === "place" ? 1 : -1; sortKey = k; renderTable(); return; }
-    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player);
+    const prof = e.target.closest("[data-open]"); if (prof) { openPlayer(prof.dataset.open); return; }
+    if (e.target.closest(".tail-more")) { showTail = true; renderTable(); return; }
+    const tr = e.target.closest("tr[data-player]"); if (!tr) return;
+    // на телефоне строка раскрывается (остальные столбцы не влезают), на компьютере — сразу профиль
+    if (phone.matches) { openRow = openRow === tr.dataset.player ? null : tr.dataset.player; renderTable(); }
+    else openPlayer(tr.dataset.player);
   });
   $("#podium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player); });
   renderTable();
@@ -2197,7 +2235,7 @@
       return `<article class="post f-pending">
         <div class="f-head">${stack(who)}<div class="f-who"><b>${esc(who.length > 2 ? `${who[0]}, ${who[1]} и ещё ${who.length - 2}` : who.join(" и "))}</b><small>${time(v.date)} · W${v.week ?? weekOf(v.posted || v.date)}${v.enteredBy ? ` · внёс ${esc(v.enteredBy)}` : ""}</small></div><span class="status pending">на проверке</span></div>
         <a class="f-bath" href="#map" data-bath="${v.bathId}">${b ? tdot(b.t) : ""}<span><b>${esc(b?.name || "баня")}</b><small>${[b && esc(where(b)), durLabel(v), v.companions.length && "компания"].filter(Boolean).join(" · ")}</small></span></a>
-        ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-why">${who.map((n) => { const r = previewFor(v, n); return r ? `<div class="f-why-row"><b>${esc(n)}</b><b class="f-why-pts">+${r.total}</b><small>${r.lines.map(([t, k]) => k ? `${t}${k > 1 ? ` ${k}` : ""}` : t).join(" · ")}</small></div>` : ""; }).join("")}<small class="f-why-note">предварительно — после проверки Комиссии очки встанут в таблицу</small></div>`}
+        ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-why">${who.map((n) => { const r = previewFor(v, n); return r ? `<div class="f-why-row"><b>${esc(n)}</b><b class="f-why-pts">+${r.total}</b><small>${r.lines.map(([t, k]) => k ? `${t}${k > 1 ? ` ${k}` : ""}` : t).join(" · ")}</small></div>` : ""; }).join("")}</div>`}
         ${rep.length ? `<div class="warn">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</div>` : ""}
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<a class="f-tg" href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
         ${sec || inVisit(v) ? `<div class="post-actions">
