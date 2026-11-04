@@ -196,9 +196,11 @@ textarea.inp { height: auto; min-height: 84px; padding: 10px 12px; resize: verti
 .chips button {
   display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--line); background: var(--panel);
   border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--ink-2);
-  transition: all .15s var(--ease);
+  transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease), transform .12s var(--ease);
+  -webkit-tap-highlight-color: transparent;   /* 04.11: на Android сначала мигал серый прямоугольник, потом выделение */
 }
-.chips button:hover { border-color: var(--ink-3); }
+.chips button:active { transform: scale(.96); }
+@media (hover: hover) { .chips button:hover { border-color: var(--ink-3); } }
 .chips button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--panel); }
 
 /* ---------- карта ---------- */
@@ -1666,7 +1668,6 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .f-why-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: baseline; gap: 2px 8px; font-size: 14px; }
 .f-why-pts { color: var(--ember); }
 .f-why-row small { font-size: 12.5px; color: var(--ink-3); }
-.f-why-note { font-size: 11.5px; color: var(--ink-3); }
 .f-pending .post-actions { flex-wrap: nowrap; }
 .f-pending .post-actions .btn { flex: none; padding-inline: 14px; }
 .f-pending .post-actions .btn.solid { flex: 1; }

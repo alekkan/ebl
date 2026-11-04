@@ -365,7 +365,7 @@
     const b = e.target.closest("button[data-t]"); if (!b) return;
     const on = b.getAttribute("aria-pressed") !== "true";
     $$("#fType button[data-t]").forEach((x) => x.setAttribute("aria-pressed", String(on && x === b)));
-    render(true);
+    render("soft");   // 04.11: карта отлетала на весь мир — теперь остаётся, где была, если в кадре такие бани есть
   });
   // разрезы по годам с главного экрана убрали (02.11, Леха: фильтры перегружены) — сезон теперь в «Фильтрах» рядом со страной
   $("#fSeason").addEventListener("change", () => render(true));
@@ -531,6 +531,7 @@
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
       : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
     const pad = homePad();
+    if (fit === "soft") { const view = map.getBounds(); if (onMap.some((b) => view.contains(b.ll))) fit = false; }
     if (fit === "home") map.fitBounds(HOME, { ...pad, animate: false });   // рамка HOME — у создания карты
     else if (fit && here) map.fitBounds(L.latLngBounds([here, ...onMap.filter((b) => b._km != null).slice(0, 8).map((b) => b.ll)]).pad(0.2), { maxZoom: 13, ...pad });
     else if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, ...pad });
@@ -2234,7 +2235,7 @@
       return `<article class="post f-pending">
         <div class="f-head">${stack(who)}<div class="f-who"><b>${esc(who.length > 2 ? `${who[0]}, ${who[1]} и ещё ${who.length - 2}` : who.join(" и "))}</b><small>${time(v.date)} · W${v.week ?? weekOf(v.posted || v.date)}${v.enteredBy ? ` · внёс ${esc(v.enteredBy)}` : ""}</small></div><span class="status pending">на проверке</span></div>
         <a class="f-bath" href="#map" data-bath="${v.bathId}">${b ? tdot(b.t) : ""}<span><b>${esc(b?.name || "баня")}</b><small>${[b && esc(where(b)), durLabel(v), v.companions.length && "компания"].filter(Boolean).join(" · ")}</small></span></a>
-        ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-why">${who.map((n) => { const r = previewFor(v, n); return r ? `<div class="f-why-row"><b>${esc(n)}</b><b class="f-why-pts">+${r.total}</b><small>${r.lines.map(([t, k]) => k ? `${t}${k > 1 ? ` ${k}` : ""}` : t).join(" · ")}</small></div>` : ""; }).join("")}<small class="f-why-note">предварительно — после проверки Комиссии очки встанут в таблицу</small></div>`}
+        ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-why">${who.map((n) => { const r = previewFor(v, n); return r ? `<div class="f-why-row"><b>${esc(n)}</b><b class="f-why-pts">+${r.total}</b><small>${r.lines.map(([t, k]) => k ? `${t}${k > 1 ? ` ${k}` : ""}` : t).join(" · ")}</small></div>` : ""; }).join("")}</div>`}
         ${rep.length ? `<div class="warn">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</div>` : ""}
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<a class="f-tg" href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
         ${sec || inVisit(v) ? `<div class="post-actions">

@@ -1252,7 +1252,11 @@ with sync_playwright() as pw:
               s.js("""() => { const vis = [...document.querySelectorAll('.nav button')].filter((b) => b.offsetParent).map((b) => b.dataset.view || b.id);
                 const c = document.querySelector('#addVisitBtn .cta-venik').getBoundingClientRect();
                 return vis.join() === 'map,table,feed,moreBtn' && Math.abs(c.left + c.width / 2 - innerWidth / 2) < 2; }"""))
-        s.page.click('#fType [data-t="public"]'); s.page.wait_for_timeout(300)
+        # 04.11: нажал тип — карта остаётся, где была (раньше отлетала на весь мир); масштаб — по адресам плиток
+        zoom = "() => [...document.querySelectorAll('#map .leaflet-tile')].map((t) => +(t.src.match(/\\/(\\d+)\\/\\d+\\/\\d+/) || [])[1]).find((z) => z >= 0)"
+        z0 = s.js(zoom)
+        s.page.click('#fType [data-t="public"]'); s.page.wait_for_timeout(600)
+        check("тип бани: карта не отдаляется, масштаб тот же", z0 is not None and s.js(zoom) == z0, (z0, s.js(zoom)))
         pub = s.js("() => [...document.querySelectorAll('#list .item .dot')].slice(0, 10).every((d) => d.classList.contains('t-public'))")
         s.page.click('#fType [data-t="public"]'); s.page.wait_for_timeout(300)
         check("типы без «Все»: нажал «Общественные» — только они, ещё раз — снова все",
