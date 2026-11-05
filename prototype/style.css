@@ -1865,3 +1865,16 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 #standings td.pos .up { color: var(--oak); } #standings td.pos .down { color: var(--ember); }
 /* низкие ступени подиума: цифра по центру ступени (04.11: тройка съезжала за край) */
 .pod-step { padding-top: 0; place-items: center; }
+
+/* профиль (05.11): движение и шапки в шапке, значок типа у бани, на телефоне — география выше и список свёрнут */
+.p-head .eyebrow .up { color: var(--oak); } .p-head .eyebrow .down { color: var(--ember); }
+.p-hats { white-space: nowrap; } .p-hats .hat-ic { width: 20px; height: 16px; vertical-align: -3px; margin-right: 3px; }
+.blist button > span:first-child { display: flex; align-items: center; gap: 8px; }
+.blist .bl-rest { display: contents; }
+.bl-all { display: none; }
+@media (max-width: 760px) {
+  .cols2 > section:last-child { order: -1; }
+  .blist:not(.open) .bl-rest { display: none; }
+  .blist:not(.open) .bl-all { display: block; margin-top: 10px; padding: 10px 0; border: 0; background: none; text-align: left; font: 600 14px var(--body); color: var(--oak); cursor: pointer; }
+}
+@media (max-width: 760px) { .p-head > div { min-width: 0; padding-right: 34px; } }   /* подзаголовок с ▲ не уходит под крестик */
