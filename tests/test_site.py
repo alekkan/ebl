@@ -372,8 +372,8 @@ with sync_playwright() as pw:
         check("…нажал — в списке только места Радара, по индексу; «под вопросом» — светлее и последним",
               s.js("() => { const it = [...document.querySelectorAll('#list .item[data-radar-id]')]; return it.length === 2 && !document.querySelector('#list .item[data-id]') && /96/.test(it[0].innerText) && it[1].querySelector('.uu-dot.doubt') && /под вопросом/.test(it[1].innerText); }"))
         s.page.click("#list .item[data-radar-id]"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=5000)
-        check("…карточка места: «никто из лиги не был», индекс 96 «точно общественная», «Первый поход +4», «Отметить поход»",
-              s.js("() => { const t = document.getElementById('drawer').innerText; return /никто из лиги не был/.test(t) && /96/.test(t) && /точно общественная/.test(t) && /\\+4 очка/.test(t) && !!document.getElementById('dRadarGo'); }"))
+        check("…карточка места: «никто из лиги ещё не был», индекс 96 «точно общественная», «Первый поход +4», «Отметить поход»",
+              s.js("() => { const t = document.getElementById('drawer').innerText; return /никто из лиги ещё не был/.test(t) && /96/.test(t) && /точно общественная/.test(t) && /\\+4 очка/.test(t) && !!document.getElementById('dRadarGo'); }"))
         s.page.click("#dRadarGo"); s.page.wait_for_timeout(300)
         check("…гость нажал «Отметить поход» — просят войти, баня не заводится", s.js("() => !document.getElementById('loginModal').hidden") and sql(f"select status from radar_places where id = {r1}") == "new")
         s.js("() => (document.getElementById('loginModal').hidden = true)"); s.page.click("#drawer .x"); s.page.click("#fRadar"); s.page.wait_for_timeout(300)

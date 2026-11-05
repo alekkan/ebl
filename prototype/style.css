@@ -1012,7 +1012,10 @@ tr.below { color: var(--ink-2); }
   .view-map { display: block; overflow: hidden; }
   #map { position: absolute; inset: 0; }
   #map .leaflet-bottom.leaflet-right { top: 0; bottom: auto; }   /* подпись OpenStreetMap — сверху: снизу её закрывает шторка */
-  #map .leaflet-control-attribution { border-radius: 0 0 0 8px; }
+  /* подпись OSM (05.11, «убери»): убрать нельзя — условие бесплатных тайлов OpenStreetMap; на телефоне — мелким бледным текстом
+     без плашки у правого края под чипами, чтобы не цеплял глаз */
+  #map .leaflet-control-attribution { background: none !important; border-radius: 0; padding: 0 6px; font-size: 4px; line-height: 1.2; opacity: .55; margin: 2px 0 0 !important; }   /* втрое меньше прежних 11 px — просьба владельца */
+  #map .leaflet-control-attribution a { color: var(--ink-3) !important; }
   .leaflet-control-zoom { display: none; }
   .panel { top: 8px; left: 0; right: 0; bottom: 0; width: auto; border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px -12px rgba(0, 0, 0, .25);
     transform: translateY(var(--sheet-y, 50%)); transition: transform .32s var(--ease); overscroll-behavior: contain; }
@@ -1040,7 +1043,7 @@ tr.below { color: var(--ink-2); }
     transition: height .28s var(--ease), transform .28s var(--ease); }
   .drawer.full { height: calc(100% - 12px); }   /* потянул вверх — карточка на весь экран (18.10) */
   .drawer.dragging { transition: none; }
-  .drawer .d-grab { position: absolute; top: 0; left: 0; right: 0; height: 22px; z-index: 2; }
+  .drawer .d-grab { position: absolute; top: 0; left: 0; right: 0; height: 22px; z-index: 2; background: var(--panel); border-radius: 24px 24px 0 0; }   /* непрозрачная: прокрученный текст уходит под неё, а не просвечивает (05.11) */
 
   .page { padding-inline: 16px; }
   .podium { gap: 8px; }
@@ -1932,3 +1935,5 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
 .d-go { width: 100%; justify-content: center; }
 .chips.types .dot.uu-chip { background: none; color: var(--uu); }   /* на чипе — эмблема общественной, фиолетовая, как точки УУ */
+.uu-facts { margin: -12px 2px 0; }   /* строка под индексом: «никто из лиги ещё не был · билет на человека» */
+.d-key.two { padding: 12px 14px; }

@@ -1364,13 +1364,13 @@
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
       <div class="d-body">
         <div class="d-hero t-public">
-          <div class="d-meta"><span class="t">${tdot("public")}${TYPE_LABEL.public}</span><span class="flag uu-flag">${p.index < 70 ? "УУ под вопросом" : "УУ · никто из лиги не был"}</span></div>
+          <div class="d-meta"><span class="t">${tdot("public")}${TYPE_LABEL.public}</span><span class="flag uu-flag">${p.index < 70 ? "УУ под вопросом" : "УУ"}</span></div>
           <h2>${esc(p.name)}</h2>
           <p class="where">${icon("pin")}<span>${esc(addr)}</span></p>
         </div>
+        ${idxMeter(p.index, true)}
+        <p class="hint uu-facts">${["никто из лиги ещё не был", ...facts].join(" · ")}</p>
         <section class="d-main">
-          ${idxMeter(p.index, true)}
-          ${facts.length ? `<p class="hint" style="margin:8px 2px 0">${facts.join(" · ")}</p>` : ""}
           <div class="d-key two">
             <div class="d-k"><span class="k-l">Вход</span><b>${price ? esc(price) : "—"}</b><small>${price ? "по картам и отзывам" : "пока не знаем"}</small></div>
             <div class="d-k uu-pts"><span class="k-l">Первый поход</span><b>+4 очка</b><small>поход, уникальная, ультра, общественная</small></div>
