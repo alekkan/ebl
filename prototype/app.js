@@ -835,6 +835,7 @@
         </section>
       </div>`;
     if (d.hidden) pushStep({ type: "bath" });
+    d.dataset.t = b.t;   // цвет ручки шторки — как шапка карточки
     d.hidden = false;
     history.replaceState(history.state, "", "#bath=" + id);   // ссылку на открытую баню можно скопировать из адресной строки
     if (D.live && member) {
@@ -1385,7 +1386,7 @@
           ${p.website ? `<a target="_blank" rel="noopener" href="${esc(p.website)}">${icon("globe")}<span>Сайт</span></a>` : ""}
         </div>
       </div>`;
-    d.hidden = false;
+    d.dataset.t = "public"; d.hidden = false;
     $(".x", d).onclick = closeBath;
     $("#dRadarGo", d).onclick = async () => {
       if (D.live && !me) return openLogin();
