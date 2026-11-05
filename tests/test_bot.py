@@ -630,10 +630,12 @@ check("отложенный пост стал карточкой: автор, б
       st.get("authorNick") == "Хвост" and st.get("bathName") == "Василевские" and nicks(st.get("company", [])) == {"Ден"} and st.get("source") == 61, st)
 check("уведомление Комиссии погашено", sql(f"select count(*) from claim_notices where account_id = '{acc(NEW1)}'") == "0")
 sql(f"update player_accounts set claimed_nick = 'Даня' where tg_id = {NEW2}")
-wait(f"select nick from claim_notices where account_id = '{acc(NEW2)}'", "Даня")
+# заявка доходит до Комиссии через триггер и pg_net — на медленном стенде дольше; «Отказать» жмём, только когда она пришла,
+# и ждём результат так же, как соседние проверки (05.11: дважды за день останавливало выкладку)
+check("вторая заявка дошла до Комиссии", wait(f"select nick from claim_notices where account_id = '{acc(NEW2)}'", "Даня"))
 press(f"cn:{acc(NEW2)}", ME, mid=64)
 check("«Отказать» — заявка снята, аккаунт не привязан",
-      sql(f"select coalesce(claimed_nick, '') || '|' || (player_id is null) from player_accounts where tg_id = {NEW2}") == "|true")
+      wait(f"select coalesce(claimed_nick, '') || '|' || (player_id is null) from player_accounts where tg_id = {NEW2}", "|true"))
 sql(f"update player_accounts set claimed_nick = 'Фил' where tg_id = {NEW3}")
 wait(f"select nick from claim_notices where account_id = '{acc(NEW3)}'", "Фил")
 post("@eblsu_bot Василевские 3ч", 65, who=NEW3)
