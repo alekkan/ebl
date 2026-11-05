@@ -468,7 +468,7 @@
   }).catch(() => {});   // не загрузилось — карта как раньше, без колец
   $("#fRadar").addEventListener("click", () => {
     uu = !uu; $("#fRadar").setAttribute("aria-pressed", String(uu));
-    render(true);
+    render("soft");   // как типы: карта стоит, пока в кадре есть что показать (05.11: «отскакивает при переборе фильтров»)
   });
   // УУ, которые подходят под фильтры: только с чипом «УУ»; их нет у участника и в прошлых сезонах
   function radarShown(q) {
@@ -524,6 +524,8 @@
     cluster.clearLayers(); markers.clear();
     const onMap = current.filter((b) => b.ll);
     cluster.addLayers(onMap.map(markerFor));
+    // «мягко» (чипы типов и «УУ»): в кадре есть баня лиги или УУ — карту не трогаем, подгоняем, только когда в кадре пусто
+    if (fit === "soft") { const view = map.getBounds(); if (onMap.some((b) => view.contains(b.ll)) || fresh.some((p) => view.contains([p.lat, p.lng]))) fit = false; }
     const unseen = fresh.length ? drawUnseen(fresh) : (drawUnseen([]), null);
     const noPin = current.length - onMap.length;
     const rich = pot ? current.filter((b) => b._pot.length >= 3).length : 0;
@@ -571,7 +573,6 @@
     }).join("") + (current.length > LIMIT ? `<div class="more">и ещё ${current.length - LIMIT} — уточни поиск</div>` : "")
       : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
     const pad = homePad();
-    if (fit === "soft") { const view = map.getBounds(); if (onMap.some((b) => view.contains(b.ll))) fit = false; }
     if (fit === "home") map.fitBounds(HOME, { ...pad, animate: false });   // рамка HOME — у создания карты
     else if (fit && here) map.fitBounds(L.latLngBounds([here, ...onMap.filter((b) => b._km != null).slice(0, 8).map((b) => b.ll)]).pad(0.2), { maxZoom: 13, ...pad });
     else if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, ...pad });
