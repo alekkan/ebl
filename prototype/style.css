@@ -1901,3 +1901,29 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-phone { margin: -6px 0 0; text-align: center; font-size: 13px; color: var(--ink-2); }
 /* профиль на компьютере — от верха, а не по центру: при смене года окно растёт вниз, а не прыгает (05.11) */
 @media (min-width: 761px) { #playerModal { place-items: start center; padding-top: 6vh; } }
+/* Радар на карте всем (05.11): места, где лига не была, — фиолетовым, как «ультра» */
+:root { --uu: #7a5bd6; --uu-soft: #efeafc; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --uu: #a891f0; --uu-soft: #2a2340; } }
+:root[data-theme="dark"] { --uu: #a891f0; --uu-soft: #2a2340; }
+.radar-chip .ring { border-color: var(--uu); }
+.radar-chip small { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
+.chips.types .radar-chip[aria-pressed="true"], .map-chips .chips.types .radar-chip[aria-pressed="true"] { border-color: var(--uu); background: var(--uu-soft); color: var(--ink); }
+.dot.uu-dot { background: var(--uu-soft); }
+.dot.uu-dot span { width: 10px; height: 10px; border-radius: 50%; border: 2.5px solid var(--uu); background: var(--panel); }
+.item .dot.uu-dot span { width: 12px; height: 12px; }
+.item .it-idx { color: var(--uu); }
+.d-meta .uu-flag { color: var(--uu); background: var(--uu-soft); padding: 2px 9px; border-radius: 9px; }
+.idx { padding: 12px 14px; border-radius: 14px; background: var(--panel-2); }
+.idx.big { background: var(--uu-soft); }
+.idx-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--ink-2); }
+.idx-top b { font: 800 20px var(--display); color: var(--ink); }
+.idx.big .idx-top b { color: var(--uu); font-size: 24px; }
+.idx-bar { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 10%, transparent); margin-top: 8px; overflow: hidden; }
+.idx-bar i { display: block; height: 100%; border-radius: 4px; background: var(--oak); }
+.idx.big .idx-bar i { background: var(--uu); }
+.idx small { display: block; margin-top: 6px; font-size: 12px; color: var(--ink-3); }
+.d-idx { margin-bottom: 10px; }
+.d-key.two { grid-template-columns: 1fr 1fr; gap: 8px; }
+.d-key .uu-pts b { color: var(--ember); }
+.d-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.d-go { width: 100%; justify-content: center; }

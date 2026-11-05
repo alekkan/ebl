@@ -355,6 +355,39 @@ with sync_playwright() as pw:
         check("закрыл карточку крестиком — «Назад» с вкладки ведёт на карту, а не открывает баню снова",
               here() and s.js("() => document.body.dataset.view === 'map' && document.getElementById('drawer').hidden"))
         s.close()
+        # 05.11: Радар на карте всем — места 70+, где лига не была: кольца, чип «Никто не был», карточка с индексом;
+        # у бани лиги, привязанной к месту Радара, — индекс в «О бане»; участник «Отметить поход» — место становится баней
+        sql("delete from radar_places where key like 'site:%'")
+        vbid = sql("select id from baths where name = 'Василевские' limit 1")
+        sql(f"""insert into radar_places (key, name, city, region, address, lat, lng, kind, public_index, price_example, note, gender_split, ticket_per_person, status, bath_id) values
+              ('site:1', 'Тестовая баня Радара', 'Тестово', 'Новосибирская область', 'ул. Пара, 9', 55.03, 82.92, 'public', 96, 'от 293 ₽ (2ГИС)', 'Муниципальная баня на дровах', true, true, 'new', null),
+              ('site:2', 'Тестовая баня под вопросом', 'Тестово', 'Москва', null, 55.62, 37.42, 'public', 60, null, null, null, null, 'new', null),
+              ('site:3', 'Василевские в Радаре', 'Москва', 'Москва', null, 55.7, 37.6, 'public', 86, null, null, null, null, 'matched', {vbid})""")
+        r1 = sql("select id from radar_places where key = 'site:1'")
+        s = Site(browser, url, config=cfg2(API, dead), name="radar-guest")
+        s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000)
+        check("Радар на карте: чип «Никто не был» с числом мест 70+ (под вопросом — нет)", s.js("() => document.querySelector('#fRadar small').textContent") == "1")
+        s.page.click("#fRadar"); s.page.wait_for_timeout(500)
+        check("…нажал — в списке только места Радара, с индексом", s.js("() => document.querySelectorAll('#list .item[data-radar-id]').length === 1 && !document.querySelector('#list .item[data-id]') && /96/.test(document.querySelector('#list .item').innerText)"))
+        s.page.click("#list .item[data-radar-id]"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=5000)
+        check("…карточка места: «никто из лиги не был», индекс 96 «точно общественная», «Первый поход +4», «Отметить поход»",
+              s.js("() => { const t = document.getElementById('drawer').innerText; return /никто из лиги не был/.test(t) && /96/.test(t) && /точно общественная/.test(t) && /\\+4 очка/.test(t) && !!document.getElementById('dRadarGo'); }"))
+        s.page.click("#dRadarGo"); s.page.wait_for_timeout(300)
+        check("…гость нажал «Отметить поход» — просят войти, баня не заводится", s.js("() => !document.getElementById('loginModal').hidden") and sql(f"select status from radar_places where id = {r1}") == "new")
+        s.js("() => (document.getElementById('loginModal').hidden = true)"); s.page.click("#drawer .x"); s.page.click("#fRadar"); s.page.wait_for_timeout(300)
+        s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300); s.page.click(f'#list .item[data-id="{vbid}"]'); s.page.wait_for_selector("#dIdx:not([hidden])", timeout=8000)
+        check("у бани лиги, привязанной к месту Радара, — индекс в «О бане»", s.js("() => /86/.test(document.getElementById('dIdx').innerText) && /скорее общественная/.test(document.getElementById('dIdx').innerText)"))
+        s.close()
+        s = Site(browser, url, sess=shurik, name="radar-member")
+        s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000); s.page.click("#fRadar"); s.page.wait_for_timeout(300)
+        s.page.click("#list .item[data-radar-id]"); s.page.wait_for_selector("#dRadarGo", timeout=5000); s.page.click("#dRadarGo")
+        s.page.wait_for_selector("#visitModal:not([hidden])", timeout=10000)
+        nb = sql(f"select bath_id from radar_places where id = {r1}")
+        check("участник «Отметить поход» — место стало баней лиги, открылась форма похода с этой баней",
+              sql(f"select status from radar_places where id = {r1}") == "added" and s.js("() => document.getElementById('visitModal').innerText").find("Тестовая баня Радара") >= 0)
+        s.js("() => (document.getElementById('visitModal').hidden = true)")
+        s.clean("Радар на карте"); s.close()
+        sql("delete from radar_places where key like 'site:%'"); sql(f"delete from baths where id = {nb}")
         # 08.10: в плохую минуту связи Яндекса с Cloudflare шлюз на первый же запрос ответил 503, сайт счёл его недоступным
         # и ушёл напрямую — а без VPN там режутся большие ответы, и сайт висел на заставке. Отдельной проверки шлюза с 15.10 нет:
         # первый же запрос (бани) получает 503 — сайт должен повторить его через шлюз, а не уходить на мёртвый прямой путь
@@ -1287,7 +1320,7 @@ with sync_playwright() as pw:
         s.page.click('.nav [data-view="map"]'); s.page.wait_for_timeout(300)
         check("…и обратно на карту", s.js("() => !document.getElementById('view-map').hidden && location.hash === '#map'"))
         # 02.11 (макет «карта и навигация»): на телефоне поиск и типы — поверх карты, веника-эмблемы нет; в меню — веник «+ Баня»
-        check("телефон: поиск и типы поверх карты, эмблемы нет, гостю «Лига не была» не показываем",
+        check("телефон: поиск и типы поверх карты, эмблемы нет; чип «Никто не был» — только когда есть места Радара",
               s.js("() => !!document.querySelector('.map-bar .searchbox') && !!document.querySelector('.map-chips #fType') && getComputedStyle(document.querySelector('.brand')).display === 'none' && document.getElementById('fRadar').hidden"))
         check("телефон: в нижнем меню Карта, Таблица, Лента, Ещё — и веник «+ Баня» посередине",
               s.js("""() => { const vis = [...document.querySelectorAll('.nav button')].filter((b) => b.offsetParent).map((b) => b.dataset.view || b.id);
@@ -1312,11 +1345,7 @@ with sync_playwright() as pw:
         s.page.click("#filtBtn"); s.page.click("#filtReset"); s.page.click("#filtShow")
         s.close()
         s = Site(browser, url, sess=vitek, mobile=True, name="mobile-commission")
-        # «Лига не была» (02.11) — пока только Комиссии: места Радара, где лига не была, пустыми кружками на карте
-        s.page.click("#fRadar"); s.page.wait_for_timeout(1500)
-        check("Комиссии — «Лига не была»: в подписи списка, сколько таких мест",
-              s.js("() => /где лига не была/.test(document.getElementById('count').innerText) && document.getElementById('fRadar').getAttribute('aria-pressed') === 'true'"), s.js("() => document.getElementById('count').innerText"))
-        s.page.click("#fRadar")
+        # «Лига не была» у Комиссии (02.11) с 05.11 — «Никто не был» у всех, проверки выше (radar-guest, radar-member)
         s.view("dir")
         check("Бани Комиссии на телефоне — через «Ещё», оно подсвечено", s.js("() => document.getElementById('moreBtn').getAttribute('aria-selected') === 'true'"))
         s.page.wait_for_selector("#dirTable tbody tr", timeout=8000)

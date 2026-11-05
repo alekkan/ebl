@@ -451,38 +451,38 @@
     { timeout: 10000, maximumAge: 300000 });
   }
 
-  // «Лига не была» (02.11, Леха: карту потом объединим с Радаром) — места Радара, где лига ещё не была, пустыми кружками.
-  // Пока только Комиссии: Радар открыт ей; всем — когда решим. Те, что у точной бани лиги ближе 150 м, — это она, не рисуем
+  // Радар на карте всем (05.11, Леха): места, где лига ещё не была, с индексом общественности 70+ — бледными кольцами
+  // поверх обычных бань; чип «Никто не был» оставляет только их. Первый поход туда — ультрауникальная (+1). Нажал — карточка
+  // места; «Отметить поход» превращает место в баню лиги (radar_to_bath) и открывает обычную форму похода
   const unseenLayer = L.layerGroup().addTo(map), ringR = L.canvas({ padding: 0.3 });
-  let unseenOn = false;
-  $("#fRadar").hidden = !(canModerate && D.live);
+  let radarPub = null, onlyNew = false;
+  const idxCat = (v) => (v >= 90 ? "точно общественная" : v >= 70 ? "скорее общественная" : "под вопросом");
+  if (D.live) D.radarPublic().then((r) => {
+    radarPub = r; if (!r?.places.length) return;
+    $("#fRadar").hidden = false; $("#fRadar small").textContent = r.places.length.toLocaleString("ru-RU");
+    render(); if (openId) syncIndex(openId);
+  }).catch(() => {});   // не загрузилось — карта как раньше, без колец
   $("#fRadar").addEventListener("click", () => {
-    unseenOn = !unseenOn;
-    $("#fRadar").setAttribute("aria-pressed", String(unseenOn));
-    if (unseenOn && !radar) D.radar().then((rows) => { radar = rows; render(); }).catch((err) => toast("Радар не загрузился: " + err.message));
-    render();
+    onlyNew = !onlyNew; $("#fRadar").setAttribute("aria-pressed", String(onlyNew));
+    if (onlyNew) $$("#fType button[data-t]").forEach((x) => x.setAttribute("aria-pressed", "false"));
+    render(true);
   });
-  function drawUnseen(type, q) {
-    unseenLayer.clearLayers();
-    if (!unseenOn || !radar) return null;
-    const css = getComputedStyle(document.documentElement), ring = css.getPropertyValue("--ember").trim(), fill = css.getPropertyValue("--panel").trim();
-    let n = 0;
-    for (const p of radar) {
-      if (p.lat == null || radarGroup(p) === "known" || radarGroup(p) === "done" || (type && p.kind !== type)) continue;
-      if (q && !`${p.name} ${p.city || ""} ${p.region || ""}`.toLowerCase().includes(q)) continue;
-      n++;
-      L.circleMarker([p.lat, p.lng], { renderer: ringR, radius: 6, weight: 2.5, color: ring, fillColor: fill, fillOpacity: 1 })
-        .bindPopup(`<b>${esc(p.name)}</b><br><span class="hint">${esc([p.city, TYPE_LABEL[p.kind] && p.kind !== "unknown" ? TYPE_LABEL[p.kind].toLowerCase() : "", "лига не была"].filter(Boolean).join(" · "))}</span>`
-          + `<br><button type="button" class="btn sm" data-unseen="${p.id}">Открыть в Радаре</button>`)
-        .addTo(unseenLayer);
-    }
-    return n;
+  // места, которые подходят под фильтры: их нет у участника, в прошлых сезонах и среди «Хуитнесов» и «Частных»
+  function radarShown(type, q) {
+    if (!radarPub) return [];
+    const season = $("#fSeason").value, country = $("#fCountry").value;
+    if ((type && type !== "public") || $("#fPlayer").value || $("#fPrec").value || !["all", "never"].includes(season) || (country && country !== "Россия")) return [];
+    return radarPub.places.filter((p) => !q || `${p.name} ${p.city || ""} ${p.region || ""}`.toLowerCase().includes(q));
   }
-  $("#map").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-unseen]"); if (!b) return;
-    map.closePopup(); show("dir"); setDirMode("radar");
-    setTimeout(() => radarFocus(+b.dataset.unseen, true), 400);
-  });
+  function drawUnseen(list) {
+    unseenLayer.clearLayers();
+    const ring = getComputedStyle(document.documentElement).getPropertyValue("--uu").trim() || "#7a5bd6";
+    for (const p of list) {
+      L.circleMarker([p.lat, p.lng], { renderer: ringR, radius: onlyNew ? 6 : 4.5, weight: 2, color: ring, opacity: onlyNew ? 1 : 0.75, fillColor: "#fff", fillOpacity: 1 })
+        .on("click", () => openRadar(p.id)).addTo(unseenLayer);
+    }
+    return list.length;
+  }
 
   function render(fit) {
     const q = $("#q").value.trim().toLowerCase();
@@ -497,7 +497,8 @@
       : player ? !(b.v26?.[player] > 0) : b.n26 === 0;
     const pot = player && season === "never" ? potentialFor(player) : null;
     const precOk = (b) => !prec || (prec === "none" ? !b.ll : prec === "auto" ? b.prec === "auto" : !!b.ll && b.prec !== "exact");
-    const current = baths.filter((b) => (!type || b.t === type) && (!country || b.country === country) && (!q || b.search.includes(q)) && inSeason(b) && precOk(b));
+    const current = onlyNew ? [] : baths.filter((b) => (!type || b.t === type) && (!country || b.country === country) && (!q || b.search.includes(q)) && inSeason(b) && precOk(b));
+    const fresh = radarShown(type, q);
     current.forEach((b) => {
       b._m = metric(b); b._pot = pot ? pot(b) : null;
       b._km = here && b.lat != null && b.prec !== "country" ? distKm(here, [b.lat, b.lng]) : null;   // точка «по центру страны» — не расстояние
@@ -522,7 +523,7 @@
     cluster.clearLayers(); markers.clear();
     const onMap = current.filter((b) => b.ll);
     cluster.addLayers(onMap.map(markerFor));
-    const unseen = drawUnseen(type, q);
+    const unseen = fresh.length ? drawUnseen(fresh) : (drawUnseen([]), null);
     const noPin = current.length - onMap.length;
     const rich = pot ? current.filter((b) => b._pot.length >= 3).length : 0;
     // «1 144 бани» крупно, под ним — сколько из них в 2026 и где был ты (02.11, макет)
@@ -530,9 +531,20 @@
     const sub = pot ? `${player}: новые в 2026${rich ? ` · +3 и больше — ${rich}` : ""}`
       : [season === "all" ? `${in26.toLocaleString("ru-RU")} в 2026` : season === "2026" ? "походы в 2026" : past ? `походы в ${past}` : "никто не был в 2026",
         mine && `ты был в ${mine}`, player && `${player} был${season === "2026" || past ? ` в ${past || 2026}` : ""}`,
-        unseen != null && `+ ${unseen.toLocaleString("ru-RU")}, где лига не была`,
+        unseen != null && !onlyNew && `+ ${unseen.toLocaleString("ru-RU")}, где лига не была`,
         prec === "rough" ? "точка примерная" : prec === "auto" ? "среднеточные" : prec === "none" ? "без точки" : noPin ? `${noPin} без точки` : ""].filter(Boolean).join(" · ");
     $("#count").innerHTML = `<b>${current.length.toLocaleString("ru-RU")} ${plural(current.length, "баня", "бани", "бань")}</b><span>${esc(sub)}</span>`;
+    if (onlyNew) {   // «Никто не был»: список и счёт — места Радара, по индексу
+      $("#potNote").hidden = true;
+      $("#count").innerHTML = `<b>${fresh.length.toLocaleString("ru-RU")} ${plural(fresh.length, "баня", "бани", "бань")}</b><span>никто из лиги не был · первый поход — ультрауникальная</span>`;
+      $("#filtShow").textContent = `Показать ${fresh.length.toLocaleString("ru-RU")}`;
+      $("#list").innerHTML = fresh.length ? fresh.slice(0, 250).map((p) => `<button class="item" data-radar-id="${p.id}"><i class="dot uu-dot"><span></span></i>
+        <span><span class="it-name">${esc(p.name)}</span><span class="it-meta">${esc([p.city || p.region, idxCat(p.index)].filter(Boolean).join(" · "))}</span></span>
+        <span class="it-heat"><b class="it-idx">${p.index}</b><small>индекс</small></span></button>`).join("") + (fresh.length > 250 ? `<div class="more">и ещё ${fresh.length - 250} — уточни поиск</div>` : "")
+        : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
+      if (fit && fresh.length) map.fitBounds(L.latLngBounds(fresh.map((p) => [p.lat, p.lng])).pad(0.1), { maxZoom: 12, ...homePad() });
+      return;
+    }
     // подсказка, что значат цифры, — только там, где без неё непонятно
     const note = $("#potNote");
     let seen = false; try { seen = localStorage.getItem("ebl.potNote") === "1"; } catch { /* приватный режим — просто покажем */ }
@@ -563,7 +575,10 @@
     else if (fit && here) map.fitBounds(L.latLngBounds([here, ...onMap.filter((b) => b._km != null).slice(0, 8).map((b) => b.ll)]).pad(0.2), { maxZoom: 13, ...pad });
     else if (fit && onMap.length) map.fitBounds(L.latLngBounds(onMap.map((b) => b.ll)).pad(0.15), { maxZoom: 12, ...pad });
   }
-  $("#list").addEventListener("click", (e) => { const it = e.target.closest(".item[data-id]"); if (it) openBath(+it.dataset.id, true); });
+  $("#list").addEventListener("click", (e) => {
+    const it = e.target.closest(".item[data-id]"); if (it) return openBath(+it.dataset.id, true);
+    const rp = e.target.closest(".item[data-radar-id]"); if (rp) openRadar(+rp.dataset.radarId, true);
+  });
   $("#potNote").addEventListener("click", (e) => {
     if (!e.target.closest(".x-note")) return;
     try { localStorage.setItem("ebl.potNote", "1"); } catch { /* не запомнится — не беда */ }
@@ -727,7 +742,7 @@
         </section>
         <div class="d-photos" id="dPhotos" hidden></div>
         <div id="dRateInvite">${rateInvite(id)}</div>
-        <section class="d-about" id="dAbout" hidden><div class="d-info" id="dInfo"></div></section>
+        <section class="d-about" id="dAbout" hidden><div class="d-idx" id="dIdx" hidden></div><div class="d-info" id="dInfo"></div></section>
         <div class="d-acts">
           <a id="dYa" target="_blank" rel="noopener" href="${yaUrl}">${icon("pin")}<span>Яндекс</span></a>
           <a id="dGis" target="_blank" rel="noopener" href="${gisUrl}">${icon("map")}<span>2ГИС</span></a>
@@ -837,6 +852,7 @@
       $$("[role=menuitem]", editMenu).forEach((x) => x.addEventListener("click", () => { editMenu.hidden = true; editBtn.setAttribute("aria-expanded", "false"); }));
     }
     $("#dShare", d).onclick = () => shareBath(id);
+    syncIndex(id);
     // тип бани — Комиссия меняет прямо в карточке, но только после подтверждения: от типа зависят очки за все походы сюда (18.10)
     const typeAsk = $("#dTypeAsk", d);
     if (typeAsk) {
@@ -1097,7 +1113,7 @@
       box.innerHTML = (gender ? `<p>${icon("users")}<span class="d-clamp">${esc(gender)}</span></p>` : "")
         + (tags.length ? `<div class="d-tags">${tags.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : "");
       box.title = `По картам и сайту бани, проверила Комиссия${when ? ` · ${when}` : ""}`;
-      $("#dAbout").hidden = !box.innerHTML;
+      $("#dAbout").hidden = !box.innerHTML && $("#dIdx").hidden;
       // карты и сайт — кнопками под «О бане»; на справочники (Zoon, Yell) не ведём
       if (own(f.yandex_url)) $("#dYa").href = own(f.yandex_url);
       if (own(f.twogis_url)) $("#dGis").href = own(f.twogis_url);
@@ -1319,6 +1335,66 @@
     catch { toast(url); }
   }
 
+  // индекс общественности (05.11): полоска 0–100 и что он значит; у бани лиги — строкой в «О бане», если его посчитали
+  const idxMeter = (v, big) => `<div class="idx${big ? " big" : ""}"><div class="idx-top"><span>Индекс общественности</span><b>${v}</b></div>
+    <div class="idx-bar"><i style="width:${v}%"></i></div><small>${idxCat(v)} — по картам, сайтам и отзывам</small></div>`;
+  function syncIndex(id) {
+    const v = radarPub?.index?.[id], box = $("#dIdx");
+    if (openId !== id || !box || v == null) return;
+    box.innerHTML = idxMeter(v); box.hidden = false; $("#dAbout").hidden = false;
+  }
+  // карточка места с карты, где лига не была: индекс, цена, что даст первый поход, ссылки и «Отметить поход»
+  function openRadar(pid, fly) {
+    const p = radarPub?.places.find((x) => x.id === pid); if (!p) return;
+    const d = $("#drawer");
+    if (d.hidden) pushStep({ type: "bath" });
+    openId = null; selectPin(); $$(".item.active").forEach((x) => x.classList.remove("active"));
+    $(`.item[data-radar-id="${pid}"]`)?.classList.add("active");
+    if (fly) { const z = Math.max(map.getZoom(), 14); map.flyTo(aboveCard([p.lat, p.lng], z), z, { duration: calm ? 0 : 0.7 }); }
+    else if (phone.matches) map.panTo(aboveCard([p.lat, p.lng], map.getZoom()), { animate: !calm });
+    const q = encodeURIComponent(`${p.name} ${p.city || ""}`.trim());
+    const facts = [p.gender && "мужское и женское отделения", p.ticket && "билет на человека"].filter(Boolean);
+    // вход — только число с валютой из примера цены («от 293 ₽»), а не текст агента; город — к адресу, если его там нет
+    const price = String(p.price || "").match(/(?:от\s*)?\d[\d\s]*(?:[.,]\d+)?\s*(?:₽|руб\.?|р\.)/i)?.[0].replace(/руб\.?|р\./i, "₽").replace(/\s+/g, " ").trim();
+    const addr = p.address && p.city && !p.address.includes(p.city) ? `${p.city}, ${p.address}` : p.address || [p.city, p.region].filter(Boolean).join(", ");
+    d.innerHTML = `
+      <button type="button" class="grab d-grab" aria-label="Развернуть карточку на весь экран"><i></i></button>
+      <button class="x" aria-label="Закрыть">${icon("close")}</button>
+      <div class="d-body">
+        <div class="d-hero t-public">
+          <div class="d-meta"><span class="t">${tdot("public")}${TYPE_LABEL.public}</span><span class="flag uu-flag">✦ никто из лиги не был</span></div>
+          <h2>${esc(p.name)}</h2>
+          <p class="where">${icon("pin")}<span>${esc(addr)}</span></p>
+        </div>
+        <section class="d-main">
+          ${idxMeter(p.index, true)}
+          ${facts.length ? `<p class="hint" style="margin:8px 2px 0">${facts.join(" · ")}</p>` : ""}
+          <div class="d-key two">
+            <div class="d-k"><span class="k-l">Вход</span><b>${price ? esc(price) : "—"}</b><small>${price ? "по картам и отзывам" : "пока не знаем"}</small></div>
+            <div class="d-k uu-pts"><span class="k-l">Первый поход</span><b>+4 очка</b><small>поход, уникальная, ультра, общественная</small></div>
+          </div>
+        </section>
+        ${p.note ? `<p class="d-note">${esc(p.note)}</p>` : ""}
+        <button type="button" class="cta d-go" id="dRadarGo">${icon("plus")}<span>Отметить поход</span></button>
+        <div class="d-acts">
+          <a target="_blank" rel="noopener" href="https://yandex.ru/maps/?pt=${p.lng},${p.lat}&z=17&text=${q}">${icon("pin")}<span>Яндекс</span></a>
+          <a target="_blank" rel="noopener" href="${/2gis\./.test(p.mapUrl || "") ? esc(p.mapUrl) : `https://2gis.ru/geo/${p.lng},${p.lat}`}">${icon("map")}<span>2ГИС</span></a>
+          ${p.website ? `<a target="_blank" rel="noopener" href="${esc(p.website)}">${icon("globe")}<span>Сайт</span></a>` : ""}
+        </div>
+      </div>`;
+    d.hidden = false;
+    $(".x", d).onclick = closeBath;
+    $("#dRadarGo", d).onclick = async () => {
+      if (D.live && !me) return openLogin();
+      if (D.live && !me.nick) return openClaim();
+      const go = $("#dRadarGo"); go.disabled = true;
+      try {
+        const bid = await D.radarToBath(pid);
+        radarPub.places = radarPub.places.filter((x) => x.id !== pid); radarPub.index[bid] = p.index;
+        await refreshData(); closeBath(); render(); openVisit({ bathId: bid });
+      } catch (err) { go.disabled = false; toast("Не получилось: " + err.message); }
+    };
+  }
   function closeBath() {
     const d = $("#drawer");
     if (location.hash.startsWith("#bath=")) history.replaceState(history.state, "", "#map");
