@@ -252,6 +252,17 @@ def all_views(s, label, mobile=False):
     check(f"{label}: карточка участника открылась", s.js("() => !document.getElementById('playerModal').hidden"))
     # профиль (05.11): у бани — значок типа; на телефоне география выше списка, а в списке первые 8 и «Показать все»
     check(f"{label}: профиль — у бань в списке значок типа", s.js("() => !!document.querySelector('#playerBody .blist button .dot')"))
+    # 05.11: годы в профиле — нажал прошлый год, ниже его бани; «Показать на карте» — бани участника за этот год
+    yb = s.js("() => document.querySelector('#playerBody [data-year]:not([aria-pressed=true])')?.dataset.year || ''")
+    if yb and not mobile:
+        s.page.click(f'#playerBody [data-year="{yb}"]'); s.page.wait_for_timeout(200)
+        check(f"{label}: профиль — нажал {yb}: список «Бани {yb}», год выбран",
+              s.js(f"() => [...document.querySelectorAll('#playerBody h3')].some((h) => h.textContent.startsWith('Бани {yb}')) && document.querySelector('#playerBody [data-year=\"{yb}\"]').getAttribute('aria-pressed') === 'true'"))
+        s.page.click("#pOnMap"); s.page.wait_for_timeout(400)
+        check(f"{label}: …«Показать на карте» — бани участника за {yb}",
+              s.js("() => document.getElementById('fSeason').value") == yb and s.js("() => document.querySelectorAll('#list .item').length > 0") and f"в {yb}" in s.js("() => document.getElementById('count').innerText"))
+        s.js("() => { const f = document.getElementById('fSeason'); f.value = 'all'; document.getElementById('fPlayer').value = ''; f.dispatchEvent(new Event('change')); }")
+        s.view("table"); s.page.click("#standings tbody tr")
     if mobile and s.js("() => !!document.querySelector('#playerBody .bl-all')"):
         check(f"{label}: профиль на телефоне — география выше списка бань, в списке 8, остальное спрятано",
               s.js("() => { const g = [...document.querySelectorAll('#playerBody h3')].find((h) => h.textContent === 'География'), l = document.querySelector('#playerBody .blist');"
