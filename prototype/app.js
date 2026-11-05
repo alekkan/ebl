@@ -732,8 +732,10 @@
           <a id="dYa" target="_blank" rel="noopener" href="${yaUrl}">${icon("pin")}<span>Яндекс</span></a>
           <a id="dGis" target="_blank" rel="noopener" href="${gisUrl}">${icon("map")}<span>2ГИС</span></a>
           <a id="dSite" target="_blank" rel="noopener" hidden>${icon("globe")}<span>Сайт</span></a>
+          <a id="dCall" hidden>${icon("phone")}<span>Позвонить</span></a>
           <button type="button" id="dShare">${icon("share")}<span>Поделиться</span></button>
         </div>
+        <p class="d-phone" id="dPhone" hidden></p>
         <section class="d-who">
           <div class="d-sh"><h3>Кто парился</h3>${whoAll.length > 6 ? `<button type="button" class="linkbtn" id="dWhoAll">все ${whoAll.length}</button>` : ""}</div>
           ${own && own.kind !== "free" ? `<div class="d-owner"><span class="d-owner-ava">${ava(own.who[0])}<i class="hat-on" aria-hidden="true"></i></span><span>
@@ -823,10 +825,10 @@
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
     }
     if (!schedCache.has(id)) schedCache.set(id, D.bathSchedule(id).catch(() => { schedCache.delete(id); return null; }));
-    schedCache.get(id).then((sc) => { schedNow.set(id, sc); renderSchedule(id, sc); syncToday(id); });
+    schedCache.get(id).then((sc) => { schedNow.set(id, sc); renderSchedule(id); syncToday(id); });
     if (D.live) {
       if (!factCache.has(id)) factCache.set(id, D.bathFacts(id).catch(() => { factCache.delete(id); return null; }));
-      factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); syncToday(id); });
+      factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); renderSchedule(id); syncToday(id); });
     }
     $(".x:not(.x-edit)", d).onclick = closeBath;
     const editBtn = $("#dEditBtn", d), editMenu = $("#dEditMenu", d);
@@ -1100,6 +1102,9 @@
       if (own(f.yandex_url)) $("#dYa").href = own(f.yandex_url);
       if (own(f.twogis_url)) $("#dGis").href = own(f.twogis_url);
       if (site) { $("#dSite").href = site; $("#dSite").hidden = false; }
+      // телефон из сверки (05.11): «Позвонить» — первый номер, под кнопками — все как есть
+      const tel = String(f.phone || "").split(/[,;]/)[0].replace(/[^\d+]/g, "");
+      if (tel.length >= 6) { $("#dCall").href = "tel:" + tel; $("#dCall").hidden = false; $("#dPhone").textContent = tidy(f.phone); $("#dPhone").hidden = false; }
     }
     syncHours(id);
     // цена с сайта: первая — крупно, остальные варианты — под «ещё», откуда — подписью
@@ -1135,18 +1140,29 @@
     $("#dWeek").innerHTML = week.map((x) => `<p>${x}</p>`).join("");
     $("#dToday").classList.toggle("has-more", week.length > 0);
   }
-  function renderSchedule(id, sc) {
+  // «Пары и часы работы» (05.11): что внесли участники, а часов нет — часы с сайта бани по дням; «Пока никто не указал» —
+  // только если не знаем ни того, ни другого (сверху в «Сегодня» стояли часы, а внизу — «никто не указал»)
+  function renderSchedule(id) {
     const box = $("#dSched");
-    if (openId !== id || !box || !sc || (!sc.steam && !sc.hours)) return;
-    const st = sc.steam, h = sc.hours, ts = st?.times || [];
+    if (openId !== id || !box) return;
+    const sc = schedNow.get(id), f = factNow.get(id), st = sc?.steam, h = sc?.hours, ts = st?.times || [];
     // «каждый час с 14:00 до 22:00», если ровно так и вносили; иначе — все пары списком
     const even = st?.every_min && ts.length > 1 && steamTimes(ts[0], ts[ts.length - 1], st.every_min).join() === ts.join();
     const steam = !st ? "" : even
       ? `${st.every_min === 60 ? "каждый час" : "каждые два часа"} с ${ts[0]} до ${ts[ts.length - 1]}`
       : ts.join(" · ");
     const at = (x) => `<small>${dayLabel(mskIso(x.at))}</small>`;
+    const byDay = !h && hoursByDay(f?.hours);
+    // с сайта: дни — строками, остальное без часов («третий понедельник — санитарный день») — подписью
+    const notes = !h && f?.hours ? String(f.hours).replace(/\s*\([^)]*\)/g, "").split(/\s*;\s*/).filter((x) => x && !/\d{1,2}:\d{2}|круглосуточно/i.test(x)) : [];
+    const when = /^\d{4}-\d{2}-\d{2}$/.test(f?.run || "") ? new Date(f.run + "T12:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(" г.", "") : "";
+    const site = byDay ? `<div class="sh-days">${hoursRows(byDay).map((r) => { const [d, ...t] = r.split(" "); return `<span>${esc(d)}</span><b>${esc(t.join(" ").replace(/(^|[–\s])0(\d:)/g, "$1$2"))}</b>`; }).join("")}</div>`
+      : !h && f?.hours ? `<p class="sh-txt">${esc(String(f.hours).replace(/\s*\([^)]*\)/g, ""))}</p>` : "";
+    if (!st && !h && !site) return;   // ничего не знаем — остаётся «Пока никто не указал»
     box.innerHTML = (st ? `<p><span>♨️ <b>Пары</b> ${esc(steam)}</span>${at(st)}</p>` : "")
-      + (h ? `<p><span>${icon("clock")} <b>Работает</b> ${h.open === h.close ? "круглосуточно" : `${esc(h.open)}–${esc(h.close)}`}${member ? ` <button type="button" class="linkbtn" data-hedit>изменить</button>` : ""}</span>${at(h)}</p>` : "");
+      + (h ? `<p><span>${icon("clock")} <b>Работает</b> ${h.open === h.close ? "круглосуточно" : `${esc(h.open)}–${esc(h.close)}`}${member ? ` <button type="button" class="linkbtn" data-hedit>изменить</button>` : ""}</span>${at(h)}</p>` : "")
+      + site
+      + (site ? `<p class="sh-src">${notes.map((x) => esc(x) + "<br>").join("")}по сайту бани${when ? `, ${when}` : ""}${st ? "" : " · пары пока никто не указал"}</p>` : "");
     $("[data-hedit]", box)?.addEventListener("click", () => editHours(id));
     syncHours(id);
   }
@@ -1632,7 +1648,9 @@
     const firstYear = (b) => YEARS.find((y) => inYear(b, y));
     const yearTiles = year === 2026 ? null : [
       [mine.reduce((a, b) => a + cnt(b), 0), "походов"], [mine.length, year === "all" ? "разных бань" : "бань"],
-      year === "all" ? [YEARS.filter((y) => byYear[y]).length, "сезонов в лиге"] : [mine.filter((b) => firstYear(b) === year).length, "впервые"],
+      year === "all" ? [YEARS.filter((y) => byYear[y]).length, "сезонов в лиге"]
+        : year === YEARS[0] ? [ctry.size, plural(ctry.size, "страна", "страны", "стран")]   // в первом году данных «впервые» — все бани
+        : [mine.filter((b) => firstYear(b) === year).length, "впервые"],
       [mine.filter((b) => b.t === "public").length, "общественных бань"]];
     const types = mine.reduce((a, b) => ((a[b.t] = (a[b.t] || 0) + cnt(b)), a), {});
     const best = Math.max(...weeks.map((w) => s.weekBaths[w] ?? 0));
@@ -1656,6 +1674,9 @@
     const SHOW = 8, total = dated.length + undated.length;
     let cut = 0; for (let n = 0; cut < rows.length && n < SHOW; cut++) if (rows[cut].startsWith("<button")) n++;   // 8 бань, разделитель не в счёт
     const blist = total > SHOW + 2 ? rows.slice(0, cut).join("") + `<div class="bl-rest">${rows.slice(cut).join("")}</div><button type="button" class="bl-all">Показать все ${total}</button>` : rows.join("");
+    // переключили год — окно не прыгает (05.11): высота не меньше прежней, пока карточка открыта
+    const sheetEl = $("#playerModal .sheet");
+    sheetEl.style.minHeight = $("#playerModal").hidden ? "" : sheetEl.offsetHeight + "px";
     $("#playerBody").innerHTML = `
       <div class="p-head">${own ? avaEdit("xl") : ava(name, "xl")}<div>
         <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${!s.baths ? "участник лиги" : `${s.place} место в сезоне${s.move > 0 ? ` <span class="up">▲${s.move}</span>` : s.move < 0 ? ` <span class="down">▼${-s.move}</span>` : ""}`}</div>
