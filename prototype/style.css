@@ -663,9 +663,30 @@ a.cta { text-decoration: none; }
 .own-sum div + div { border-left: 1px solid var(--line); }
 .own-sum b { font: 700 20px/1 var(--display); letter-spacing: -.02em; }
 .own-sum span { font-size: 12px; color: var(--ink-3); }
-.own-me { display: grid; gap: 2px; margin: 0; padding: 10px 12px; border-radius: var(--r); background: var(--honey-soft); font-size: 13px; }
+.own-rule { margin: -6px 0 0; font-size: 13px; color: var(--ink-2); line-height: 1.4; }
+.own-rule .hat-ic { width: 20px; height: 16px; vertical-align: -3px; margin-right: 4px; }
+/* «ты» (05.11): свои шапки, «Отжать шапку», ничьи за один поход */
+.own-me { display: grid; gap: 12px; }
 .own-me:empty { display: none; }
-.own-me span { color: var(--ink-2); }
+.own-mine, .own-nobody { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 13px; border: 0; border-radius: 16px; text-align: left; font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.own-mine { background: var(--oak-soft); }
+.own-nobody { background: var(--panel-2); }
+.own-mine .ava { --s: 38px; box-shadow: none; }
+.own-mine > .om-t, .own-nobody > span { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.own-mine b { font-size: 15px; }
+.own-mine small { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.own-mine em, .own-nobody em { font-style: normal; font-size: 13px; font-weight: 600; color: var(--oak); flex: none; }
+.own-nobody > b { width: 36px; height: 36px; flex: none; border-radius: 50%; border: 2px dashed var(--ink-3); display: grid; place-items: center; font: 700 13px var(--display); color: var(--ink-2); }
+.own-nobody .hn { font-weight: 600; font-size: 14px; } .own-nobody .hm { font-size: 12px; color: var(--ink-3); }
+.own-h { display: flex; justify-content: space-between; align-items: baseline; margin: 2px 0 -6px; }
+.own-h small { font: 500 12px var(--body); text-transform: none; letter-spacing: 0; color: var(--ink-3); }
+.own-stack { display: flex; } .own-stack .ava + .ava { margin-left: -8px; box-shadow: 0 0 0 2px var(--panel); }
+.own-list.own-grab li { grid-template-columns: 46px minmax(0, 1fr) auto; }
+.own-list .hv.need { color: var(--ember); }
+.own-list li.own-sub { background: color-mix(in srgb, var(--oak-soft) 45%, transparent); border-radius: 0; padding-block: 6px; }
+.own-list li.own-sub .hn { font-weight: 500; }
+.own-list .hm.close { color: var(--ember); }
+.own-list li.own-all .hn { color: var(--oak); font-weight: 600; font-size: 13px; }
 .own-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .own-list li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
 @media (hover: hover) { .own-list li:hover { background: var(--panel-2); } }
