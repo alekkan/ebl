@@ -1633,16 +1633,18 @@
     const undated = mine.filter((b) => !jr.has(b.id)).sort((a, b) => b.v26[name] - a.v26[name] || a.name.localeCompare(b.name, "ru"));
     const bRow = (b) => {
       const r = jr.get(b.id), n = b.v26?.[name] || 0;
-      return `<button data-bath="${b.id}"><span>${esc(b.name)}</span><span class="bl-r">${r?.pending ? "<em>на проверке</em>" : ""}${n > 1 ? `<b>×${n}</b>` : ""}${r ? `<time datetime="${r.last.slice(0, 10)}">${dayLabel(r.last)}</time>` : ""}</span></button>`;
+      return `<button data-bath="${b.id}"><span>${tdot(b.t)}${esc(b.name)}</span><span class="bl-r">${r?.pending ? "<em>на проверке</em>" : ""}${n > 1 ? `<b>×${n}</b>` : ""}${r ? `<time datetime="${r.last.slice(0, 10)}">${dayLabel(r.last)}</time>` : ""}</span></button>`;
     };
-    const blist = dated.map(bRow).join("")
-      + (undated.length && !guest ? `<div class="bl-sep">${dated.length ? "Раньше — по таблице Комиссии, там без дат" : "По таблице Комиссии — там без дат"}</div>` : "")
-      + undated.map(bRow).join("");
+    const rows = [...dated.map(bRow), ...(undated.length && !guest ? [`<div class="bl-sep">${dated.length ? "Раньше — по таблице Комиссии, там без дат" : "По таблице Комиссии — там без дат"}</div>`] : []), ...undated.map(bRow)];
+    // на телефоне список из 47 бань занимал три экрана (05.11): первые 8, остальное — «Показать все»; на компьютере — прокрутка, как была
+    const SHOW = 8, total = dated.length + undated.length;
+    let cut = 0; for (let n = 0; cut < rows.length && n < SHOW; cut++) if (rows[cut].startsWith("<button")) n++;   // 8 бань, разделитель не в счёт
+    const blist = total > SHOW + 2 ? rows.slice(0, cut).join("") + `<div class="bl-rest">${rows.slice(cut).join("")}</div><button type="button" class="bl-all">Показать все ${total}</button>` : rows.join("");
     $("#playerBody").innerHTML = `
       <div class="p-head">${own ? avaEdit("xl") : ava(name, "xl")}<div>
-        <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${empty ? "участник лиги" : `${s.place} место в сезоне`}</div>
+        <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${empty ? "участник лиги" : `${s.place} место в сезоне${s.move > 0 ? ` <span class="up">▲${s.move}</span>` : s.move < 0 ? ` <span class="down">▼${-s.move}</span>` : ""}`}</div>
         <h2>${esc(name)}</h2>
-        <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${best ? ` · рекорд — ${best} ${plural(best, "баня", "бани", "бань")} за неделю` : ""}${lastDay ? ` · последняя — ${dayLabel(lastDay)}` : ""}`}</div>
+        <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${s.crowns ? ` · <span class="p-hats" title="Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}"><svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>${s.crowns} ${plural(s.crowns, "неделя", "недели", "недель")}</span>` : ""}${lastDay ? ` · последняя — ${dayLabel(lastDay)}` : ""}`}</div>
         ${yearsLine}
       </div></div>
       ${empty ? `<div class="p-body"><div class="empty" style="padding:28px 8px">${markSvg()}<b>Сезон ещё впереди</b><p>Первая баня — сразу +1 за поход и +1 за уникальную.</p></div></div>` : `<div class="p-body">
@@ -1671,6 +1673,7 @@
         </div>
       </div>`}`;
     if (own) bindAvaEdit($("#playerBody"));
+    const all = $("#playerBody .bl-all"); if (all) all.onclick = () => all.closest(".blist").classList.add("open");
     $("#playerModal").hidden = false;
     $$("#playerBody [data-bath]").forEach((x) => (x.onclick = () => { $("#playerModal").hidden = true; show("map"); openBath(+x.dataset.bath, true); }));
     if ($("#pOnMap")) $("#pOnMap").onclick = () => { $("#playerModal").hidden = true; playerOnMap(name); };

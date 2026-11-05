@@ -250,6 +250,14 @@ def all_views(s, label, mobile=False):
                    " return w.scrollLeft > 0 && c.left >= w.getBoundingClientRect().left - 1 && c.left < w.getBoundingClientRect().left + 10; }"))
     s.page.click("#standings tbody tr")
     check(f"{label}: карточка участника открылась", s.js("() => !document.getElementById('playerModal').hidden"))
+    # профиль (05.11): у бани — значок типа; на телефоне география выше списка, а в списке первые 8 и «Показать все»
+    check(f"{label}: профиль — у бань в списке значок типа", s.js("() => !!document.querySelector('#playerBody .blist button .dot')"))
+    if mobile and s.js("() => !!document.querySelector('#playerBody .bl-all')"):
+        check(f"{label}: профиль на телефоне — география выше списка бань, в списке 8, остальное спрятано",
+              s.js("() => { const g = [...document.querySelectorAll('#playerBody h3')].find((h) => h.textContent === 'География'), l = document.querySelector('#playerBody .blist');"
+                   " return g.getBoundingClientRect().top < l.getBoundingClientRect().top && [...l.querySelectorAll('button[data-bath]')].filter((b) => b.offsetParent).length === 8; }"))
+        s.page.click("#playerBody .bl-all")
+        check(f"{label}: «Показать все» раскрывает весь список", s.js("() => [...document.querySelectorAll('#playerBody .blist button[data-bath]')].every((b) => b.offsetParent)"))
     # бани по неделям (24.10): над графиком итог и рекорд; нажал на столбик — его неделя и сколько бань, ещё раз — снова итог
     if s.js("() => !!document.querySelector('#pBars [data-w]:not(.zero)')"):
         read = lambda: s.js("() => document.getElementById('pBarsRead').innerText")
