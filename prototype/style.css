@@ -1908,9 +1908,13 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .radar-chip .ring { border-color: var(--uu); }
 .radar-chip small { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
 .chips.types .radar-chip[aria-pressed="true"], .map-chips .chips.types .radar-chip[aria-pressed="true"] { border-color: var(--uu); background: var(--uu-soft); color: var(--ink); }
-.dot.uu-dot { background: var(--uu-soft); }
-.dot.uu-dot span { width: 10px; height: 10px; border-radius: 50%; border: 2.5px solid var(--uu); background: var(--panel); }
-.item .dot.uu-dot span { width: 12px; height: 12px; }
+.dot.uu-dot { background: var(--uu); color: var(--panel); }
+.dot.uu-dot.doubt, .pin.uu.doubt { background: color-mix(in srgb, var(--uu) 45%, var(--panel)); }
+.pin.uu { background: var(--uu); }
+.marker-cluster.uu-cluster { background: color-mix(in srgb, var(--uu) 22%, transparent); }
+.marker-cluster.uu-cluster div { background: var(--uu); color: #fff; }
+.marker-cluster.uu-cluster:hover div { background: color-mix(in srgb, var(--uu) 80%, #000); }
+.d-note.uu-doubt { color: var(--uu); }
 .item .it-idx { color: var(--uu); }
 .d-meta .uu-flag { color: var(--uu); background: var(--uu-soft); padding: 2px 9px; border-radius: 9px; }
 .idx { padding: 12px 14px; border-radius: 14px; background: var(--panel-2); }
@@ -1927,3 +1931,4 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-key .uu-pts b { color: var(--ember); }
 .d-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
 .d-go { width: 100%; justify-content: center; }
+.chips.types .dot.uu-chip { background: none; color: var(--uu); }   /* на чипе — эмблема общественной, фиолетовая, как точки УУ */

@@ -366,10 +366,11 @@ with sync_playwright() as pw:
         r1 = sql("select id from radar_places where key = 'site:1'")
         s = Site(browser, url, config=cfg2(API, dead), name="radar-guest")
         s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000)
-        check("Радар на карте: чип «УУ» с числом мест 70+ (под вопросом — нет)", s.js("() => document.querySelector('#fRadar small').textContent") == "1" and s.js("() => document.getElementById('fRadar').innerText").startswith("УУ"))
+        check("Радар на карте: чип «УУ» с числом мест 50+ (и «под вопросом»)", s.js("() => document.querySelector('#fRadar small').textContent") == "2" and s.js("() => document.getElementById('fRadar').innerText").startswith("УУ"))
         check("…без чипа колец УУ нет: в подписи списка — только бани лиги", not s.js("() => /УУ/.test(document.getElementById('count').innerText)"))
         s.page.click("#fRadar"); s.page.wait_for_timeout(500)
-        check("…нажал — в списке только места Радара, с индексом", s.js("() => document.querySelectorAll('#list .item[data-radar-id]').length === 1 && !document.querySelector('#list .item[data-id]') && /96/.test(document.querySelector('#list .item').innerText)"))
+        check("…нажал — в списке только места Радара, по индексу; «под вопросом» — светлее и последним",
+              s.js("() => { const it = [...document.querySelectorAll('#list .item[data-radar-id]')]; return it.length === 2 && !document.querySelector('#list .item[data-id]') && /96/.test(it[0].innerText) && it[1].querySelector('.uu-dot.doubt') && /под вопросом/.test(it[1].innerText); }"))
         s.page.click("#list .item[data-radar-id]"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=5000)
         check("…карточка места: «никто из лиги не был», индекс 96 «точно общественная», «Первый поход +4», «Отметить поход»",
               s.js("() => { const t = document.getElementById('drawer').innerText; return /никто из лиги не был/.test(t) && /96/.test(t) && /точно общественная/.test(t) && /\\+4 очка/.test(t) && !!document.getElementById('dRadarGo'); }"))
@@ -385,29 +386,18 @@ with sync_playwright() as pw:
         check("типы вместе: «Общественные» + «Хуитнесы» — в списке ровно они", dots == "t-public,t-spa", dots)
         s.page.click('#fType [data-t="spa"]'); s.page.click("#fRadar"); s.page.wait_for_timeout(400)
         check("«Общественные» + «УУ»: в списке общественные бани лиги, в подписи — сколько УУ на карте",
-              s.js("() => [...document.querySelectorAll('#list .item[data-id] .dot')].every((d) => d.classList.contains('t-public')) && /\\+ 1 УУ/.test(document.getElementById('count').innerText)"))
+              s.js("() => [...document.querySelectorAll('#list .item[data-id] .dot')].every((d) => d.classList.contains('t-public')) && /\\+ 2 УУ/.test(document.getElementById('count').innerText)"))
         s.page.click('#fType [data-t="public"]'); s.page.click("#fRadar")
         s.close()
-        # 05.11 (на мобилке): тап по кольцу открывал карточку и тут же закрывал — нажатие доходило до карты. Кольцо на холсте,
-        # поэтому ищем его по цвету и жмём пальцем
+        # 05.11 (на мобилке): тап по кольцу открывал карточку и тут же закрывал — нажатие доходило до карты; теперь УУ —
+        # эмблемы, как у бань лиги
         s = Site(browser, url, config=cfg2(API, dead), mobile=True, name="radar-mobile")
         s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000); s.page.wait_for_timeout(800)
-        check("телефон: без чипа «УУ» колец на карте нет", s.js("""() => { for (const c of document.querySelectorAll('#map .leaflet-overlay-pane canvas')) {
-  const r = c.getBoundingClientRect(), k = r.width / c.width, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-  const mapR = document.getElementById('map').getBoundingClientRect(), sheet = document.querySelector('#view-map .panel')?.getBoundingClientRect();
-  for (let i = 0; i < d.length; i += 4) { if (d[i+3] > 150 && d[i+2] > 170 && d[i+1] < 140 && d[i] > 90 && d[i] < 160) {
-    const x = r.left + ((i / 4) % c.width) * k, y = r.top + Math.floor(i / 4 / c.width) * k;
-    if (x > mapR.left + 20 && x < mapR.right - 20 && y > mapR.top + 140 && (!sheet || y < sheet.top - 20)) return [Math.round(x + 4 * k), Math.round(y + 4)]; } } } return null; }""") is None)
+        check("телефон: без чипа «УУ» эмблем УУ на карте нет", not s.js("() => !!document.querySelector('#map .pin.uu')"))
         s.page.click("#fRadar"); s.page.wait_for_timeout(1500)
-        pt = s.js("""() => { for (const c of document.querySelectorAll('#map .leaflet-overlay-pane canvas')) {
-  const r = c.getBoundingClientRect(), k = r.width / c.width, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-  const mapR = document.getElementById('map').getBoundingClientRect(), sheet = document.querySelector('#view-map .panel')?.getBoundingClientRect();
-  for (let i = 0; i < d.length; i += 4) { if (d[i+3] > 150 && d[i+2] > 170 && d[i+1] < 140 && d[i] > 90 && d[i] < 160) {
-    const x = r.left + ((i / 4) % c.width) * k, y = r.top + Math.floor(i / 4 / c.width) * k;
-    if (x > mapR.left + 20 && x < mapR.right - 20 && y > mapR.top + 140 && (!sheet || y < sheet.top - 20)) return [Math.round(x + 4 * k), Math.round(y + 4)]; } } } return null; }""")
-        if pt: s.page.touchscreen.tap(*pt); s.page.wait_for_timeout(1000)
-        check("телефон: тап по кольцу на карте — карточка места открылась и осталась открытой",
-              bool(pt) and s.js("() => !document.getElementById('drawer').hidden && /никто из лиги не был/.test(document.getElementById('drawer').innerText)"), pt)
+        s.page.locator("#map .pin.uu:not(.doubt)").first.tap(); s.page.wait_for_timeout(1000)
+        check("телефон: тап по фиолетовой эмблеме УУ — карточка места открылась и осталась открытой",
+              s.js("() => !document.getElementById('drawer').hidden && /никто из лиги не был/.test(document.getElementById('drawer').innerText)"))
         s.close()
         s = Site(browser, url, sess=shurik, name="radar-member")
         s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000); s.page.click("#fRadar"); s.page.wait_for_timeout(300)
