@@ -204,18 +204,20 @@
         <!-- телефон: шторка — подписи групп, сезон кнопками; компьютер — те же списки строкой, подписи и кнопки скрыты -->
         <div class="fgrp"><span class="filt-lab">Сезон</span>
           <div class="seg filt-seg" id="fSeasonSeg" role="radiogroup" aria-label="Сезон">
-            <button type="button" data-v="all" aria-pressed="true">Все бани</button>
-            <button type="button" data-v="2026" aria-pressed="false">Были в 2026</button>
-            <button type="button" data-v="never" aria-pressed="false">Не были</button>
-            <button type="button" data-v="" id="fSeasonYear" aria-pressed="false" hidden></button>
+            <button type="button" data-v="all" aria-pressed="true" class="wide">Все бани</button>
+            <button type="button" data-v="never" aria-pressed="false" class="wide">Не были в 2026</button>
+            <button type="button" data-v="2026" aria-pressed="false">2026</button>
+            <button type="button" data-v="2025" aria-pressed="false">2025</button>
+            <button type="button" data-v="2024" aria-pressed="false">2024</button>
+            <button type="button" data-v="2023" aria-pressed="false">2023</button>
           </div>
           <select id="fSeason" class="sel" aria-label="Сезон">
             <option value="all">Все бани</option>
             <option value="2026">Были в 2026</option>
-            <option value="never">Не были в 2026</option>
             <option value="2025">Были в 2025</option>
             <option value="2024">Были в 2024</option>
             <option value="2023">Были в 2023</option>
+            <option value="never">Не были в 2026</option>
           </select>
         </div>
         <div class="selrow">
