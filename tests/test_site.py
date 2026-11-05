@@ -387,7 +387,13 @@ with sync_playwright() as pw:
         s.page.click('#fType [data-t="spa"]'); s.page.click("#fRadar"); s.page.wait_for_timeout(400)
         check("«Общественные» + «УУ»: в списке общественные бани лиги, в подписи — сколько УУ на карте",
               s.js("() => [...document.querySelectorAll('#list .item[data-id] .dot')].every((d) => d.classList.contains('t-public')) && /\\+ 2 УУ/.test(document.getElementById('count').innerText)"))
-        s.page.click('#fType [data-t="public"]'); s.page.click("#fRadar")
+        s.page.click('#fType [data-t="public"]'); s.page.click("#fRadar"); s.page.wait_for_timeout(600)
+        # 05.11: «карта отскакивает при переборе фильтров» — пока в кадре есть что показать, карта стоит на месте
+        where = lambda: s.js("() => document.querySelector('#map .leaflet-map-pane').style.transform + '|' + document.querySelector('#map .leaflet-tile')?.src.match(/\\/(\\d+)\\/\\d+\\/\\d+/)?.[1]")
+        w0 = where()
+        for sel in ('#fType [data-t="public"]', "#fRadar", '#fType [data-t="public"]', "#fRadar", '#fType [data-t="spa"]', '#fType [data-t="spa"]'):
+            s.page.click(sel); s.page.wait_for_timeout(350)
+        check("перебор «Общественные» / «УУ» / «Хуитнесы» туда и обратно — карта не двигается", where() == w0, (w0, where()))
         s.close()
         # 05.11 (на мобилке): тап по кольцу открывал карточку и тут же закрывал — нажатие доходило до карты; теперь УУ —
         # эмблемы, как у бань лиги
@@ -395,9 +401,9 @@ with sync_playwright() as pw:
         s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000); s.page.wait_for_timeout(800)
         check("телефон: без чипа «УУ» эмблем УУ на карте нет", not s.js("() => !!document.querySelector('#map .pin.uu')"))
         s.page.click("#fRadar"); s.page.wait_for_timeout(1500)
-        s.page.locator("#map .pin.uu:not(.doubt)").first.tap(); s.page.wait_for_timeout(1000)
+        s.page.locator("#map .pin.uu").first.tap(); s.page.wait_for_timeout(1000)
         check("телефон: тап по фиолетовой эмблеме УУ — карточка места открылась и осталась открытой",
-              s.js("() => !document.getElementById('drawer').hidden && /никто из лиги не был/.test(document.getElementById('drawer').innerText)"))
+              s.js("() => !document.getElementById('drawer').hidden && /УУ/.test(document.querySelector('#drawer .uu-flag')?.innerText || '')"))
         s.close()
         s = Site(browser, url, sess=shurik, name="radar-member")
         s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000); s.page.click("#fRadar"); s.page.wait_for_timeout(300)
