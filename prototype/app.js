@@ -314,7 +314,7 @@
     if (head) head.append($("#meBtn")); else if ($("#meBtn").parentElement !== $(".top")) $(".top .map-chips").before($("#meBtn"));
     $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + view));
     if (view === "map") setTimeout(() => map.invalidateSize(), 0);
-    if (view === "owners") initOwners();
+    if (view === "owners") { initOwners(); setTimeout(() => setOwnSheet(ownSheet), 0); }
     if (view === "feed") renderFeed();
     if (view === "dir") renderDir();
     history.replaceState(history.state, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
@@ -1609,6 +1609,49 @@
     return { n, who, kind: n < 2 ? "free" : who.length > 1 ? "shared" : "owner" };
   }
   let ownMap = null, ownLayer = null, ownFree = null, ownFocus = "", ownAll = false;
+  // шторка «Хозяев» на телефоне (05.11, «сделай по подобию карты»): карта на весь экран, карточка тянется пальцем —
+  // свёрнута (виден заголовок), половина, весь список; полоска — свернуть / в половину. Та же механика, что у шторки «Карты»
+  const ownCard = $("#ownCard");
+  let ownSheet = "half";
+  const ownY = (st) => {
+    const h = $("#view-owners").clientHeight - ownCard.offsetTop, peek = $("h2", ownCard).offsetTop + $("h2", ownCard).offsetHeight + 6;
+    return st === "full" ? 0 : st === "half" ? Math.round(h * 0.5) : Math.max(0, h - peek);
+  };
+  function setOwnSheet(st) {
+    ownSheet = st; ownCard.dataset.state = st;
+    if (!phone.matches) return ownCard.style.removeProperty("--sheet-y");
+    if (st !== "full") ownCard.scrollTop = 0;
+    ownCard.style.setProperty("--sheet-y", `${ownY(st)}px`);
+  }
+  $("#ownGrab").addEventListener("click", () => setOwnSheet(ownSheet === "half" ? "peek" : "half"));
+  addEventListener("resize", () => phone.matches && !$("#view-owners").hidden && setOwnSheet(ownSheet));
+  let ownDrag = null;
+  ownCard.addEventListener("touchstart", (e) => {
+    if (!phone.matches || e.touches.length !== 1) return;
+    const t = e.touches[0]; ownDrag = { x: t.clientX, y: t.clientY, base: ownY(ownSheet), dy: 0, on: false, track: [[e.timeStamp, 0]] };
+  }, { passive: true });
+  ownCard.addEventListener("touchmove", (e) => {
+    if (!ownDrag) return;
+    const t = e.touches[0], dx = t.clientX - ownDrag.x, dy = t.clientY - ownDrag.y;
+    if (!ownDrag.on) {
+      if (Math.abs(dx) > Math.abs(dy)) { ownDrag = null; return; }
+      if (ownSheet === "full" && (dy <= 0 || ownCard.scrollTop > 0)) { ownDrag = null; return; }   // во «весь список» листается список
+      ownDrag.on = true; ownCard.classList.add("dragging");
+    }
+    e.preventDefault();
+    ownDrag.dy = dy; ownDrag.track.push([e.timeStamp, dy]); if (ownDrag.track.length > 6) ownDrag.track.shift();
+    ownCard.style.setProperty("--sheet-y", `${Math.min(ownY("peek"), Math.max(0, ownDrag.base + dy))}px`);
+  }, { passive: false });
+  const ownEnd = () => {
+    const d = ownDrag; ownDrag = null; if (!d?.on) return;
+    ownCard.classList.remove("dragging");
+    const [t0, y0] = d.track[0], [t1, y1] = d.track[d.track.length - 1], v = (y1 - y0) / Math.max(1, t1 - t0);
+    const order = ["full", "half", "peek"], y = d.base + d.dy;
+    let next = order.reduce((a, st) => (Math.abs(ownY(st) - y) < Math.abs(ownY(a) - y) ? st : a));
+    if (Math.abs(v) > 0.4) next = order[Math.min(2, Math.max(0, order.indexOf(ownSheet) + (v > 0 ? 1 : -1)))];
+    setOwnSheet(next);
+  };
+  ownCard.addEventListener("touchend", ownEnd); ownCard.addEventListener("touchcancel", ownEnd);
   function initOwners() {
     if (!ownMap) {
       ownMap = L.map("ownmap", { worldCopyJump: true, zoomSnap: 0.5 }).setView([55.75, 37.6], innerWidth > 760 ? 10 : 9);
@@ -1652,7 +1695,9 @@
         .on("click", () => { show("map"); openBath(b.id, true); })
         .addTo(o.kind === "free" ? ownFree : ownLayer);
     }
-    if (ownFocus && shown.length) ownMap.fitBounds(L.latLngBounds(shown.map(([b]) => b.ll)).pad(0.2), { maxZoom: 12, paddingTopLeft: innerWidth > 760 ? [360, 0] : [0, 0] });
+    // на телефоне — не под шторкой: снизу отступ на её видимую часть
+    if (ownFocus && shown.length) ownMap.fitBounds(L.latLngBounds(shown.map(([b]) => b.ll)).pad(0.2), { maxZoom: 12, paddingTopLeft: innerWidth > 760 ? [360, 0] : [0, 70],
+      paddingBottomRight: [0, phone.matches ? Math.max(0, $("#view-owners").clientHeight - ownCard.offsetTop - ownY(ownSheet)) : 0] });
     const count = (k) => rows.filter(([, o]) => o.kind === k).length;
     $("#oSum").innerHTML = [[count("owner"), "с хозяином"], [count("shared"), "шапку делят"], [count("free"), "ничьи"]]
       .map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join("");
@@ -1687,7 +1732,7 @@
     grab.sort((x, y) => x.need - y.need || y.o.n - x.o.n || x.b.name.localeCompare(y.b.name, "ru"));
     const stack = (who) => `<span class="own-stack">${who.filter((p) => p !== myNick).slice(0, 2).map((p) => ava(p, "sm")).join("")}</span>`;
     const whose = (g) => g.o.who.includes(myNick) ? `делишь с ${g.o.who.filter((p) => p !== myNick).map(esc).join(", ")} · по ${g.o.n}`
-      : `у ${g.o.who.map(esc).join(" и ")} ${g.o.who.length > 1 ? "по " : ""}${g.o.n} · у тебя ${g.k}`;
+      : `${g.o.who.map(esc).join(" и ")} — ${g.o.who.length > 1 ? "по " : ""}${g.o.n} · у тебя ${g.k}`;   // ники не склоняются: не «у Махмуд»
     return `<button type="button" class="own-mine" data-focus="${esc(myNick)}">${ava(myNick, "")}<span class="om-t"><b>${mine.length ? `Ты хозяин ${mine.length} ${plural(mine.length, "бани", "бань", "бань")}` : "Ты пока не хозяин ни одной бани"}</b>`
       + `${mine.length ? `<small>${mine.slice(0, 2).map(([b, n]) => `${esc(b.name)} ${n}`).join(" · ")}${mine.length > 2 ? ` · ещё ${mine.length - 2}` : ""}</small>` : ""}</span>${mine.length ? "<em>на карте</em>" : ""}</button>`
       + (grab.length ? `<h3 class="own-h">Отжать шапку<small>сколько ещё походов</small></h3><ol class="own-list own-grab">${grab.slice(0, 3).map((g) => `<li data-bath="${g.b.id}">${stack(g.o.who)}<span><span class="hn">${esc(g.b.name)}</span><span class="hm">${whose(g)}</span></span><span class="hv need">+${g.need}</span></li>`).join("")}</ol>` : "")

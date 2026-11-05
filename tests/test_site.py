@@ -1344,6 +1344,14 @@ with sync_playwright() as pw:
         s.no_clip("телефон: шторка со списком", "#view-map")
         # «Хозяева»: пока карта летит к баням хозяина из списка, меню не перекрыто и нажимается
         s.view("owners")
+        # 05.11: как «Карта» — без полосы шапки над картой, шторка тянется: полоска — свернуть до заголовка и обратно
+        s.page.wait_for_timeout(400)
+        check("«Хозяева» на телефоне: карта от самого верха, аватарка поверх неё (полосы шапки нет)",
+              s.js("() => document.getElementById('ownmap').getBoundingClientRect().top <= 1 && getComputedStyle(document.querySelector('.top')).position === 'fixed'"))
+        s.page.click("#ownGrab"); s.page.wait_for_timeout(500)
+        peek = s.js("() => [document.getElementById('ownCard').dataset.state, document.querySelector('#ownCard h2').getBoundingClientRect().bottom < innerHeight]")
+        swipe(s, 200, s.js("() => document.querySelector('#ownCard h2').getBoundingClientRect().top"), 250, steps=10, ms=300)
+        check("…полоска сворачивает шторку до заголовка, потянул вверх — снова раскрылась", peek == ["peek", True] and s.js("() => document.getElementById('ownCard').dataset.state") != "peek", peek)
         s.page.click("#oList li[data-owner]")
         s.page.wait_for_timeout(200)
         s.nav_free("«Хозяева» на телефоне во время приближения")
