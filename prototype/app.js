@@ -1120,7 +1120,7 @@
       if (site) { $("#dSite").href = site; $("#dSite").hidden = false; }
       // телефон из сверки (05.11): «Позвонить» — первый номер, под кнопками — все как есть
       const tel = String(f.phone || "").split(/[,;]/)[0].replace(/[^\d+]/g, "");
-      if (tel.length >= 6) { $("#dCall").href = "tel:" + tel; $("#dCall").hidden = false; $("#dPhone").textContent = tidy(f.phone); $("#dPhone").hidden = false; }
+      if (tel.length >= 6) { $("#dCall").href = "tel:" + tel; $("#dCall").hidden = false; $("#dPhone").textContent = String(f.phone).replace(/\s+/g, " ").trim(); $("#dPhone").hidden = false; }
     }
     syncHours(id);
     // цена с сайта: первая — крупно, остальные варианты — под «ещё», откуда — подписью
