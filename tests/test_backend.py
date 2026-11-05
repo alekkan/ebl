@@ -448,7 +448,22 @@ s, bid3 = req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid2, "p_action": "a
 check("«Завести» с выбранным типом — хуитнес", s == 200 and sql(f"select type from baths where id = {bid3}") == "spa", (s, bid3))
 check("неизвестный тип не проходит", req("POST", "/rest/v1/rpc/radar_decide", {"p_id": rid2, "p_action": "add", "p_type": "дача"}, token=vitek)[0] >= 400
       or sql(f"select bath_id from radar_places where id = {rid2}") == str(bid3))
-sql("delete from radar_places where key like 'test:%'"); sql(f"delete from baths where id in ({bid}, {bid3})")
+# 05.11: Радар на карте всем — места 70+, где лига не была; участник отмечает поход — место становится баней
+push([{"key": "test:3", "name": "Тестовая баня на карте", "region": "Москва", "lat": 55.61, "lng": 37.41, "kind": "public", "public_index": 85, "note": "Билет на сеанс"},
+      {"key": "test:4", "name": "Тестовая баня под вопросом", "region": "Москва", "lat": 55.62, "lng": 37.42, "kind": "public", "public_index": 60}])
+rid3, rid4 = (int(sql(f"select id from radar_places where key = '{k}'")) for k in ("test:3", "test:4"))
+s, rp = req("POST", "/rest/v1/rpc/radar_public", {})
+ids = [x[0] for x in (rp or {}).get("places", [])]
+check("Радар на карте — гостю: места 70+, где лига не была; «под вопросом» нет; без цитат агентов",
+      s == 200 and rid3 in ids and rid4 not in ids and len(rp["places"][ids.index(rid3)]) == 14 and "Мужской день" not in json.dumps(rp, ensure_ascii=False), (s, ids[:5]))
+check("гость место в баню не превращает", req("POST", "/rest/v1/rpc/radar_to_bath", {"p_id": rid3})[0] >= 400)
+check("«под вопросом» в баню не превращается", req("POST", "/rest/v1/rpc/radar_to_bath", {"p_id": rid4}, token=shurik)[0] >= 400)
+s, nb = req("POST", "/rest/v1/rpc/radar_to_bath", {"p_id": rid3}, token=shurik)
+check("участник отмечает поход — место стало общественной баней с точной точкой", s == 200 and sql(f"select type || ',' || precision || ',' || status from baths where id = {nb}") == "public,exact,ok", (s, nb))
+check("…второй раз — та же баня", req("POST", "/rest/v1/rpc/radar_to_bath", {"p_id": rid3}, token=shurik)[1] == nb)
+rp = req("POST", "/rest/v1/rpc/radar_public", {})[1]
+check("…на карте кольцом её больше нет, а индекс — у бани лиги", rid3 not in [x[0] for x in rp["places"]] and rp["index"].get(str(nb)) == 85, rp["index"].get(str(nb)))
+sql("delete from radar_places where key like 'test:%'"); sql(f"delete from baths where id in ({bid}, {bid3}, {nb})")
 
 print("Сверка каталога — только Комиссии")
 sql("delete from catalog_proposals where run = 'test-run'")
