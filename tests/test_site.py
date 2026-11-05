@@ -366,7 +366,8 @@ with sync_playwright() as pw:
         r1 = sql("select id from radar_places where key = 'site:1'")
         s = Site(browser, url, config=cfg2(API, dead), name="radar-guest")
         s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000)
-        check("Радар на карте: чип «Никто не был» с числом мест 70+ (под вопросом — нет)", s.js("() => document.querySelector('#fRadar small').textContent") == "1")
+        check("Радар на карте: чип «УУ» с числом мест 70+ (под вопросом — нет)", s.js("() => document.querySelector('#fRadar small').textContent") == "1" and s.js("() => document.getElementById('fRadar').innerText").startswith("УУ"))
+        check("…без чипа колец УУ нет: в подписи списка — только бани лиги", not s.js("() => /УУ/.test(document.getElementById('count').innerText)"))
         s.page.click("#fRadar"); s.page.wait_for_timeout(500)
         check("…нажал — в списке только места Радара, с индексом", s.js("() => document.querySelectorAll('#list .item[data-radar-id]').length === 1 && !document.querySelector('#list .item[data-id]') && /96/.test(document.querySelector('#list .item').innerText)"))
         s.page.click("#list .item[data-radar-id]"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=5000)
@@ -377,6 +378,36 @@ with sync_playwright() as pw:
         s.js("() => (document.getElementById('loginModal').hidden = true)"); s.page.click("#drawer .x"); s.page.click("#fRadar"); s.page.wait_for_timeout(300)
         s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300); s.page.click(f'#list .item[data-id="{vbid}"]'); s.page.wait_for_selector("#dIdx:not([hidden])", timeout=8000)
         check("у бани лиги, привязанной к месту Радара, — индекс в «О бане»", s.js("() => /86/.test(document.getElementById('dIdx').innerText) && /скорее общественная/.test(document.getElementById('dIdx').innerText)"))
+        # 05.11: фильтры вместе — «Общественные» + «Хуитнесы» — обе группы; + «УУ» — и бани лиги, и УУ
+        s.page.click("#drawer .x"); s.page.fill("#q", ""); s.page.wait_for_timeout(300)
+        s.page.click('#fType [data-t="public"]'); s.page.click('#fType [data-t="spa"]'); s.page.wait_for_timeout(400)
+        dots = s.js("() => [...new Set([...document.querySelectorAll('#list .item[data-id] .dot')].map((d) => [...d.classList].find((c) => c.startsWith('t-'))))].sort().join()")
+        check("типы вместе: «Общественные» + «Хуитнесы» — в списке ровно они", dots == "t-public,t-spa", dots)
+        s.page.click('#fType [data-t="spa"]'); s.page.click("#fRadar"); s.page.wait_for_timeout(400)
+        check("«Общественные» + «УУ»: в списке общественные бани лиги, в подписи — сколько УУ на карте",
+              s.js("() => [...document.querySelectorAll('#list .item[data-id] .dot')].every((d) => d.classList.contains('t-public')) && /\\+ 1 УУ/.test(document.getElementById('count').innerText)"))
+        s.page.click('#fType [data-t="public"]'); s.page.click("#fRadar")
+        s.close()
+        # 05.11 (на мобилке): тап по кольцу открывал карточку и тут же закрывал — нажатие доходило до карты. Кольцо на холсте,
+        # поэтому ищем его по цвету и жмём пальцем
+        s = Site(browser, url, config=cfg2(API, dead), mobile=True, name="radar-mobile")
+        s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000); s.page.wait_for_timeout(800)
+        check("телефон: без чипа «УУ» колец на карте нет", s.js("""() => { for (const c of document.querySelectorAll('#map .leaflet-overlay-pane canvas')) {
+  const r = c.getBoundingClientRect(), k = r.width / c.width, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  const mapR = document.getElementById('map').getBoundingClientRect(), sheet = document.querySelector('#view-map .panel')?.getBoundingClientRect();
+  for (let i = 0; i < d.length; i += 4) { if (d[i+3] > 150 && d[i+2] > 170 && d[i+1] < 140 && d[i] > 90 && d[i] < 160) {
+    const x = r.left + ((i / 4) % c.width) * k, y = r.top + Math.floor(i / 4 / c.width) * k;
+    if (x > mapR.left + 20 && x < mapR.right - 20 && y > mapR.top + 140 && (!sheet || y < sheet.top - 20)) return [Math.round(x + 4 * k), Math.round(y + 4)]; } } } return null; }""") is None)
+        s.page.click("#fRadar"); s.page.wait_for_timeout(1500)
+        pt = s.js("""() => { for (const c of document.querySelectorAll('#map .leaflet-overlay-pane canvas')) {
+  const r = c.getBoundingClientRect(), k = r.width / c.width, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  const mapR = document.getElementById('map').getBoundingClientRect(), sheet = document.querySelector('#view-map .panel')?.getBoundingClientRect();
+  for (let i = 0; i < d.length; i += 4) { if (d[i+3] > 150 && d[i+2] > 170 && d[i+1] < 140 && d[i] > 90 && d[i] < 160) {
+    const x = r.left + ((i / 4) % c.width) * k, y = r.top + Math.floor(i / 4 / c.width) * k;
+    if (x > mapR.left + 20 && x < mapR.right - 20 && y > mapR.top + 140 && (!sheet || y < sheet.top - 20)) return [Math.round(x + 4 * k), Math.round(y + 4)]; } } } return null; }""")
+        if pt: s.page.touchscreen.tap(*pt); s.page.wait_for_timeout(1000)
+        check("телефон: тап по кольцу на карте — карточка места открылась и осталась открытой",
+              bool(pt) and s.js("() => !document.getElementById('drawer').hidden && /никто из лиги не был/.test(document.getElementById('drawer').innerText)"), pt)
         s.close()
         s = Site(browser, url, sess=shurik, name="radar-member")
         s.page.wait_for_selector("#fRadar:not([hidden])", timeout=8000); s.page.click("#fRadar"); s.page.wait_for_timeout(300)
