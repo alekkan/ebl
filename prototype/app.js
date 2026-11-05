@@ -451,10 +451,14 @@
   }
 
   // Радар на карте всем (05.11, Леха): УУ — места, где лига ещё не была (сленг ОУД: ультрауникальные), с индексом
-  // общественности 70+ — фиолетовыми кольцами, только с чипом «УУ»; вместе с типами — и бани лиги этих типов. Первый поход туда — ультрауникальная (+1). Нажал — карточка
+  // общественности 50+ (70+ — проверенные, 50–69 — «под вопросом», светлее) — фиолетовыми эмблемами, только с чипом «УУ»;
+  // вместе с типами — и бани лиги этих типов. Первый поход туда — ультрауникальная (+1). Нажал — карточка
   // места; «Отметить поход» превращает место в баню лиги (radar_to_bath) и открывает обычную форму похода
-  // tolerance — пальцем в кольцо 4–6 px не попасть: ловим нажатие на 10 px вокруг (05.11, «не открывается на мобилке»)
-  const unseenLayer = L.layerGroup().addTo(map), ringR = L.canvas({ padding: 0.3, tolerance: 10 });
+  // УУ — эмблемой общественной бани, как обычные точки, только фиолетовой (05.11); «под вопросом» (индекс < 70) — светлее.
+  // Свои кластеры — фиолетовые, чтобы не смешивались с банями лиги
+  const uuCluster = L.markerClusterGroup({ disableClusteringAtZoom: 11, maxClusterRadius: 44, showCoverageOnHover: false, spiderfyOnMaxZoom: true,
+    iconCreateFunction: (c) => L.divIcon({ className: "marker-cluster uu-cluster", iconSize: [40, 40], html: `<div>${c.getChildCount()}</div>` }) });
+  map.addLayer(uuCluster);
   let radarPub = null, uu = false;   // uu — нажат чип «УУ»: кольца видны только с ним (05.11)
   const idxCat = (v) => (v >= 90 ? "точно общественная" : v >= 70 ? "скорее общественная" : "под вопросом");
   if (D.live) D.radarPublic().then((r) => {
@@ -474,13 +478,9 @@
     return radarPub.places.filter((p) => !q || `${p.name} ${p.city || ""} ${p.region || ""}`.toLowerCase().includes(q));
   }
   function drawUnseen(list) {
-    unseenLayer.clearLayers();
-    const ring = getComputedStyle(document.documentElement).getPropertyValue("--uu").trim() || "#7a5bd6";
-    for (const p of list) {
-      // bubblingMouseEvents: false — иначе нажатие доходит до карты, а клик по карте закрывает карточку: открылась и тут же закрылась
-      L.circleMarker([p.lat, p.lng], { renderer: ringR, radius: 6, weight: 2, color: ring, opacity: 1, fillColor: "#fff", fillOpacity: 1, bubblingMouseEvents: false })
-        .on("click", () => openRadar(p.id)).addTo(unseenLayer);
-    }
+    uuCluster.clearLayers();
+    uuCluster.addLayers(list.map((p) => L.marker([p.lat, p.lng], { title: p.name, riseOnHover: true, icon: L.divIcon({ className: "", iconSize: [22, 22],
+      html: `<div class="pin uu${p.index < 70 ? " doubt" : ""}" style="width:22px;height:22px">${glyphOf("public")}</div>` }) }).on("click", () => openRadar(p.id))));
     return list.length;
   }
 
@@ -539,7 +539,7 @@
       $("#potNote").hidden = true;
       $("#count").innerHTML = `<b>${fresh.length.toLocaleString("ru-RU")} УУ</b><span>ультрауникальные: никто из лиги не был · первый поход +1 ультра</span>`;
       $("#filtShow").textContent = `Показать ${fresh.length.toLocaleString("ru-RU")}`;
-      $("#list").innerHTML = fresh.length ? fresh.slice(0, 250).map((p) => `<button class="item" data-radar-id="${p.id}"><i class="dot uu-dot"><span></span></i>
+      $("#list").innerHTML = fresh.length ? fresh.slice(0, 250).map((p) => `<button class="item" data-radar-id="${p.id}"><i class="dot uu-dot${p.index < 70 ? " doubt" : ""}">${glyphOf("public")}</i>
         <span><span class="it-name">${esc(p.name)}</span><span class="it-meta">${esc([p.city || p.region, idxCat(p.index)].filter(Boolean).join(" · "))}</span></span>
         <span class="it-heat"><b class="it-idx">${p.index}</b><small>индекс</small></span></button>`).join("") + (fresh.length > 250 ? `<div class="more">и ещё ${fresh.length - 250} — уточни поиск</div>` : "")
         : `<div class="more">Ничего не нашлось. Попробуй другое слово или сбрось фильтры.</div>`;
@@ -1363,7 +1363,7 @@
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
       <div class="d-body">
         <div class="d-hero t-public">
-          <div class="d-meta"><span class="t">${tdot("public")}${TYPE_LABEL.public}</span><span class="flag uu-flag">УУ · никто из лиги не был</span></div>
+          <div class="d-meta"><span class="t">${tdot("public")}${TYPE_LABEL.public}</span><span class="flag uu-flag">${p.index < 70 ? "УУ под вопросом" : "УУ · никто из лиги не был"}</span></div>
           <h2>${esc(p.name)}</h2>
           <p class="where">${icon("pin")}<span>${esc(addr)}</span></p>
         </div>
@@ -1375,6 +1375,7 @@
             <div class="d-k uu-pts"><span class="k-l">Первый поход</span><b>+4 очка</b><small>поход, уникальная, ультра, общественная</small></div>
           </div>
         </section>
+        ${p.index < 70 ? `<p class="d-note uu-doubt">Агенты не уверены, что баня общественная: индекс ${p.index}. Сходишь — Комиссия проверит тип вместе с походом.</p>` : ""}
         ${p.note ? `<p class="d-note">${esc(p.note)}</p>` : ""}
         <button type="button" class="cta d-go" id="dRadarGo">${icon("plus")}<span>Отметить поход</span></button>
         <div class="d-acts">
