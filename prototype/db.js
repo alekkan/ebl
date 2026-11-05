@@ -489,6 +489,18 @@ window.EBLData = (() => {
       if (!live) return [];
       return pagedAll(() => sb.from("radar_places").select("*").order("public_index", { ascending: false, nullsFirst: false }).order("id"));
     },
+    // Радар на карте всем (05.11): места 70+, где лига не была, и индекс общественности у бань лиги
+    async radarPublic() {
+      if (!live) return null;
+      const r = check(await pub.rpc("radar_public", {}, { get: true }));
+      const places = (r?.places || []).map(([id, name, city, region, address, lat, lng, index, price, website, mapUrl, note, gender, ticket]) =>
+        ({ id, name, city, region, address, lat, lng, index, price, website, mapUrl, note, gender, ticket }));
+      return { places, index: r?.index || {} };
+    },
+    // «Отметить поход» в такое место: оно становится баней лиги (или та же, если уже стало)
+    async radarToBath(id) {
+      return check(await sb.rpc("radar_to_bath", { p_id: id }));
+    },
     // action: add (type — public / spa / private), match (bath — баня лиги), hide (reason), reopen
     async radarDecide(id, action, { bath = null, type = "public", reason = null } = {}) {
       return check(await sb.rpc("radar_decide", { p_id: id, p_action: action, p_bath: bath, p_type: type, p_reason: reason }));
