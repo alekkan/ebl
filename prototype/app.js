@@ -488,10 +488,11 @@
     const q = $("#q").value.trim().toLowerCase();
     const type = $("#fType button[data-t][aria-pressed=true]")?.dataset.t || "", season = $("#fSeason").value;
     const country = $("#fCountry").value, player = $("#fPlayer").value, prec = $("#fPrec").value;
-    const metric = season === "2026" ? (b) => (player ? b.v26?.[player] || 0 : b.n26) : (b) => (player ? countFor(b, "all", player) : b.nAll);
+    const past = /^20(23|24|25)$/.test(season) ? +season : 0;   // 05.11: бани прошлого сезона — из профиля участника («2025 на карте»)
+    const metric = past ? (b) => countFor(b, past, player || undefined) : season === "2026" ? (b) => (player ? b.v26?.[player] || 0 : b.n26) : (b) => (player ? countFor(b, "all", player) : b.nAll);
     // выбран участник — «были / не были в 2026» считаются про него, а не про всю лигу:
     // «Не были в 2026» — все бани, где он в этом сезоне ещё не был, со счётом, сколько очков даст первый поход
-    const inSeason = (b) => season === "all" ? !player || metric(b) > 0
+    const inSeason = (b) => past ? metric(b) > 0 : season === "all" ? !player || metric(b) > 0
       : season === "2026" ? (player ? metric(b) > 0 : b.n26 > 0 || b.isNew)
       : player ? !(b.v26?.[player] > 0) : b.n26 === 0;
     const pot = player && season === "never" ? potentialFor(player) : null;
@@ -508,6 +509,7 @@
     else current.sort((a, b) => b._m - a._m || a.name.localeCompare(b.name, "ru"));
     $("#fMe").setAttribute("aria-pressed", String(!!myNick && player === myNick));
     $("#fWhoAll").setAttribute("aria-pressed", String(!player));
+    const yb = $("#fSeasonYear"); yb.hidden = !past; if (past) { yb.dataset.v = season; yb.textContent = `Были в ${past}`; }   // кнопка года — только пока он выбран
     $$("#fSeasonSeg [data-v]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === season)));
     $("#fPlayer").classList.toggle("on", !!player && player !== myNick);
     $("#fNear").setAttribute("aria-pressed", String(!!here || sortBy !== "visits"));
@@ -527,8 +529,8 @@
     // «1 144 бани» крупно, под ним — сколько из них в 2026 и где был ты (02.11, макет)
     const in26 = current.filter((b) => b.n26 > 0).length, mine = myNick && !player ? current.filter((b) => countFor(b, "all", myNick) > 0).length : 0;
     const sub = pot ? `${player}: новые в 2026${rich ? ` · +3 и больше — ${rich}` : ""}`
-      : [season === "all" ? `${in26.toLocaleString("ru-RU")} в 2026` : season === "2026" ? "походы в 2026" : "никто не был в 2026",
-        mine && `ты был в ${mine}`, player && `${player} был${season === "2026" ? " в 2026" : ""}`,
+      : [season === "all" ? `${in26.toLocaleString("ru-RU")} в 2026` : season === "2026" ? "походы в 2026" : past ? `походы в ${past}` : "никто не был в 2026",
+        mine && `ты был в ${mine}`, player && `${player} был${season === "2026" || past ? ` в ${past || 2026}` : ""}`,
         unseen != null && `+ ${unseen.toLocaleString("ru-RU")}, где лига не была`,
         prec === "rough" ? "точка примерная" : prec === "auto" ? "среднеточные" : prec === "none" ? "без точки" : noPin ? `${noPin} без точки` : ""].filter(Boolean).join(" · ");
     $("#count").innerHTML = `<b>${current.length.toLocaleString("ru-RU")} ${plural(current.length, "баня", "бани", "бань")}</b><span>${esc(sub)}</span>`;
@@ -1599,16 +1601,20 @@
     }
     return by;
   }
-  function openPlayer(name) {
+  function openPlayer(name, year) {
     // новичка ещё нет в таблице (ни бань из таблицы, ни засчитанных походов) — карточка всё равно открывается
     const s = ranked.find((x) => x.name === name)
       || { name, total: 0, baths: 0, u: 0, uu: 0, long: 0, k: 0, pub: 0, reg: 0, weekPts: {}, weekBaths: {}, place: ranked.length + 1 };
     const weeks = Array.from({ length: curWeek }, (_, i) => i + 1);
     const maxB = Math.max(1, ...weeks.map((w) => s.weekBaths[w] ?? 0));
-    const mine = baths.filter((b) => b.v26?.[name]).sort((a, b) => b.v26[name] - a.v26[name]);
+    // 05.11: бани, география и типы — за выбранный год (2023–2026); очки, плитки и недели — сезон 2026, прошлых по неделям нет
+    // в 2026 ещё не был, но был раньше — сразу последний его сезон
+    year ??= s.baths ? 2026 : [2025, 2024, 2023].find((y) => baths.some((b) => b.histBy?.[y]?.[name])) || 2026;
+    const cnt = (b) => (year === 2026 ? b.v26?.[name] : b.histBy?.[year]?.[name]) || 0;
+    const mine = baths.filter((b) => cnt(b)).sort((a, b) => cnt(b) - cnt(a));
     const regions = new Set(mine.filter((b) => b.region && b.country).map(placeKey));
     const ctry = new Set(mine.map((b) => b.country).filter(Boolean));
-    const empty = !s.baths;
+    const empty = !s.baths && !mine.length;
     // бани по годам (03.11, Витёк): сколько разных бань и походов у участника в каждом сезоне — из таблицы и 2026
     const byYear = {};
     for (const b of baths) {
@@ -1616,8 +1622,9 @@
       if (b.v26?.[name]) { const r = (byYear["2026"] ||= { baths: 0, n: 0 }); r.baths++; r.n += b.v26[name]; }
     }
     const ys = Object.keys(byYear).sort();
-    const yearsLine = ys.length > 1 ? `<div class="p-years" title="${ys.map((y) => `${y}: ${byYear[y].baths} ${plural(byYear[y].baths, "баня", "бани", "бань")}, ${byYear[y].n} ${plural(byYear[y].n, "поход", "похода", "походов")}`).join("; ")}">Бань по годам: <b>${ys.map((y) => byYear[y].baths).join(" → ")}</b></div>` : "";
-    const types = mine.reduce((a, b) => ((a[b.t] = (a[b.t] || 0) + b.v26[name]), a), {});
+    // бань по годам — кнопками: нажал год — ниже его бани, география и типы, «Показать на карте» — тот же год
+    const yearsLine = ys.length > 1 ? `<div class="p-years" role="group" aria-label="Бани по годам"><span>Бань по годам</span>${ys.map((y) => `<button type="button" data-year="${y}" aria-pressed="${+y === year}" title="${y}: ${byYear[y].baths} ${plural(byYear[y].baths, "баня", "бани", "бань")}, ${byYear[y].n} ${plural(byYear[y].n, "поход", "похода", "походов")}">${y}<b>${byYear[y].baths}</b></button>`).join("")}</div>` : "";
+    const types = mine.reduce((a, b) => ((a[b.t] = (a[b.t] || 0) + cnt(b)), a), {});
     const best = Math.max(...weeks.map((w) => s.weekBaths[w] ?? 0));
     // строка над графиком (24.10, Леха: «непонятно, сколько бань»): итог, а на наведённом или нажатом столбике — его неделя
     const bestW = weeks.find((w) => (s.weekBaths[w] ?? 0) === best);
@@ -1626,28 +1633,28 @@
     // сверху — свежие походы с портала (по дате), ниже — бани из таблицы Комиссии (там дат нет); гостю журнал не виден
     const guest = D.live && !member;
     const own = D.live && me?.nick === name;   // своя карточка — аватарку можно сменить
-    const jr = guest ? new Map() : journalOf(name);
+    const jr = guest || year !== 2026 ? new Map() : journalOf(name);   // даты походов — только у сезона портала
     const lastDay = [...jr.values()].filter((r) => r.ok).reduce((a, r) => (r.last > a ? r.last : a), "");
-    const onlyJournal = [...jr.keys()].filter((id) => !byId.get(id).v26?.[name]).map((id) => byId.get(id));   // ещё на проверке
+    const onlyJournal = [...jr.keys()].filter((id) => !cnt(byId.get(id))).map((id) => byId.get(id));   // ещё на проверке
     const dated = [...mine.filter((b) => jr.has(b.id)), ...onlyJournal].sort((a, b) => jr.get(b.id).last.localeCompare(jr.get(a.id).last));
-    const undated = mine.filter((b) => !jr.has(b.id)).sort((a, b) => b.v26[name] - a.v26[name] || a.name.localeCompare(b.name, "ru"));
+    const undated = mine.filter((b) => !jr.has(b.id)).sort((a, b) => cnt(b) - cnt(a) || a.name.localeCompare(b.name, "ru"));
     const bRow = (b) => {
-      const r = jr.get(b.id), n = b.v26?.[name] || 0;
+      const r = jr.get(b.id), n = cnt(b);
       return `<button data-bath="${b.id}"><span>${tdot(b.t)}${esc(b.name)}</span><span class="bl-r">${r?.pending ? "<em>на проверке</em>" : ""}${n > 1 ? `<b>×${n}</b>` : ""}${r ? `<time datetime="${r.last.slice(0, 10)}">${dayLabel(r.last)}</time>` : ""}</span></button>`;
     };
-    const rows = [...dated.map(bRow), ...(undated.length && !guest ? [`<div class="bl-sep">${dated.length ? "Раньше — по таблице Комиссии, там без дат" : "По таблице Комиссии — там без дат"}</div>`] : []), ...undated.map(bRow)];
+    const rows = [...dated.map(bRow), ...(undated.length && !guest && year === 2026 ? [`<div class="bl-sep">${dated.length ? "Раньше — по таблице Комиссии, там без дат" : "По таблице Комиссии — там без дат"}</div>`] : []), ...undated.map(bRow)];
     // на телефоне список из 47 бань занимал три экрана (05.11): первые 8, остальное — «Показать все»; на компьютере — прокрутка, как была
     const SHOW = 8, total = dated.length + undated.length;
     let cut = 0; for (let n = 0; cut < rows.length && n < SHOW; cut++) if (rows[cut].startsWith("<button")) n++;   // 8 бань, разделитель не в счёт
     const blist = total > SHOW + 2 ? rows.slice(0, cut).join("") + `<div class="bl-rest">${rows.slice(cut).join("")}</div><button type="button" class="bl-all">Показать все ${total}</button>` : rows.join("");
     $("#playerBody").innerHTML = `
       <div class="p-head">${own ? avaEdit("xl") : ava(name, "xl")}<div>
-        <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${empty ? "участник лиги" : `${s.place} место в сезоне${s.move > 0 ? ` <span class="up">▲${s.move}</span>` : s.move < 0 ? ` <span class="down">▼${-s.move}</span>` : ""}`}</div>
+        <div class="eyebrow">${commission.has(name) ? "Комиссия ЕБЛ · " : ""}${!s.baths ? "участник лиги" : `${s.place} место в сезоне${s.move > 0 ? ` <span class="up">▲${s.move}</span>` : s.move < 0 ? ` <span class="down">▼${-s.move}</span>` : ""}`}</div>
         <h2>${esc(name)}</h2>
-        <div class="sub">${empty ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${s.crowns ? ` · <span class="p-hats" title="Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}"><svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>${s.crowns} ${plural(s.crowns, "неделя", "недели", "недель")}</span>` : ""}${lastDay ? ` · последняя — ${dayLabel(lastDay)}` : ""}`}</div>
+        <div class="sub">${!s.baths ? "В этом сезоне пока без бань" : `<b>${fmt(s.total)}</b> ${plural(s.total, "очко", "очка", "очков")} · ${s.baths} ${plural(s.baths, "баня", "бани", "бань")}${s.crowns ? ` · <span class="p-hats" title="Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}"><svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>${s.crowns} ${plural(s.crowns, "неделя", "недели", "недель")}</span>` : ""}${lastDay ? ` · последняя — ${dayLabel(lastDay)}` : ""}`}</div>
         ${yearsLine}
       </div></div>
-      ${empty ? `<div class="p-body"><div class="empty" style="padding:28px 8px">${markSvg()}<b>Сезон ещё впереди</b><p>Первая баня — сразу +1 за поход и +1 за уникальную.</p></div></div>` : `<div class="p-body">
+      ${empty ? `<div class="p-body"><div class="empty" style="padding:28px 8px">${markSvg()}<b>Сезон ещё впереди</b><p>Первая баня — сразу +1 за поход и +1 за уникальную.</p></div></div>` : `<div class="p-body">${s.baths ? `
         <div class="stats four">
           <div><b>${s.u}</b><span>уникальных</span></div><div><b>${s.uu}</b><span>ультра&shy;уникальных</span></div>
           <div><b>${s.long}</b><span>долгих</span></div><div><b>${s.k}</b><span>за компанию</span></div>
@@ -1658,10 +1665,10 @@
             <i class="bars-max" aria-hidden="true"><span>${maxB}</span></i>
             ${weeks.map((w) => { const v = s.weekBaths[w] ?? 0; return `<div class="${v ? "" : "zero"}" data-w="${w}" style="height:${Math.max(2, (v / maxB) * 100)}%"></div>`; }).join("")}</div>
           <div class="axis"><span>W1</span><span>W${Math.round(curWeek / 2)}</span><span>W${curWeek}</span></div>
-        </section>
+        </section>` : ""}
         <div class="cols2">
-          <section><h3>Бани сезона · ${mine.length}</h3><div class="blist">${blist || '<span class="hint">Пока пусто</span>'}</div>
-            ${guest && mine.length ? '<p class="hint" style="margin:8px 0 0">Даты походов видны участникам лиги после входа.</p>' : ""}</section>
+          <section><h3>${year === 2026 ? "Бани сезона" : `Бани ${year}`} · ${mine.length}</h3><div class="blist">${blist || '<span class="hint">Пока пусто</span>'}</div>
+            ${guest && mine.length && year === 2026 ? '<p class="hint" style="margin:8px 0 0">Даты походов видны участникам лиги после входа.</p>' : ""}</section>
           <section>
             <h3>География</h3>
             <p class="geo" style="margin:0 0 4px"><b>${ctry.size}</b> ${plural(ctry.size, "страна", "страны", "стран")} · <b>${regions.size}</b> ${plural(regions.size, "регион", "региона", "регионов")}</p>
@@ -1676,7 +1683,8 @@
     const all = $("#playerBody .bl-all"); if (all) all.onclick = () => all.closest(".blist").classList.add("open");
     $("#playerModal").hidden = false;
     $$("#playerBody [data-bath]").forEach((x) => (x.onclick = () => { $("#playerModal").hidden = true; show("map"); openBath(+x.dataset.bath, true); }));
-    if ($("#pOnMap")) $("#pOnMap").onclick = () => { $("#playerModal").hidden = true; playerOnMap(name); };
+    if ($("#pOnMap")) $("#pOnMap").onclick = () => { $("#playerModal").hidden = true; playerOnMap(name, year); };
+    $$("#playerBody [data-year]").forEach((x) => (x.onclick = () => openPlayer(name, +x.dataset.year)));
     const bars = $("#pBars");
     if (bars) {
       const read = $("#pBarsRead");
@@ -1693,11 +1701,11 @@
     }
   }
   // бани участника на карте (карточка участника, профиль): остальные фильтры сбрасываем, иначе можно увидеть «Ничего не нашлось»
-  function playerOnMap(name) {
+  function playerOnMap(name, year = 2026) {
     show("map"); closeBath();
     $("#q").value = ""; $("#fCountry").value = ""; $("#fPrec").value = "";
     $$("#fType button[data-t]").forEach((x) => x.setAttribute("aria-pressed", "false"));
-    $("#fPlayer").value = name; $("#fSeason").value = "2026";
+    $("#fPlayer").value = name; $("#fSeason").value = String(year);
     render(true);
   }
 
