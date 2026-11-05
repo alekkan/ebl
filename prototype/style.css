@@ -1685,14 +1685,6 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-years .linkbtn { padding: 0; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; }
 
 /* профиль: бани по годам — строкой под именем (03.11) */
-.p-years { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 13px; color: var(--ink-3); }
-.p-years > span { margin-right: 2px; }
-/* годы — кнопками (05.11): нажал — ниже бани, география и типы этого года */
-.p-years button { display: inline-flex; align-items: baseline; gap: 5px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel);
-  font: 600 12.5px var(--body); color: var(--ink-2); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color .15s var(--ease), border-color .15s var(--ease); }
-.p-years button b { font-weight: 700; color: var(--ink); }
-.p-years button[aria-pressed="true"] { border-color: var(--oak); background: var(--oak-soft); color: var(--oak-deep); }
-@media (hover: hover) { .p-years button:hover { border-color: var(--ink-3); } }
 .rate-done #rateClose { margin-top: 18px; }
 
 /* форма похода (03.11, макет «один экран»): подписи строкой, время одной строкой, длительность и цены — в строку, фото плитками */
@@ -1884,3 +1876,19 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   .blist:not(.open) .bl-all { display: block; margin-top: 10px; padding: 10px 0; border: 0; background: none; text-align: left; font: 600 14px var(--body); color: var(--oak); cursor: pointer; }
 }
 @media (max-width: 760px) { .p-head > div { min-width: 0; padding-right: 34px; } }   /* подзаголовок с ▲ не уходит под крестик */
+
+/* сезон в фильтрах телефона (05.11): «Все бани» и «Не были в 2026» — сверху, годы — строкой ниже */
+@media (max-width: 760px) {
+  .filt-sheet #fSeasonSeg { grid-auto-flow: row; grid-template-columns: repeat(4, 1fr); }
+  .filt-sheet #fSeasonSeg .wide { grid-column: span 2; }
+}
+/* профиль: годы — переключателем под шапкой, во всю ширину */
+.seg.p-years { margin: 0 28px 4px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.seg.p-years button { display: grid; justify-items: center; gap: 1px; padding: 7px 4px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.seg.p-years b { font: 700 14px var(--display); color: inherit; }
+.seg.p-years small { font-size: 11.5px; font-weight: 500; color: var(--ink-3); }
+.ybars { display: flex; align-items: flex-end; gap: 14px; height: 120px; }
+.ybars > div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.ybars i { width: 100%; max-width: 56px; border-radius: 6px 6px 2px 2px; background: var(--oak); }
+.ybars b { font: 700 14px var(--display); } .ybars span { font-size: 12px; color: var(--ink-3); }
+@media (max-width: 760px) { .seg.p-years { margin: 0 18px 4px; } }

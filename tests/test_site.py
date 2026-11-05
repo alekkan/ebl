@@ -263,6 +263,10 @@ def all_views(s, label, mobile=False):
               s.js("() => document.getElementById('fSeason').value") == yb and s.js("() => document.querySelectorAll('#list .item').length > 0") and f"в {yb}" in s.js("() => document.getElementById('count').innerText"))
         s.js("() => { const f = document.getElementById('fSeason'); f.value = 'all'; document.getElementById('fPlayer').value = ''; f.dispatchEvent(new Event('change')); }")
         s.view("table"); s.page.click("#standings tbody tr")
+        # «Всё» — за все годы: плитки «походов / разных бань», график по годам
+        s.page.click('#playerBody [data-year="all"]'); s.page.wait_for_timeout(200)
+        check(f"{label}: профиль — «Всё»: плитки за все годы и бани по годам",
+              s.js("() => /разных бань/.test(document.querySelector('#playerBody .stats').innerText) && !!document.querySelector('#playerBody .ybars') && !document.getElementById('pBars')"))
     if mobile and s.js("() => !!document.querySelector('#playerBody .bl-all')"):
         check(f"{label}: профиль на телефоне — география выше списка бань, в списке 8, остальное спрятано",
               s.js("() => { const g = [...document.querySelectorAll('#playerBody h3')].find((h) => h.textContent === 'География'), l = document.querySelector('#playerBody .blist');"
