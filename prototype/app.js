@@ -1608,7 +1608,7 @@
     const who = e.filter(([, k]) => k === n).map(([p]) => p).sort((x, y) => x.localeCompare(y, "ru"));
     return { n, who, kind: n < 2 ? "free" : who.length > 1 ? "shared" : "owner" };
   }
-  let ownMap = null, ownLayer = null, ownFree = null, ownFocus = "";
+  let ownMap = null, ownLayer = null, ownFree = null, ownFocus = "", ownAll = false;
   function initOwners() {
     if (!ownMap) {
       ownMap = L.map("ownmap", { worldCopyJump: true, zoomSnap: 0.5 }).setView([55.75, 37.6], innerWidth > 760 ? 10 : 9);
@@ -1644,7 +1644,8 @@
     const kingdoms = new Map();
     for (const [b, o] of rows) if (o.kind === "owner") kingdoms.set(o.who[0], [...(kingdoms.get(o.who[0]) || []), [b, o.n]]);
     ownLayer.clearLayers(); ownFree.clearLayers();
-    const shown = rows.filter(([, o]) => !ownFocus || o.who.includes(ownFocus));
+    // «@free» — ничьи, где я был раз: одним походом шапка моя
+    const shown = rows.filter(([b, o]) => !ownFocus || (ownFocus === "@free" ? o.kind === "free" && b.v26?.[myNick] === 1 : o.who.includes(ownFocus)));
     for (const [b, o] of shown) {
       L.marker(b.ll, { icon: ownerIcon(o), zIndexOffset: o.kind === "free" ? -1000 : o.n * 10, title: b.name, owners: o.kind === "free" ? [] : o.who })
         .bindTooltip(`<b>${esc(b.name)}</b><br>${o.kind === "free" ? "свободна — все по разу" : `${esc(o.who.join(", "))}${o.kind === "shared" ? " делят" : ""} · ${o.n} ${plural(o.n, "поход", "похода", "походов")}`}`, { direction: "top", offset: [0, -14] })
@@ -1653,31 +1654,58 @@
     }
     if (ownFocus && shown.length) ownMap.fitBounds(L.latLngBounds(shown.map(([b]) => b.ll)).pad(0.2), { maxZoom: 12, paddingTopLeft: innerWidth > 760 ? [360, 0] : [0, 0] });
     const count = (k) => rows.filter(([, o]) => o.kind === k).length;
-    $("#oSum").innerHTML = [[count("owner"), "с хозяином"], [count("shared"), "шапку делят"], [count("free"), "свободны"]]
+    $("#oSum").innerHTML = [[count("owner"), "с хозяином"], [count("shared"), "шапку делят"], [count("free"), "ничьи"]]
       .map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join("");
     $("#oMe").innerHTML = myNick ? ownMine(rows, kingdoms) : "";
     const top = [...kingdoms].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0], "ru"));
-    $("#oList").innerHTML = top.map(([p, bs]) => `<li data-owner="${esc(p)}" aria-pressed="${ownFocus === p}">${ava(p, "sm")}<span><span class="hn">${esc(p)}</span>`
-      + `<span class="hm">${bs.sort((x, y) => y[1] - x[1]).slice(0, 2).map(([b, n]) => `${esc(b.name)} · ${n}`).join(", ")}</span></span><span class="hv">${bs.length}</span></li>`).join("")
+    // нажал хозяина — под ним его шапки и кто следом; отстаёт на один — «дышит в спину» (05.11, макет)
+    const runner = (b, p) => Object.entries(b.v26 || {}).filter(([q]) => q !== p).sort((x, y) => y[1] - x[1])[0];
+    const subs = (p, bs) => {
+      const list = (ownAll ? bs : bs.slice(0, 3)).map(([b, n]) => {
+        const r = runner(b, p), close = r && n - r[1] === 1;
+        return `<li class="own-sub" data-bath="${b.id}"><span></span><span><span class="hn">${esc(b.name)}</span><span class="hm${close ? " close" : ""}">${r ? (close ? `${esc(r[0])} дышит в спину · ${r[1]}` : `следом ${esc(r[0])} · ${r[1]}`) : "больше никто не был"}</span></span><span class="hv">${n}</span></li>`;
+      }).join("");
+      return list + (!ownAll && bs.length > 3 ? `<li class="own-sub own-all"><span></span><span class="hn">все ${bs.length} ${plural(bs.length, "шапка", "шапки", "шапок")} ›</span></li>` : "");
+    };
+    $("#oList").innerHTML = top.map(([p, bs]) => { bs.sort((x, y) => y[1] - x[1]); return `<li data-owner="${esc(p)}" aria-pressed="${ownFocus === p}">${ava(p, "sm")}<span><span class="hn">${esc(p)}</span>`
+      + `<span class="hm">${bs.slice(0, 2).map(([b, n]) => `${esc(b.name)} · ${n}`).join(", ")}</span></span><span class="hv">${bs.length}</span></li>` + (ownFocus === p ? subs(p, bs) : ""); }).join("")
       || `<li><span></span><span class="hm">Пока у бань нет хозяев</span></li>`;
-    $("#oNote").textContent = `Хозяин — больше всех походов в бане за сезон, от двух. Ещё ${hidden} ${plural(hidden, "баня", "бани", "бань")} с хозяином без точной точки — их на карте нет.`;
+    $("#oNote").textContent = hidden ? `Ещё ${hidden} ${plural(hidden, "баня", "бани", "бань")} с хозяином без точной точки — их на карте нет.` : "";
   }
-  // где я хозяин и ближайшая шапка, которую можно отжать: где я уже был и до хозяина меньше всего походов
+  // «ты» (05.11, макет): сколько шапок, где отжать ближе всего (сколько ещё походов) и ничьи, где был раз — одним походом твои
   function ownMine(rows, kingdoms) {
-    const mine = kingdoms.get(myNick)?.length || 0;
-    let near = null;
+    const mine = (kingdoms.get(myNick) || []).sort((x, y) => y[1] - x[1]);
+    const grab = [];
+    let free = 0;
     for (const [b, o] of rows) {
       const k = b.v26?.[myNick] || 0;
-      if (!k || (o.kind === "owner" && o.who[0] === myNick)) continue;
-      const need = Math.max(2, o.n + 1) - k;
-      if (!near || need < near.need) near = { b, o, need };
+      if (!k) continue;
+      if (o.kind === "free") { if (k === 1) free++; continue; }
+      if (o.kind === "owner" && o.who[0] === myNick) continue;
+      grab.push({ b, o, k, need: Math.max(2, o.n + 1) - k });
     }
-    return `<b>${mine ? `Ты хозяин ${mine} ${plural(mine, "бани", "бань", "бань")}` : "Ты пока не хозяин ни одной бани"}</b>`
-      + (near ? `<span>Ближе всего — «${esc(near.b.name)}»${near.o.kind === "owner" ? ` у ${esc(near.o.who[0])}` : ""}: ещё ${near.need} ${plural(near.need, "поход", "похода", "походов")}</span>` : "");
+    grab.sort((x, y) => x.need - y.need || y.o.n - x.o.n || x.b.name.localeCompare(y.b.name, "ru"));
+    const stack = (who) => `<span class="own-stack">${who.filter((p) => p !== myNick).slice(0, 2).map((p) => ava(p, "sm")).join("")}</span>`;
+    const whose = (g) => g.o.who.includes(myNick) ? `делишь с ${g.o.who.filter((p) => p !== myNick).map(esc).join(", ")} · по ${g.o.n}`
+      : `у ${g.o.who.map(esc).join(" и ")} ${g.o.who.length > 1 ? "по " : ""}${g.o.n} · у тебя ${g.k}`;
+    return `<button type="button" class="own-mine" data-focus="${esc(myNick)}">${ava(myNick, "")}<span class="om-t"><b>${mine.length ? `Ты хозяин ${mine.length} ${plural(mine.length, "бани", "бань", "бань")}` : "Ты пока не хозяин ни одной бани"}</b>`
+      + `${mine.length ? `<small>${mine.slice(0, 2).map(([b, n]) => `${esc(b.name)} ${n}`).join(" · ")}${mine.length > 2 ? ` · ещё ${mine.length - 2}` : ""}</small>` : ""}</span>${mine.length ? "<em>на карте</em>" : ""}</button>`
+      + (grab.length ? `<h3 class="own-h">Отжать шапку<small>сколько ещё походов</small></h3><ol class="own-list own-grab">${grab.slice(0, 3).map((g) => `<li data-bath="${g.b.id}">${stack(g.o.who)}<span><span class="hn">${esc(g.b.name)}</span><span class="hm">${whose(g)}</span></span><span class="hv need">+${g.need}</span></li>`).join("")}</ol>` : "")
+      + (free ? `<button type="button" class="own-nobody" data-focus="@free"><b>${free}</b><span><span class="hn">Ничьи — одним походом твои</span><span class="hm">ты был раз, хозяина нет</span></span><em>на карте</em></button>` : "");
   }
+  // баня из «Отжать» или из шапок хозяина — её карточка; «все N шапок» — список целиком; «на карте» — свои шапки или ничьи
+  $("#view-owners .own-card").addEventListener("click", (e) => {
+    const bl = e.target.closest("li[data-bath]"); if (bl) { show("map"); openBath(+bl.dataset.bath, true); return; }
+    if (e.target.closest(".own-all")) { ownAll = true; renderOwners(); return; }
+    const f = e.target.closest("[data-focus]"); if (!f) return;
+    ownFocus = ownFocus === f.dataset.focus ? "" : f.dataset.focus; ownAll = false;
+    if (!ownFocus) ownMap.setView([55.75, 37.6], innerWidth > 760 ? 10 : 9);
+    renderOwners();
+  });
   $("#oList").addEventListener("click", (e) => {
+    if (e.target.closest("li[data-bath], .own-all")) return;
     const li = e.target.closest("li[data-owner]"); if (!li) return;
-    ownFocus = ownFocus === li.dataset.owner ? "" : li.dataset.owner;
+    ownFocus = ownFocus === li.dataset.owner ? "" : li.dataset.owner; ownAll = false;
     if (!ownFocus) ownMap.setView([55.75, 37.6], innerWidth > 760 ? 10 : 9);
     renderOwners();
   });

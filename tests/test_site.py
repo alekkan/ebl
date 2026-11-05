@@ -546,6 +546,11 @@ with sync_playwright() as pw:
         owned = int(s.js("() => document.querySelector('#oList li[data-owner] .hv').innerText"))
         s.page.click("#oList li[data-owner]"); s.page.wait_for_timeout(500)
         check("нажал на хозяина — на карте только его бани", owned <= pins() < before_pins, (owned, pins(), before_pins))
+        # 05.11 (макет): у выбранного хозяина — его шапки списком, у каждой — кто следом; правило — сверху
+        check("нажал на хозяина — под ним его шапки и кто следом", s.js("() => document.querySelectorAll('#oList li.own-sub[data-bath]').length >= 1 && /следом|дышит в спину|больше никто/.test(document.querySelector('#oList li.own-sub').innerText)"))
+        check("правило шапки — сверху карточки, а не внизу", s.js("() => /Шапка — у кого больше всех походов/.test(document.querySelector('.own-rule').innerText)"))
+        if s.js("() => !!document.querySelector('.own-grab li[data-bath]')"):
+            check("«Отжать шапку»: у каждой бани — сколько ещё походов", s.js("() => [...document.querySelectorAll('.own-grab .hv')].every((x) => /^\\+\\d+$/.test(x.innerText))"))
         check("участнику (не Комиссии) вкладки «Бани» нет", s.js("() => document.querySelector('.nav [data-view=\"dir\"]').hidden"))
         # поход через форму: баня из справочника + попутчик
         s.page.click("#addVisitBtn")
