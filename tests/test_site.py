@@ -1064,7 +1064,7 @@ with sync_playwright() as pw:
         check("карточка: «Пары и часы работы» — часы с сайта по дням и санитарный день, а не «Пока никто не указал»",
               s.js("() => { const t = document.getElementById('dSched').innerText; return /пн–вс/.test(t) && /8–22/.test(t) && /санитарный день/.test(t) && /по сайту бани/.test(t) && !/Пока никто не указал/.test(t); }"))
         check("карточка: «Позвонить» — первый номер, под кнопками — все номера",
-              s.js("() => document.getElementById('dCall').getAttribute('href') === 'tel:+74951234567' && /\\+7 900/.test(document.getElementById('dPhone').innerText)"))
+              s.js("() => document.getElementById('dCall').getAttribute('href') === 'tel:+74951234567' && /\\+7 \\(495\\) 123-45-67/.test(document.getElementById('dPhone').innerText) && /\\+7 900/.test(document.getElementById('dPhone').innerText)"))
         check("часы из сверки есть — форма пар их не спрашивает", s.js("() => document.getElementById('shOpen').textContent === '+ Указать пары'"))
         s.page.click("#shOpen"); s.page.click("#shHoursEdit")
         check("…а «изменить часы работы» в форме открывает поля часов", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden"))
