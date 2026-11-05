@@ -1614,7 +1614,10 @@
   const ownCard = $("#ownCard");
   let ownSheet = "half";
   const ownY = (st) => {
-    const h = $("#view-owners").clientHeight - ownCard.offsetTop, peek = $("h2", ownCard).offsetTop + $("h2", ownCard).offsetHeight + 6;
+    // низ вида уходит под нижнее меню — свёрнутая шторка поднимается на его высоту, чтобы заголовок не прятался за меню
+    const v = $("#view-owners").getBoundingClientRect(), nav = $(".nav").getBoundingClientRect();
+    const under = nav.height && nav.top < v.bottom ? v.bottom - nav.top : 0;
+    const h = $("#view-owners").clientHeight - ownCard.offsetTop - under, peek = $("h2", ownCard).offsetTop + $("h2", ownCard).offsetHeight + 6;
     return st === "full" ? 0 : st === "half" ? Math.round(h * 0.5) : Math.max(0, h - peek);
   };
   function setOwnSheet(st) {
