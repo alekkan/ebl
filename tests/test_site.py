@@ -978,10 +978,10 @@ with sync_playwright() as pw:
         other = sql("select id from baths where status = 'ok' and name <> 'Василевские' order by id limit 1")
         own_b = sql(f"select id from baths where status = 'ok' and name <> 'Василевские' and id <> {other} order by id limit 1")
         own_was = sql(f"select coalesce(lat::text, 'null') || ',' || coalesce(lng::text, 'null') || ',' || coalesce(quote_literal(precision), 'null') from baths where id = {own_b}")
-        sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, match_why, bin, website, hours, gender_days, price, price_src, place_status, is_public, note, amenities) values
-              ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22', 'мужские пн, ср (по 2ГИС)', '1500 ₽ — билет на 3 часа; 2000 ₽ — в выходные; 22400 ₽ — кабина на 6 мест', 'https://zoon.ru/msk/sauna/test/', 'open', true, 'Точка из 2ГИС', '["купель", "веники"]'),
-              ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]'),
-              ('test', {own_b}, 'Тестовая баня для своей точки', null, null, null, null, 20, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]')""")
+        sql(f"""insert into catalog_proposals (run, bath_id, found_name, address, lat, lng, point_src, match, match_why, bin, website, hours, gender_days, price, price_src, place_status, is_public, note, amenities, phone) values
+              ('test', {cb_id}, 'Тестовые бани сверки', 'ул. Пара, 2', 55.7, 37.55, '2gis', 95, 'адрес совпал в 2ГИС и на сайте', 'new', 'https://example.org', 'ежедневно 8–22; третий понедельник — санитарный день', 'мужские пн, ср (по 2ГИС)', '1500 ₽ — билет на 3 часа; 2000 ₽ — в выходные; 22400 ₽ — кабина на 6 мест', 'https://zoon.ru/msk/sauna/test/', 'open', true, 'Точка из 2ГИС', '["купель", "веники"]', '+7 (495) 123-45-67, +7 900 000-00-00'),
+              ('test', {other}, 'Тестовая неизвестная баня', null, null, null, null, 30, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]', null),
+              ('test', {own_b}, 'Тестовая баня для своей точки', null, null, null, null, 20, 'не нашли', 'notfound', null, null, null, null, null, 'unknown', null, 'Спросить у участников', '[]', null)""")
         c_sure, c_doubt = (sql(f"select id from catalog_proposals where run = 'test' and bath_id = {b}") for b in (cb_id, other))
         # обратный ход (20.10): у нас хуитнес, по факту — общественная → вкладка «Тип»
         spa_b = sql("insert into baths (name, type, lat, lng, precision, status, country, region) values ('Тестовый хуитнес сверки', 'spa', 55.71, 37.51, 'city', 'ok', 'Россия', 'Москва') returning id").splitlines()[0]
@@ -1058,8 +1058,13 @@ with sync_playwright() as pw:
         check("карточка: принятое в сверке — на своих местах: адрес вместо региона, «Сегодня 8–22», дни без пояснений агента, плашки, карты и сайт",
               s.js("""() => { const i = document.getElementById('dInfo').innerText; return /ул. Пара, 2/.test(document.querySelector('#drawer .where').innerText)
                 && document.getElementById('dTodayV').innerText === '8–22' && /мужские пн, ср/.test(i) && !/по 2ГИС/.test(i) && document.querySelectorAll('#dInfo .d-tags span').length === 2
-                && [...document.querySelectorAll('#drawer .d-acts a')].filter((a) => !a.hidden).length === 3 && !document.getElementById('dSite').hidden
+                && [...document.querySelectorAll('#drawer .d-acts a')].filter((a) => !a.hidden).length === 4 && !document.getElementById('dSite').hidden
                 && document.getElementById('dWeek').hidden; }"""))
+        # 05.11: внизу «Пары и часы работы» — часы с сайта по дням и заметка, а не «Пока никто не указал»; «Позвонить» — первый номер
+        check("карточка: «Пары и часы работы» — часы с сайта по дням и санитарный день, а не «Пока никто не указал»",
+              s.js("() => { const t = document.getElementById('dSched').innerText; return /пн–вс/.test(t) && /8–22/.test(t) && /санитарный день/.test(t) && /по сайту бани/.test(t) && !/Пока никто не указал/.test(t); }"))
+        check("карточка: «Позвонить» — первый номер, под кнопками — все номера",
+              s.js("() => document.getElementById('dCall').getAttribute('href') === 'tel:+74951234567' && /\\+7 900/.test(document.getElementById('dPhone').innerText)"))
         check("часы из сверки есть — форма пар их не спрашивает", s.js("() => document.getElementById('shOpen').textContent === '+ Указать пары'"))
         s.page.click("#shOpen"); s.page.click("#shHoursEdit")
         check("…а «изменить часы работы» в форме открывает поля часов", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden"))
