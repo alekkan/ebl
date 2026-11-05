@@ -1043,7 +1043,13 @@ tr.below { color: var(--ink-2); }
     transition: height .28s var(--ease), transform .28s var(--ease); }
   .drawer.full { height: calc(100% - 12px); }   /* потянул вверх — карточка на весь экран (18.10) */
   .drawer.dragging { transition: none; }
-  .drawer .d-grab { position: absolute; top: 0; left: 0; right: 0; height: 22px; z-index: 2; background: var(--panel); border-radius: 24px 24px 0 0; }   /* непрозрачная: прокрученный текст уходит под неё, а не просвечивает (05.11) */
+  /* непрозрачная: прокрученный текст уходит под неё, а не просвечивает; цвет — как верх шапки карточки (её --tint), иначе
+     над зелёной шапкой белая полоса (05.11) */
+  .drawer .d-grab { position: absolute; top: 0; left: 0; right: 0; height: 22px; z-index: 2; background: var(--grab-tint, var(--panel)); border-radius: 24px 24px 0 0; }
+  .drawer[data-t="public"] { --grab-tint: var(--oak-soft); }
+  .drawer[data-t="spa"] { --grab-tint: color-mix(in srgb, var(--t-spa) 14%, var(--panel)); }
+  .drawer[data-t="private"] { --grab-tint: var(--honey-soft); }
+  .drawer[data-t="unknown"] { --grab-tint: var(--panel-2); }
 
   .page { padding-inline: 16px; }
   .podium { gap: 8px; }
@@ -1937,3 +1943,12 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .chips.types .dot.uu-chip { background: none; color: var(--uu); }   /* на чипе — эмблема общественной, фиолетовая, как точки УУ */
 .uu-facts { margin: -12px 2px 0; }   /* строка под индексом: «никто из лиги ещё не был · билет на человека» */
 .d-key.two { padding: 12px 14px; }
+/* шторка карточки на телефоне (05.11): ручка уже — 14 px, шапка сразу под ней, под ручкой — ровный цвет шапки (без шва);
+   текст ближе к верху, крестик и карандаш — на одной линии с типом бани */
+@media (max-width: 760px) {
+  .drawer .d-grab { height: 14px; }
+  .drawer .d-grab i { margin-top: 2px; }
+  .drawer .d-hero { padding-top: 14px; background: linear-gradient(180deg, var(--tint), var(--tint) 14px, transparent 92%); }
+  .drawer > .x { top: 10px; }
+  .d-edit { top: 50px; }
+}
