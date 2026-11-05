@@ -1338,6 +1338,9 @@
     else if (phone.matches) map.panTo(aboveCard([p.lat, p.lng], map.getZoom()), { animate: !calm });
     const q = encodeURIComponent(`${p.name} ${p.city || ""}`.trim());
     const facts = [p.gender && "мужское и женское отделения", p.ticket && "билет на человека"].filter(Boolean);
+    // вход — только число с валютой из примера цены («от 293 ₽»), а не текст агента; город — к адресу, если его там нет
+    const price = String(p.price || "").match(/(?:от\s*)?\d[\d\s]*(?:[.,]\d+)?\s*(?:₽|руб\.?|р\.)/i)?.[0].replace(/руб\.?|р\./i, "₽").replace(/\s+/g, " ").trim();
+    const addr = p.address && p.city && !p.address.includes(p.city) ? `${p.city}, ${p.address}` : p.address || [p.city, p.region].filter(Boolean).join(", ");
     d.innerHTML = `
       <button type="button" class="grab d-grab" aria-label="Развернуть карточку на весь экран"><i></i></button>
       <button class="x" aria-label="Закрыть">${icon("close")}</button>
@@ -1345,13 +1348,13 @@
         <div class="d-hero t-public">
           <div class="d-meta"><span class="t">${tdot("public")}${TYPE_LABEL.public}</span><span class="flag uu-flag">✦ никто из лиги не был</span></div>
           <h2>${esc(p.name)}</h2>
-          <p class="where">${icon("pin")}<span>${esc(p.address || [p.city, p.region].filter(Boolean).join(", "))}</span></p>
+          <p class="where">${icon("pin")}<span>${esc(addr)}</span></p>
         </div>
         <section class="d-main">
           ${idxMeter(p.index, true)}
           ${facts.length ? `<p class="hint" style="margin:8px 2px 0">${facts.join(" · ")}</p>` : ""}
           <div class="d-key two">
-            <div class="d-k"><span class="k-l">Вход</span><b>${p.price ? esc(String(p.price).replace(/\s*\([^)]*\)/g, "").split(/[;«]/)[0].trim().slice(0, 24)) : "—"}</b><small>${p.price ? "по картам и отзывам" : "не знаем"}</small></div>
+            <div class="d-k"><span class="k-l">Вход</span><b>${price ? esc(price) : "—"}</b><small>${price ? "по картам и отзывам" : "пока не знаем"}</small></div>
             <div class="d-k uu-pts"><span class="k-l">Первый поход</span><b>+4 очка</b><small>поход, уникальная, ультра, общественная</small></div>
           </div>
         </section>
