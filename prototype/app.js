@@ -2133,10 +2133,15 @@
   $("#vBathQ").addEventListener("input", () => {
     const raw = $("#vBathQ").value.trim(), q = raw.toLowerCase(), sg = $("#vSuggest");
     if (q.length < 2) { sg.hidden = true; return; }
-    const hits = baths.filter((b) => !b.closed_on && b.search.includes(q)).sort((a, b) => b.n26 - a.n26).slice(0, 7);   // закрытые не предлагаем
+    // сначала совпало начало названия, потом название, потом только город («Ва» — Василевские раньше бань Москвы)
+    const rank = (b) => { const n = b.name.toLowerCase(); return n.startsWith(q) || n.includes(" " + q) ? 0 : n.includes(q) ? 1 : 2; };
+    const hits = baths.filter((b) => !b.closed_on && b.search.includes(q)).sort((a, b) => rank(a) - rank(b) || b.n26 - a.n26).slice(0, 7);   // закрытые не предлагаем
     sg.innerHTML = hits.map((b) => `<button type="button" data-id="${b.id}"><span class="sn">${tdot(b.t)}${esc(b.name)}</span><small>${esc(b.region || b.country || "")}</small></button>`).join("") +
       `<button type="button" data-new="1"><span class="sn new">${icon("plus")}Новая баня «${esc(raw)}»</span><small>нет в справочнике</small></button>`;
+    const was = sg.hidden;
     sg.hidden = false;
+    // на телефоне с клавиатурой места мало: строку — к верху формы, подсказки под ней, а не под кнопкой «Отправить»
+    if (was && innerWidth <= 760) $("#vBathBox").scrollIntoView({ block: "start", behavior: "auto" });
   });
   $("#vSuggest").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
