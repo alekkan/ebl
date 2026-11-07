@@ -1048,7 +1048,7 @@ tr.below { color: var(--ink-2); }
   .filters { display: contents; }
   .filters > * { margin: 0 16px 10px; }
   .panel > *, .filters > * { flex-shrink: 0; }   /* шторка ниже содержимого: иначе строка типов (прокрутка вбок) сжималась в ноль */
-  .searchbox { order: 1; } .chips.types { order: 3; } .filt-more { order: 4; }
+  .panel .searchbox { order: 1; } .chips.types { order: 3; } .filt-more { order: 4; }   /* только в шторке карты: в форме похода строка ушла бы под подсказки (07.11) */
   .countrow { order: 5; } .pot-note { order: 6; }
   .list { order: 7; flex: none; overflow: visible; padding-bottom: 16px; }
   .panel-head { order: 8; padding: 14px 16px 20px; border-top: 1px solid var(--line); background: none; }

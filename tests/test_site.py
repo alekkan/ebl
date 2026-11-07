@@ -1398,6 +1398,16 @@ with sync_playwright() as pw:
         check("участник на телефоне: аватарка видна (не белая точка)",
               s.js("() => { const a = document.querySelector('#meBtn .ava'); return !!a && a.getBoundingClientRect().width >= 24; }"))
         all_views(s, "участник на телефоне", mobile=True)
+        # 07.11 (отзыв из ОУД): с клавиатурой строка поиска бани уезжала под подсказки и за «Отправить» — не видно, что набираешь
+        s.page.set_viewport_size({"width": 375, "height": 520})   # экран с открытой клавиатурой
+        s.page.click("#addVisitBtn"); s.page.wait_for_function("() => !document.getElementById('visitModal').hidden", timeout=5000)
+        s.page.fill("#vBathQ", "Ва"); s.page.wait_for_timeout(300)
+        got = s.js("""() => { const r = (e) => document.querySelector(e).getBoundingClientRect(), i = r('#vBathBox'), g = r('#vSuggest'), f = r('.visit-side');
+          return { above: i.bottom <= g.top, seen: i.top >= 0 && i.bottom <= f.top, first: document.querySelector('#vSuggest .sn')?.textContent || '' }; }""")
+        check("форма похода с клавиатурой: строка поиска видна и над подсказками, первыми — бани с «Ва» в названии",
+              got["above"] and got["seen"] and got["first"].lower().startswith("ва"), got)
+        s.page.click("#visitModal [data-close]"); s.page.wait_for_timeout(300)
+        s.page.set_viewport_size({"width": 375, "height": 812})
         # 18.10: профиль — быстрые действия вместо пустого окна
         s.page.click("#meBtn"); s.page.wait_for_timeout(300)
         check("профиль: мой сезон, мои бани на карте, мои походы в ленте", s.js("() => ['myProfile', 'myMap', 'myFeed', 'logoutBtn'].every((id) => !!document.getElementById(id))"))
