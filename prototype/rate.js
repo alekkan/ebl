@@ -61,7 +61,7 @@
   if (!f) return say("Поход не найден", "Возможно, его удалили. Самые свежие ссылки — в личке у бота ЕБЛ.");
   if (!f.allowed) {
     const why = { login: bathId ? 'Оценивают участники лиги — <a href="./">войди на сайте</a> и открой баню ещё раз.' : "Открой ссылку «⭐ Оценить» из личных сообщений бота ЕБЛ — она сама тебя впустит.",
-      stranger: "Оценивает тот, кто был в этом походе.", pending: "Поход ещё ждёт Комиссию — оценить можно после «засчитано».",
+      stranger: "Оценивает тот, кто был в этом походе.", rejected: "Комиссия отклонила этот поход — оценить его нельзя.",
       old: "Рейтинг собираем с недавних походов." }[f.why] || "";
     return say(f.name, why);
   }
@@ -182,7 +182,9 @@
       myRv = r; $("#rateText", body).value = r.text || ""; $("#rateRvNote", body).textContent = "твой прошлый — можно поправить";
     }).catch(() => {});
     lastPrice().then((p) => { if (p) $("#ratePrev", body).textContent = `по желанию · в прошлый раз ${money(p.price)} ${curSign(p.currency)}`; else $("#ratePrev", body).textContent = "по желанию"; });
-    const done = () => say("Готово, спасибо!", `Оценка уже в рейтинге бани <b class="nw">«${esc(f.name)}»</b>.`, true, [`./#bath=${f.bath}`, "Открыть баню на карте"]);
+    // поход ещё на проверке (08.11) — оценка и отзыв ждут «засчитано», до этого их видит только автор
+    const done = () => say("Готово, спасибо!", f.held ? `Оценка и отзыв появятся у бани <b class="nw">«${esc(f.name)}»</b>, когда Комиссия засчитает поход.`
+      : `Оценка уже в рейтинге бани <b class="nw">«${esc(f.name)}»</b>.`, true, [`./#bath=${f.bath}`, "Открыть баню на карте"]);
     $("#rateMore", body).onclick = (e) => { const x = $("#rateExtra", body); x.hidden = !x.hidden; e.currentTarget.setAttribute("aria-expanded", String(!x.hidden)); };
     $$("#rateWeekend [data-w]", body).forEach((b) => (b.onclick = () => {
       weekend = b.dataset.w === "" ? null : b.dataset.w === "1";
@@ -205,8 +207,10 @@
         if (price) await D.submitBathPrice(f.bath, round(price), cur, dur || null, weekend, before);
         if (beer) await D.submitBeerPrice(f.bath, round(beer), cur);
         const stars = Math.min(5, Math.max(1, Math.round(overall)));
-        if (myRv && text && text !== myRv.text) await D.updateReview(myRv.id, stars, text);
-        else if (!myRv && text) await D.addReview(f.bath, f.player, stars, text);
+        // на проверке прежний (уже видный всем) отзыв не правим — новый текст ждёт решения Комиссии отдельным отзывом
+        const own = myRv && (!f.held || myRv.visit_id === visit);
+        if (own && text && text !== myRv.text) await D.updateReview(myRv.id, stars, text);
+        else if (text && (!myRv || text !== myRv.text)) await D.addReview(f.bath, f.player, stars, text, f.held ? visit : null);
         if (photos.length) {
           const items = [];
           for (const p of photos.slice(0, 10)) { try { items.push({ big: await shrink(p, 1600), small: await shrink(p, 400) }); } catch { /* не открылось */ } }

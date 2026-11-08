@@ -578,9 +578,29 @@ check("чужой поход не оценить", req("POST", "/rest/v1/rpc/rat
 rv3 = rvisit("2026-10-20T18:00:00+03")
 check("поход раньше рейтинга (до 01.11) не оценивается и в очередь не встаёт",
       req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv3, "p_scores": S()}, token=shurik)[0] >= 400 and sql(f"select count(*) from rating_asks where visit_id = {rv3}") == "0")
+# 08.11: поход на проверке оценить можно сразу — но до «засчитано» оценку и отзыв видит только автор
 rv4 = rvisit("2026-11-01T21:00:00+03", status="pending")
+check("поход на проверке — в очереди «оцени баню» сразу", sql(f"select count(*) from rating_asks where visit_id = {rv4}") == "1")
 f4 = req("POST", "/rest/v1/rpc/rating_form", {"p_visit": rv4}, token=shurik)[1]
-check("поход на модерации — форма говорит «ждёт Комиссию»", f4 and not f4["allowed"] and f4["why"] == "pending", f4)
+check("поход на проверке — форма открыта, с пометкой «после проверки»", f4 and f4["allowed"] and f4["held"], f4)
+s4, o4 = req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv4, "p_scores": S(stove=1, steam=1)}, token=shurik)
+held_rows = lambda tok=None: len(req("GET", f"/rest/v1/bath_ratings?select=id&visit_id=eq.{rv4}", token=tok)[1] or [])
+check("…оценка принята; гостю и другим не видна, автору — видна; в рейтинг бани не идёт",
+      s4 == 200 and held_rows() == 0 and held_rows(vitek) == 0 and held_rows(shurik) == 1
+      and (req("POST", "/rest/v1/rpc/bath_rating_all", {})[1].get(str(rb)) or {}).get("n") == 1, (s4, o4))
+sql(f"insert into reviews (bath_id, player_id, rating, text, visit_id) values ({rb}, (select id from players where nick = 'Шурик'), 2, 'Отзыв на проверке', {rv4})")
+held_rv = lambda tok=None: "Отзыв на проверке" in json.dumps(req("GET", f"/rest/v1/reviews?select=text&bath_id=eq.{rb}", token=tok)[1], ensure_ascii=False)
+check("…отзыв к походу на проверке: гостю не виден (и в boot_public), автору — виден",
+      not held_rv() and held_rv(shurik) and "Отзыв на проверке" not in json.dumps(req("POST", "/rest/v1/rpc/boot_public", {})[1].get("reviews"), ensure_ascii=False))
+sql(f"update visits set status = 'ok' where id = {rv4}")
+check("…засчитали — оценка и отзыв видны всем, в рейтинге бани две оценки", held_rows() == 1 and held_rv()
+      and (req("POST", "/rest/v1/rpc/bath_rating_all", {})[1].get(str(rb)) or {}).get("n") == 2)
+sql(f"update visits set status = 'rejected' where id = {rv4}")
+check("…отклонили — оценка, отзыв и просьба оценить удалены; отклонённый поход не оценить",
+      sql(f"select count(*) from bath_ratings where visit_id = {rv4}") == "0" and sql(f"select count(*) from reviews where visit_id = {rv4}") == "0"
+      and sql(f"select count(*) from rating_asks where visit_id = {rv4}") == "0"
+      and req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv4, "p_scores": S()}, token=shurik)[0] >= 400
+      and req("POST", "/rest/v1/rpc/rating_form", {"p_visit": rv4}, token=shurik)[1]["why"] == "rejected")
 req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv2, "p_scores": S(stove=2)}, token=vitek)
 rv5 = rvisit("2026-11-02T18:00:00+03")
 req("POST", "/rest/v1/rpc/rate_visit", {"p_visit": rv5, "p_scores": S(stove=3, steam=3, prices=3)}, token=shurik)

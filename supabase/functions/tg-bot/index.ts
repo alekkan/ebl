@@ -1278,15 +1278,15 @@ function searchNear(b: Any): { near: { lat: number; lng: number } | null; maxKm:
   return { near: { lat: b.lat, lng: b.lng }, maxKm: { city: 80, region: 400 }[b.precision as string] ?? 400 };
 }
 
-// ---------- рейтинг бани: «оцени баню» после «засчитано» (01.11, docs/bot.md) ----------
-// Очередь rating_asks ставит база (триггер на «засчитано»); cron днём каждые 10 минут → ?rateasks=1. Приглашение, потом
+// ---------- рейтинг бани: «оцени баню» сразу после похода (01.11, с 08.11 — не дожидаясь «засчитано»; docs/bot.md) ----------
+// Очередь rating_asks ставит база (триггер на новый поход); оценка похода на проверке видна после «засчитано»; cron днём каждые 10 минут → ?rateasks=1. Приглашение, потом
 // напоминания через 3 и через 12 часов; оценил — больше не пишем. Ночью cron молчит — отложенное уйдёт утром
 const RATE_NEXT = [3 * 3600e3, 12 * 3600e3];
 // кнопка — личная ссылка на лёгкую страницу оценки (01.11: мини-приложение грузило весь сайт и было медленным): ключ
 // приглашения в ссылке сам входит на сайт под этим человеком (tg-login ?rate, 7 дней); открывается в браузере Telegram
 const rateUrl = (token: string) => `${SITE.replace(/\/?(#.*)?$/, "/")}rate.html?t=${token}`;
 async function rateAsks(): Promise<number> {
-  const { data: rows } = await sb.from("rating_asks").select("visit_id, player_id, stage, token, visits(baths(name))")
+  const { data: rows } = await sb.from("rating_asks").select("visit_id, player_id, stage, token, visits(status, baths(name))")
     .eq("done", false).lt("stage", 3).lte("next_at", new Date().toISOString()).limit(50);
   if (!rows?.length) return 0;
   const visitIds = [...new Set(rows.map((r: Any) => r.visit_id))], playerIds = [...new Set(rows.map((r: Any) => r.player_id))];
@@ -1308,6 +1308,7 @@ async function rateAsks(): Promise<number> {
     const name = esc(r.visits?.baths?.name ?? "баню");
     const text = r.stage === 0
       ? `⭐ Оцени баню <b>${name}</b>: печь, пар, аквазона, выход на улицу, кухня, атмосфера, сервис, цены — по пять веников. Минута, а лиге — рейтинг бань.`
+        + (r.visits?.status === "pending" ? " В рейтинг оценка попадёт, когда Комиссия засчитает поход." : "")
       : `Напоминаю: оцени <b>${name}</b> — минута, восемь пунктов.`;
     const m = await tg("sendMessage", { chat_id: tgId, text, parse_mode: "HTML", disable_web_page_preview: true,
       reply_markup: { inline_keyboard: [[{ text: "⭐ Оценить", url: rateUrl(r.token) }]] } });
