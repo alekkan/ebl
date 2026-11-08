@@ -706,6 +706,16 @@ with sync_playwright() as pw:
         s.page.click("#dFeedback .review.mine [data-rvmenu]"); s.page.click("#dFeedback .review.mine [data-rvdel]"); s.page.wait_for_timeout(900)
         check("свой отзыв можно удалить — оценка остаётся", sql(my_reviews) == "1", sql(my_reviews))
         sql(f"delete from reviews where bath_id = {bath} and text like '%— проверка сайта'"); sql(f"delete from bath_ratings where bath_id = {bath} and visit_id is null")
+        # 08.11 (Леха): новая оценка без текста пряталась под отзывом недельной давности — теперь отдельно, со своей датой
+        sql(f"insert into reviews (bath_id, player_id, rating, text, created_at) values ({bath}, '{shurik_id}', 5, 'Старый отзыв — проверка сайта', now() - interval '6 days')")
+        sql(f"insert into bath_ratings (visit_id, bath_id, player_id, stove, steam, aqua, outdoor, kitchen, atmosphere, service, prices) values (null, {bath}, '{shurik_id}', 3, 3, 3, 3, 3, 3, 3, 3)")
+        s.page.reload(); s.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+        s.view("map"); s.page.fill("#q", "Василевские"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{bath}"]'); s.page.wait_for_function("() => /оценка без отзыва/.test(document.getElementById('dFeedback')?.innerText || '')", timeout=8000)
+        mine = s.js("() => [...document.querySelectorAll('#dFeedback .review.mine')].map((x) => x.innerText.replace(/\\s+/g, ' '))")
+        check("свежая оценка без текста — отдельной записью («оценка без отзыва», 3), старый отзыв — своей записью со своей «звездой» (5)",
+              len(mine) == 2 and any("оценка без отзыва" in m and "3" in m for m in mine) and any("Старый отзыв" in m and "5" in m and "оценка без отзыва" not in m for m in mine), mine)
+        sql(f"delete from reviews where bath_id = {bath} and text like '%— проверка сайта'"); sql(f"delete from bath_ratings where bath_id = {bath} and visit_id is null")
         # цена: новая запись, повтор той же цены не дублирует, другая цена — новая строка (история, не перезапись)
         price_rows = f"select count(*) from bath_prices where bath_id = {bath}"
         s.page.click("#prOpen")   # дальше форма остаётся открытой, пока карточка та же
@@ -1252,6 +1262,8 @@ with sync_playwright() as pw:
         s.page.fill("#rateText", "Вторая версия отзыва"); s.page.click("#rateRv button[type=submit]"); s.page.wait_for_selector("#rateBody .rate-done a", timeout=8000)
         check("…сохранение правит отзыв, а не пишет второй; оценка новая",
               rv_ib() == "1:Вторая версия отзыва" and sql(f"select overall from bath_ratings where bath_id = {ib} and visit_id is null") == "5.00", rv_ib())
+        check("…правка отзыва освежает его дату — он идёт вместе с новой оценкой",
+              sql(f"select count(*) from reviews where bath_id = {ib} and created_at > now() - interval '5 minutes'") == "1")
         s.close()
         s = Site(browser, url + f"#bath={ib}", name="rate-invite-guest"); s.page.wait_for_selector("#drawer:not([hidden])", timeout=8000); s.page.wait_for_timeout(800)
         check("гостю приглашения нет", s.js("() => !document.querySelector('#dRateInvite .rate-invite')"))

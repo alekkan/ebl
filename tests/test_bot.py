@@ -1219,7 +1219,15 @@ sql(f"delete from visit_players where visit_id = {rtv} and player_id = (select i
 check("убрали человека из похода — его просьбы оценить больше нет (бот не напомнит)",
       sql(f"select count(*) from rating_asks where visit_id = {rtv} and player_id = (select id from players where nick = 'Леха')") == "0"
       and sql(f"select count(*) from rating_asks where visit_id = {rtv} and player_id = (select id from players where nick = 'Шурик')") == "1")
-sql(f"delete from visits where id = {rtv}"); sql(f"delete from baths where id = {rtb}"); sql("delete from player_accounts where tg_id = 909")
+# 08.11: поход ещё на проверке — бот зовёт оценить сразу, с пометкой, что в рейтинг попадёт после «засчитано»
+rpv = sql(f"insert into visits (bath_id, entered_at, duration_min, status, created_by, source) select {rtb}, now(), 120, 'pending', id, 'bot' from players where nick = 'Шурик' returning id").splitlines()[0]
+sql(f"insert into visit_players (visit_id, player_id) select {rpv}, id from players where nick = 'Шурик'")
+seen = len(TELEGRAM.calls); rate_run(); qp = rdm(seen, 909)
+check("поход на проверке — «оцени баню» сразу, «в рейтинг — когда Комиссия засчитает»",
+      len(qp) == 1 and "засчитает" in qp[0]["text"], qp)
+sql(f"update visits set status = 'rejected' where id = {rpv}")
+check("…отклонили поход — просьба оценить снята", sql(f"select count(*) from rating_asks where visit_id = {rpv}") == "0")
+sql(f"delete from visits where id in ({rtv}, {rpv})"); sql(f"delete from baths where id = {rtb}"); sql("delete from player_accounts where tg_id = 909")
 
 print("Действия бота по просьбе владельца (bot_actions)")
 from local import TELEGRAM

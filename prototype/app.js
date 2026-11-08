@@ -1022,12 +1022,19 @@
   const ratingsBy = new Map();   // баня → последние оценки по людям; грузим при открытии карточки
   const nickById = Object.fromEntries(Object.entries(data.playerIds || {}).map(([n, i]) => [i, n]));
   const timesIn = (b, nick) => (b?.v26?.[nick] || 0) + Object.values(b?.histBy || {}).reduce((a, y) => a + (y[nick] || 0), 0);
+  // отзыв написан за тот же заход, что и оценка: страница оценки сохраняет их одной кнопкой, правка отзыва освежает его дату
+  const together = (rv, r) => !!rv?.at && Math.abs(Date.parse(rv.at) - Date.parse(r.updated_at)) < 2 * 3600e3;
   const FB_SHOW = 3;   // сколько записей видно сразу; остальные — «Показать все N»
   function feedbackHtml(id) {
     const rateOf = new Map((ratingsBy.get(id) || []).map((r) => [nickById[r.player_id], r]).filter(([n]) => n));
-    const items = (reviews[id] || []).map((r) => ({ ...r, score: null })), used = new Set();
-    for (const it of items) { const r = rateOf.get(it.author); if (r && !used.has(it.author)) { it.score = +r.overall; used.add(it.author); } }
-    for (const [nick, r] of rateOf) if (!used.has(nick)) items.push({ author: nick, score: +r.overall, at: r.updated_at, mine: nick === myNick });
+    // оценка и отзыв — одной записью, только если поставлены за один заход (08.11: свежая оценка без текста пряталась под
+    // отзывом недельной давности с его датой); иначе — отдельно: оценка «без отзыва», старый отзыв со своей «звездой»
+    const items = (reviews[id] || []).map((r) => ({ ...r, score: null }));
+    for (const [nick, r] of rateOf) {
+      const it = items.find((x) => x.author === nick && x.score == null && together(x, r));
+      const held = !!r.visit_id && visits.find((v) => v.id === r.visit_id)?.status === "pending";   // видит только автор, до «засчитано»
+      if (it) Object.assign(it, { score: +r.overall, held }); else items.push({ author: nick, score: +r.overall, at: r.updated_at, mine: nick === myNick, held });
+    }
     // своё — первым (правят из «⋯»), дальше свежие сверху
     items.sort((a, b) => (b.mine === true) - (a.mine === true) || String(b.at || "").localeCompare(String(a.at || "")));
     const been = !!myNick && timesIn(byId.get(id), myNick) > 0, rated = !!myRated?.has(id) || rateOf.has(myNick);
@@ -1040,7 +1047,7 @@
     };
     return `<h3 class="d-big">Отзывы и оценки${items.length ? ` · ${items.length}` : ""}</h3>
       <div class="reviews">${items.length ? items.map((it, i) => `<div class="review${it.mine ? " mine" : ""}" ${i >= FB_SHOW ? "hidden" : ""}>${ava(it.author)}<div>
-        <div class="rh"><b>${esc(it.author)}${it.mine ? '<span class="rv-me">ты</span>' : ""}${it.sample ? '<span class="sample">пример</span>' : ""}</b>${it.score != null ? score(it.score) : it.rate ? score(it.rate) : ""}${it.at ? `<small class="hint">${dayLabel(mskIso(it.at))}</small>` : ""}${menu(it)}</div>
+        <div class="rh"><b>${esc(it.author)}${it.mine ? '<span class="rv-me">ты</span>' : ""}${it.sample ? '<span class="sample">пример</span>' : ""}</b>${it.score != null ? score(it.score) : it.rate ? score(it.rate) : ""}${it.held ? '<small class="hint">после проверки</small>' : it.at ? `<small class="hint">${dayLabel(mskIso(it.at))}</small>` : ""}${menu(it)}</div>
         ${it.text ? `<p>${esc(it.text)}</p>` : '<p class="hint rv-none">оценка без отзыва</p>'}
       </div></div>`).join("") : `<p class="hint" style="margin:0">Пока никто не оценил${been ? " — оцени первым" : ""}.</p>`}</div>
       ${items.length > FB_SHOW ? `<button type="button" class="rv-all" id="rvAll">Показать все ${items.length}</button>` : ""}
@@ -1283,6 +1290,10 @@
       .map((v) => v.date).sort().pop();
     // походы 2026 из таблицы лежат в v26, прошлых лет — в histBy
     const year = b?.v26?.[myNick] > 0 ? "2026" : Object.keys(b?.histBy || {}).filter((y) => b.histBy[y]?.[myNick] > 0).sort().pop();
+    // поход ещё на проверке (08.11) — оценить можно сразу, по этому походу; в рейтинг — после «засчитано»
+    const held = !mine && !year && visits.filter((v) => v.bathId === id && v.status === "pending" && (v.player === myNick || v.companions.includes(myNick)))
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (held) return `<a class="rate-invite" href="rate.html?v=${held.id}"><span><b>Ты тут был ${esc(dayLabel(held.date))}</b><small>Оцени баню — увидят после проверки</small></span><span class="go">Оценить</span></a>`;
     if (!mine && !year) return "";
     const when = mine ? (["сегодня", "вчера"].includes(dayLabel(mine)) ? dayLabel(mine)
       : new Date(mine.slice(0, 10) + "T00:00:00Z").toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })) : `в ${year}`;
@@ -2310,7 +2321,7 @@
       if (D.live) visits.unshift({ id: saved.id, player: r.player, companions: r.comp, bathId: payload.bathId, date: r.date, posted: mskNow(), dur: r.dur, durs: payload.durs,
         lines: [], total: null, preview: r.total, status: "pending", enteredBy: r.player !== myNick ? myNick : null });
       leafBurst($("#vSubmit"));
-      showSent(r, rows, payload.bathId);
+      showSent(r, rows, payload.bathId, saved.id);
       updateBadge(); render();
       if (!$("#view-feed").hidden) renderFeed();
       if (D.live && files.length) setTimeout(() => uploadPhotos(saved.id, payload.bathId, files), 1500);
@@ -2321,16 +2332,17 @@
     }
   });
   // после отправки (03.11, макет): «С лёгким паром!», талон по людям и — пока помнишь — оценить баню
-  function showSent(r, rows, bathId) {
+  function showSent(r, rows, bathId, visitId) {
     const b = byId.get(bathId) || r.bath;
     const when = whenLabel(r.date).replace(/^С/, "с").replace(/^В/, "в").replace(",", "");
-    const rated = !!myRated?.has(bathId);
+    // оценка — этого похода, сразу (08.11): в рейтинг и отзывы попадёт после «засчитано». Только себе — за другого не оценить
+    const canRate = D.live && visitId && (r.player === myNick || r.comp.includes(myNick));
     $("#vSent").innerHTML = `<div class="vs-mark">${$("#addVisitBtn .cta-venik svg")?.outerHTML || ""}</div>
       <h2>С лёгким паром!</h2><p class="vs-sub">Комиссия проверит, бот напишет в Telegram.</p>
       <div class="ticket vs-ticket"><div class="vs-bath"><b>${esc(b?.name || "")}</b><small>${esc(when)} · ${r.dur > 150 ? "долгая" : "экспресс"}</small></div>
         ${rows.map((x) => rowHtml(x)).join("")}
         <div class="t-foot">В таблицу — после проверки Комиссии</div></div>
-      ${D.live && bathId && !rated ? `<a class="rate-invite" href="rate.html?b=${bathId}"><span><b>Оцени баню, пока помнишь</b><small>минута, можно с отзывом</small></span><span class="go">Оценить</span></a>` : ""}
+      ${canRate ? `<a class="rate-invite" href="rate.html?v=${visitId}"><span><b>Оцени баню, пока помнишь</b><small>минута, можно с отзывом · видно после проверки</small></span><span class="go">Оценить</span></a>` : ""}
       <button type="button" class="cta big" id="vDone"><span>Готово</span></button>`;
     vf.classList.add("is-sent"); $("#vSent").hidden = false;
     $("#visitModal .sheet").scrollTop = 0;
@@ -2404,7 +2416,7 @@
     const attached = new Map(), loose = [];
     for (const r of feedRatings || []) {
       const nick = nickById[r.player_id]; if (!nick) continue;
-      const rv = (reviews[r.bath_id] || []).find((x) => x.author === nick);
+      const rv = (reviews[r.bath_id] || []).find((x) => x.author === nick && together(x, r));   // старый отзыв к новой оценке не цепляем
       const item = { nick, score: +r.overall, text: rv?.text || "", at: r.updated_at, bathId: r.bath_id };
       let v = r.visit_id ? visits.find((x) => x.id === r.visit_id) : null;
       if (!v) {
