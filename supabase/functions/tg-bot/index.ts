@@ -1282,31 +1282,40 @@ function searchNear(b: Any): { near: { lat: number; lng: number } | null; maxKm:
 // Очередь rating_asks ставит база (триггер на новый поход); оценка похода на проверке видна после «засчитано»; cron днём каждые 10 минут → ?rateasks=1. Приглашение, потом
 // напоминания через 3 и через 12 часов; оценил — больше не пишем. Ночью cron молчит — отложенное уйдёт утром
 const RATE_NEXT = [3 * 3600e3, 12 * 3600e3];
+// баню человек уже оценивал раньше (09.11, Ден: «оценена уже хз когда, а он каждый день напоминает») — одно спокойное
+// сообщение «обнови, если что-то поменялось», без напоминаний; по новым баням — как раньше, с напоминаниями
 // кнопка — личная ссылка на лёгкую страницу оценки (01.11: мини-приложение грузило весь сайт и было медленным): ключ
 // приглашения в ссылке сам входит на сайт под этим человеком (tg-login ?rate, 7 дней); открывается в браузере Telegram
 const rateUrl = (token: string) => `${SITE.replace(/\/?(#.*)?$/, "/")}rate.html?t=${token}`;
 async function rateAsks(): Promise<number> {
-  const { data: rows } = await sb.from("rating_asks").select("visit_id, player_id, stage, token, visits(status, baths(name))")
+  const { data: rows } = await sb.from("rating_asks").select("visit_id, player_id, stage, token, visits(status, bath_id, baths(name))")
     .eq("done", false).lt("stage", 3).lte("next_at", new Date().toISOString()).limit(50);
   if (!rows?.length) return 0;
   const visitIds = [...new Set(rows.map((r: Any) => r.visit_id))], playerIds = [...new Set(rows.map((r: Any) => r.player_id))];
-  const [{ data: rated }, { data: accs }] = await Promise.all([
+  const bathIds = [...new Set(rows.map((r: Any) => r.visits?.bath_id).filter(Boolean))];
+  const [{ data: rated }, { data: accs }, { data: before }] = await Promise.all([
     sb.from("bath_ratings").select("visit_id, player_id").in("visit_id", visitIds),
     sb.from("player_accounts").select("player_id, tg_id").in("player_id", playerIds).not("tg_id", "is", null),
+    sb.from("bath_ratings").select("bath_id, player_id, visit_id").in("bath_id", bathIds).in("player_id", playerIds),
   ]);
+  // есть оценка этой бани не по этому походу — значит, уже оценивал
+  const ratedBefore = (r: Any) => (before ?? []).some((x: Any) => x.bath_id === r.visits?.bath_id && x.player_id === r.player_id && x.visit_id !== r.visit_id);
   const done = new Set((rated ?? []).map((r: Any) => `${r.visit_id}:${r.player_id}`));
   const tgOf = new Map((accs ?? []).map((a: Any) => [a.player_id, a.tg_id]));
   let sent = 0;
   for (const r of rows as Any[]) {
     const key = { visit_id: r.visit_id, player_id: r.player_id };
     const tgId = tgOf.get(r.player_id);
-    if (done.has(`${r.visit_id}:${r.player_id}`) || !tgId) { await sb.from("rating_asks").update({ done: true }).match(key); continue; }
-    // шаг отмечаем до отправки: два запуска разом не пришлют два сообщения
+    const again = ratedBefore(r);
+    if (done.has(`${r.visit_id}:${r.player_id}`) || !tgId || (again && r.stage > 0)) { await sb.from("rating_asks").update({ done: true }).match(key); continue; }
+    // шаг отмечаем до отправки: два запуска разом не пришлют два сообщения; уже оценённая баня — сразу последний шаг
     const next = r.stage < RATE_NEXT.length ? new Date(Date.now() + RATE_NEXT[r.stage]).toISOString() : new Date().toISOString();
-    const { data: claimed } = await sb.from("rating_asks").update({ stage: r.stage + 1, next_at: next }).match({ ...key, stage: r.stage }).select("stage");
+    const { data: claimed } = await sb.from("rating_asks").update({ stage: again ? 3 : r.stage + 1, next_at: next }).match({ ...key, stage: r.stage }).select("stage");
     if (!claimed?.length) continue;
     const name = esc(r.visits?.baths?.name ?? "баню");
-    const text = r.stage === 0
+    const text = again
+      ? `Ты уже оценивал <b>${name}</b>. Если что-то поменялось — обнови оценку этого похода, минута. Напоминать не буду.`
+      : r.stage === 0
       ? `⭐ Оцени баню <b>${name}</b>: печь, пар, аквазона, выход на улицу, кухня, атмосфера, сервис, цены — по пять веников. Минута, а лиге — рейтинг бань.`
         + (r.visits?.status === "pending" ? " В рейтинг оценка попадёт, когда Комиссия засчитает поход." : "")
       : `Напоминаю: оцени <b>${name}</b> — минута, восемь пунктов.`;
