@@ -1107,6 +1107,18 @@ with sync_playwright() as pw:
               s.js("() => { const t = document.getElementById('dSched').innerText; return /пн–вс/.test(t) && /8–22/.test(t) && /санитарный день/.test(t) && /по сайту бани/.test(t) && !/Пока никто не указал/.test(t); }"))
         check("карточка: «Позвонить» — первый номер, под кнопками — все номера",
               s.js("() => document.getElementById('dCall').getAttribute('href') === 'tel:+74951234567' && /\\+7 \\(495\\) 123-45-67/.test(document.getElementById('dPhone').innerText) && /\\+7 900/.test(document.getElementById('dPhone').innerText)"))
+        # Все пять действий видны: длинные подписи не слипаются и не выходят за карточку.
+        viewport = s.page.viewport_size
+        for width in (320, 360):
+            s.page.set_viewport_size({"width": width, "height": 812})
+            check(f"карточка на {width}px: все подписи кнопок помещаются и разделены",
+                  s.js("""() => {
+                    const row = document.querySelector('.d-acts');
+                    const bounds = row.getBoundingClientRect();
+                    const labels = [...row.querySelectorAll(':scope > :not([hidden]) > span')].map(s => s.getBoundingClientRect());
+                    return labels.length === 5 && labels.every((r, i) => r.left >= bounds.left && r.right <= bounds.right
+                      && (i === 0 || labels[i - 1].bottom <= r.top || labels[i - 1].right + 3 <= r.left)); }"""))
+        s.page.set_viewport_size(viewport)
         check("часы из сверки есть — форма пар их не спрашивает", s.js("() => document.getElementById('shOpen').textContent === '+ Указать пары'"))
         s.page.click("#shOpen"); s.page.click("#shHoursEdit")
         check("…а «изменить часы работы» в форме открывает поля часов", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden"))
