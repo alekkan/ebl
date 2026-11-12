@@ -749,7 +749,7 @@
           <a id="dYa" target="_blank" rel="noopener" href="${yaUrl}">${icon("pin")}<span>Яндекс</span></a>
           <a id="dGis" target="_blank" rel="noopener" href="${gisUrl}">${icon("map")}<span>2ГИС</span></a>
           <a id="dSite" target="_blank" rel="noopener" hidden>${icon("globe")}<span>Сайт</span></a>
-          <a id="dCall" hidden>${icon("phone")}<span>Позвонить</span></a>
+          <a id="dCall" aria-label="Звонок в баню" hidden>${icon("phone")}<span>Звонок</span></a>
           <button type="button" id="dShare">${icon("share")}<span>Поделиться</span></button>
         </div>
         <p class="d-phone" id="dPhone" hidden></p>
