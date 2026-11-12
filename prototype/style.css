@@ -1524,8 +1524,9 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .d-main .rate-rows i { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--c, var(--oak)) var(--w), var(--line) var(--w)); }
 #dRateInvite:empty { display: none; }   /* пустой блок в сетке карточки — лишний отступ */
 .d-about .d-tags { padding-left: 0; }
-.d-acts { display: flex; justify-content: space-around; }
-.d-acts > * { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 64px; padding: 0; border: 0; background: none; color: var(--ink-2); font-size: 12px; font-weight: 500; text-decoration: none; cursor: pointer; }
+/* Кнопка не уже своей подписи; на узком экране переносится целиком. */
+.d-acts { display: flex; flex-wrap: wrap; gap: 12px 6px; }
+.d-acts > * { display: flex; flex: 1 1 0; flex-direction: column; align-items: center; gap: 6px; min-width: max-content; padding: 0; border: 0; background: none; color: var(--ink-2); font-size: 12px; font-weight: 500; text-decoration: none; cursor: pointer; }
 .d-acts > [hidden] { display: none; }
 .d-acts .ic { width: 48px; height: 48px; padding: 14px; box-sizing: border-box; border-radius: 50%; background: var(--oak-soft); color: var(--oak); }
 @media (hover: hover) { .d-acts > *:hover .ic { background: color-mix(in srgb, var(--oak) 18%, var(--panel)); } }
