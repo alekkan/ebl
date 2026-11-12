@@ -1105,19 +1105,24 @@ with sync_playwright() as pw:
         # 05.11: внизу «Пары и часы работы» — часы с сайта по дням и заметка, а не «Пока никто не указал»; «Позвонить» — первый номер
         check("карточка: «Пары и часы работы» — часы с сайта по дням и санитарный день, а не «Пока никто не указал»",
               s.js("() => { const t = document.getElementById('dSched').innerText; return /пн–вс/.test(t) && /8–22/.test(t) && /санитарный день/.test(t) && /по сайту бани/.test(t) && !/Пока никто не указал/.test(t); }"))
-        check("карточка: «Позвонить» — первый номер, под кнопками — все номера",
+        check("карточка: «Звонок» — первый номер, под кнопками — все номера",
               s.js("() => document.getElementById('dCall').getAttribute('href') === 'tel:+74951234567' && /\\+7 \\(495\\) 123-45-67/.test(document.getElementById('dPhone').innerText) && /\\+7 900/.test(document.getElementById('dPhone').innerText)"))
-        # Все пять действий видны: длинные подписи не слипаются и не выходят за карточку.
+        # Все пять действий в один ряд: равный шаг иконок, подписи не слипаются.
         viewport = s.page.viewport_size
-        for width in (320, 360):
+        for width in (320, 360, 412):
             s.page.set_viewport_size({"width": width, "height": 812})
-            check(f"карточка на {width}px: все подписи кнопок помещаются и разделены",
+            check(f"карточка на {width}px: равный шаг иконок и зазоры между подписями",
                   s.js("""() => {
                     const row = document.querySelector('.d-acts');
-                    const bounds = row.getBoundingClientRect();
+                    const bounds = row.closest('.drawer').getBoundingClientRect();
                     const labels = [...row.querySelectorAll(':scope > :not([hidden]) > span')].map(s => s.getBoundingClientRect());
-                    return labels.length === 5 && labels.every((r, i) => r.left >= bounds.left && r.right <= bounds.right
-                      && (i === 0 || labels[i - 1].bottom <= r.top || labels[i - 1].right + 3 <= r.left)); }"""))
+                    const icons = [...row.querySelectorAll(':scope > :not([hidden]) > .ic')].map(s => s.getBoundingClientRect());
+                    if (icons.length !== 5 || labels.length !== 5) return false;
+                    const step = icons[1].left - icons[0].left;
+                    return icons.every((r, i) => r.top === icons[0].top
+                      && (i === 0 || Math.abs(r.left - icons[i - 1].left - step) < 0.1))
+                      && labels.every((r, i) => r.left >= bounds.left + 3 && r.right <= bounds.right - 3
+                      && (i === 0 || labels[i - 1].right + 3 <= r.left)); }"""))
         s.page.set_viewport_size(viewport)
         check("часы из сверки есть — форма пар их не спрашивает", s.js("() => document.getElementById('shOpen').textContent === '+ Указать пары'"))
         s.page.click("#shOpen"); s.page.click("#shHoursEdit")
