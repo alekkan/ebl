@@ -2461,7 +2461,7 @@
       const pts = who.map((n) => v.pts?.[n] != null ? `<span class="f-pt">${esc(n)} <b>+${fmt(v.pts[n])}</b></span>` : "").join("");
       return `<article class="post f-pending">
         <div class="f-head">${stack(who)}<div class="f-who"><b>${esc(who.length > 2 ? `${who[0]}, ${who[1]} и ещё ${who.length - 2}` : who.join(" и "))}</b><small>${time(v.date)} · W${v.week ?? weekOf(v.posted || v.date)}${v.enteredBy ? ` · внёс ${esc(v.enteredBy)}` : ""}</small></div><span class="status pending">на проверке</span></div>
-        <a class="f-bath" href="#map" data-bath="${v.bathId}">${b ? tdot(b.t) : ""}<span><b>${esc(b?.name || "баня")}</b><small>${[b && esc(where(b)), durLabel(v), v.companions.length && "компания"].filter(Boolean).join(" · ")}</small></span></a>
+        <a class="f-bath" href="#map" data-bath="${v.bathId}">${b ? tdot(b.t) : ""}<span><b>${esc(b?.name || v.bathName || "баня")}</b><small>${[b && esc(where(b)), durLabel(v), v.companions.length && "компания"].filter(Boolean).join(" · ")}</small></span></a>
         ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-why">${who.map((n) => { const r = previewFor(v, n); return r ? `<div class="f-why-row"><b>${esc(n)}</b><b class="f-why-pts">+${r.total}</b><small>${r.lines.map(([t, k]) => k ? `${t}${k > 1 ? ` ${k}` : ""}` : t).join(" · ")}</small></div>` : ""; }).join("")}</div>`}
         ${rep.length ? `<div class="warn">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</div>` : ""}
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<a class="f-tg" href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
@@ -2483,7 +2483,7 @@
       const split = who.map((n) => `<span class="f-pt${n === myNick ? " me" : ""}">${esc(n)}${v.pts?.[n] != null ? ` <b>+${fmt(v.pts[n])}</b>` : ""}</span>`).join("");
       const rejected = v.status === "rejected";
       return `<div class="frow${rejected ? " rejected" : ""}">${stack(who)}<div class="f-main">
-          <a class="f-title" href="#map" data-bath="${v.bathId}">${esc(b?.name || "баня")}</a>
+          <a class="f-title" href="#map" data-bath="${v.bathId}">${esc(b?.name || v.bathName || "баня")}</a>
           <small>${time(v.date)} · ${durLabel(v)}${v.companions.length ? ` · компания` : ""}${rejected ? ` · <span class="f-no">отклонён${v.reason ? `: ${esc(v.reason)}` : ""}</span>` : ""}</small>
           <div class="f-split">${split}</div>
           ${(feedPhotos[v.id] || []).length ? `<div class="f-photos">${feedPhotos[v.id].slice(0, 6).map((ph, i) => `<button type="button" class="f-ph" data-fph="${v.id}:${i}" aria-label="Фото ${i + 1}"><img src="${esc(ph.thumb)}" alt="" loading="lazy" onerror="this.remove()"></button>`).join("")}${feedPhotos[v.id].length > 6 ? `<button type="button" class="f-ph more" data-fph="${v.id}:6">+${feedPhotos[v.id].length - 6}</button>` : ""}</div>` : ""}
@@ -2563,7 +2563,7 @@
         <div class="eyebrow">Заявка №${v.id} · ${esc(v.player)}</div>
         <h2 id="editTitle">Правка заявки</h2>
         <div class="field"><span class="lab">Баня</span>
-          <div class="picked"><span><b>${esc(bath?.name || "—")}</b><small>${bath ? `${tdot(bath.t)} ${TYPE_LABEL[bath.t]} · ${esc(where(bath))}` : ""}</small></span>
+          <div class="picked"><span><b>${esc(bath?.name || v.bathName || "Баня №" + v.bathId)}</b><small>${bath ? `${tdot(bath.t)} ${TYPE_LABEL[bath.t]} · ${esc(where(bath))}` : ""}</small></span>
             <button type="button" class="btn sm" id="eBathChange">Сменить</button></div>
           <label class="searchbox" id="eBathBox" hidden>${icon("search")}<input id="eBathQ" placeholder="Найти баню" autocomplete="off"></label>
           <div class="suggest" id="eSuggest" hidden></div>
@@ -2613,13 +2613,15 @@
       e.preventDefault(); keep();
       // по регламенту важно одно — дольше 2,5 часа или нет; минуты не спрашиваем
       const dur = long ? (v.dur > 150 ? v.dur : 180) : (v.dur <= 150 ? v.dur : 120);
-      const patch = { bath_id: bath.id, entered_at: $("#eEntered").value + ":00+03:00", posted_at: $("#ePosted").value + ":00+03:00", duration_min: dur, status,
+      // Отклонённой бани нет в общем справочнике, но поход сохраняет её ID.
+      const bathId = bath?.id ?? v.bathId;
+      const patch = { bath_id: bathId, entered_at: $("#eEntered").value + ":00+03:00", posted_at: $("#ePosted").value + ":00+03:00", duration_min: dur, status,
         reject_reason: status === "rejected" ? ($("#eReason").value.trim() || null) : null,
         ...(status !== v.status ? { moderated_by: data.playerIds?.[me?.nick], moderated_at: new Date().toISOString() } : {}) };
       try {
         const own = split ? durDiff(people.filter((n) => n !== v.player), durs, dur) : {};
         await D.updateVisit(v.id, patch, people, own);
-        Object.assign(v, { bathId: bath.id, date: $("#eEntered").value, posted: $("#ePosted").value, dur, durs: own, status, reason: patch.reject_reason,
+        Object.assign(v, { bathId, bathName: bath?.name || v.bathName, date: $("#eEntered").value, posted: $("#ePosted").value, dur, durs: own, status, reason: patch.reject_reason,
           companions: people.filter((n) => n !== v.player), week: undefined, total: status === "ok" ? v.total : null });
         $("#editModal").hidden = true; updateBadge(); renderFeed();
         toast("Сохранено — таблица пересчитывается");

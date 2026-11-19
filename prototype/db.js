@@ -125,7 +125,7 @@ window.EBLData = (() => {
   async function journal() {
     if (sessionUser() === "guest") return [];
     return check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, visit_players(player_id, duration_min), visit_points(nick, total, lines)")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, baths(name), visit_players(player_id, duration_min), visit_points(nick, total, lines)")
       .order("posted_at", { ascending: false }).limit(300));
   }
   function loadVisits(rows, playersById) {
@@ -136,7 +136,7 @@ window.EBLData = (() => {
       const vp = v.visit_players.map((x) => ({ ...x, nick: playersById[x.player_id] }));
       const p = ptsBy[v.id]?.[author];
       return {
-        id: v.id, bathId: v.bath_id, player: author, companions: vp.filter((x) => x.nick !== author).map((x) => x.nick),
+        id: v.id, bathId: v.bath_id, bathName: v.baths?.name, player: author, companions: vp.filter((x) => x.nick !== author).map((x) => x.nick),
         date: mskLocal(v.entered_at), posted: mskLocal(v.posted_at), dur: v.duration_min, status: v.status, reason: v.reject_reason,
         total: p ? +p.total : null, lines: p ? p.lines.map(([k, n]) => [LINE_LABEL[k] || k, n]) : [], tgLink: v.tg_link,
         enteredBy: v.entered_by ? playersById[v.entered_by] : null,   // Комиссия внесла поход за участника
