@@ -813,6 +813,39 @@ with sync_playwright() as pw:
         s.page.click(f'[data-edit="{vid}"]'); s.page.wait_for_timeout(300)
         s.page.click("#eDursSame"); s.page.click('#editForm button[type="submit"]'); s.page.wait_for_timeout(1500)
         check("«Всем одинаково» в правке — своя длительность снята", durs_row() == "попутчик=—,автор=—", durs_row())
+        # 19.11: отклонённой новой бани нет в boot_public. Возврат похода сохраняет исходную баню.
+        restore_name = "Тест-Возврат-на-модерацию"
+        restore_bath = sql(f"insert into baths (name, type, status, created_by) values ('{restore_name}', 'public', 'pending', '{player_id('Шурик')}') returning id").splitlines()[0]
+        restore_visit = sql(f"insert into visits (bath_id, entered_at, posted_at, duration_min, status, created_by, source) values ({restore_bath}, now(), now(), 180, 'pending', '{player_id('Шурик')}', 'bot') returning id").splitlines()[0]
+        sql(f"insert into visit_players (visit_id, player_id) values ({restore_visit}, '{player_id('Шурик')}')")
+        sql(f"update visits set status = 'rejected', reject_reason = 'Проверка возврата' where id = {restore_visit}")
+        restore = None
+        try:
+            check("отклонённая новая баня убрана из общего справочника",
+                  sql(f"select status from baths where id = {restore_bath}") == "rejected"
+                  and sql(f"select exists(select 1 from json_array_elements(baths_all()) b where (b->>'id')::bigint = {restore_bath})") == "f")
+            restore = Site(browser, url, sess=vitek, mobile=True, name="commission-restore")
+            restore.view("feed")
+            restore.page.click(f'[data-edit="{restore_visit}"]')
+            check("Комиссия видит название отклонённой бани в форме",
+                  restore.page.locator("#editForm .picked b").inner_text() == restore_name)
+            restore.page.click('#eStatus [data-st="pending"]')
+            restore.page.click('#editForm button[type="submit"]')
+            restore.page.wait_for_selector("#editModal[hidden]", state="attached", timeout=10000)
+            check("возврат на модерацию сохраняет поход и возвращает исходную баню-кандидата",
+                  sql(f"select v.status || '|' || b.status || '|' || v.bath_id || '|' || coalesce(v.reject_reason, '') from visits v join baths b on b.id = v.bath_id where v.id = {restore_visit}") == f"pending|pending|{restore_bath}|")
+            restore.page.wait_for_timeout(3000)
+            restore.page.reload()
+            restore.page.wait_for_function("() => !document.getElementById('boot')", timeout=20000)
+            restore.view("feed")
+            check("возвращённый поход после перезагрузки ждёт Комиссию",
+                  restore.page.locator(f'[data-edit="{restore_visit}"]').evaluate("(b) => b.closest('.post').innerText.includes('на проверке')"))
+            restore.clean("возврат отклонённого похода на телефоне")
+        finally:
+            if restore:
+                restore.close()
+            sql(f"delete from visits where id = {restore_visit}")
+            sql(f"delete from baths where id = {restore_bath}")
         # справочник бань — вкладка только у Комиссии (просьба Витька 02.10): тип, где, сколько походов, кто где был
         s.view("dir")
         s.page.wait_for_selector("#dirTable tbody tr", timeout=8000)
