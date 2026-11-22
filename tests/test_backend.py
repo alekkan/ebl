@@ -799,4 +799,27 @@ check("итоги финала приняты — в истории все пя�
 sql("delete from cup_transitions"); sql("delete from cup_teams"); sql(f"delete from visits where bath_id = {tb3}"); sql(f"delete from baths where id = {tb3}")
 sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{ROUNDS}') x where x.n = r.n")
 req("POST", "/functions/v1/recompute", {})
+
+print("Комментарии к походам: пишут и читают участники лиги, удаляет автор или Комиссия")
+cv = sql("insert into visits (bath_id, entered_at, duration_min, status, created_by) select 22, '2026-11-01T18:00:00+03', 120, 'pending', id from players where nick = 'Шурик' returning id").splitlines()[0]
+cm = lambda tok, who, text, **kw: req("POST", "/rest/v1/visit_comments", {"visit_id": int(cv), "player_id": player_id(who), "text": text, **kw}, token=tok)
+cn = lambda: sql(f"select count(*) from visit_comments where visit_id = {cv}")
+seen = lambda tok=None: req("GET", f"/rest/v1/visit_comments?select=text&visit_id=eq.{cv}", token=tok)
+check("участник комментирует поход от себя", cm(shurik, "Шурик", "С лёгким паром!")[0] == 201 and cm(vitek, "Витёк", "И тебя")[0] == 201 and cn() == "2")
+check("от чужого имени, пустой, длиннее 500 знаков и со своим временем — нельзя",
+      cm(shurik, "Витёк", "подлог")[0] == 403 and cm(shurik, "Шурик", "   ")[0] >= 400 and cm(shurik, "Шурик", "я" * 501)[0] >= 400
+      and cm(shurik, "Шурик", "вчера", created_at="2026-01-01T00:00:00+03")[0] >= 400 and cm(shurik, "Шурик", "я" * 500)[0] == 201 and cn() == "3")
+check("участники лиги видят комментарии; гость и человек без ника — нет, и написать не могут",
+      len(seen(shurik)[1]) == 3 and len(seen(vitek)[1]) == 3 and not (seen()[0] == 200 and seen()[1]) and seen(stranger)[1] == []
+      and cm(stranger, "Леха", "я не в лиге")[0] >= 400 and cm(None, "Шурик", "гость")[0] >= 400 and cn() == "3")
+check("править комментарий нельзя", req("PATCH", f"/rest/v1/visit_comments?visit_id=eq.{cv}", {"text": "правка"}, token=shurik)[0] >= 400
+      and sql(f"select count(*) from visit_comments where visit_id = {cv} and text = 'правка'") == "0")
+req("DELETE", f"/rest/v1/visit_comments?visit_id=eq.{cv}&text=eq.{urllib.parse.quote('И тебя')}", token=shurik)
+check("чужой комментарий участник не удалит", cn() == "3")
+req("DELETE", f"/rest/v1/visit_comments?visit_id=eq.{cv}&text=eq.{urllib.parse.quote('С лёгким паром!')}", token=shurik)
+check("свой — удаляет", cn() == "2")
+req("DELETE", f"/rest/v1/visit_comments?visit_id=eq.{cv}&player_id=eq.{player_id('Шурик')}", token=vitek)
+check("Комиссия удаляет любой", cn() == "1")
+sql(f"delete from visits where id = {cv}")
+check("удалили поход — комментарии ушли с ним", cn() == "0")
 print("Готово.")

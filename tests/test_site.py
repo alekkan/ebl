@@ -1708,10 +1708,68 @@ with sync_playwright() as pw:
         sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{rounds0}') x where x.n = r.n")
         req("POST", "/functions/v1/recompute", {})
 
+        print("Лента: комментарии к походам — пишут участники, удаляет автор или Комиссия")
+        cmv = sql(f"""insert into visits (bath_id, entered_at, posted_at, duration_min, created_by, source)
+                      select {bath}, now() - interval '1 hour', now() - interval '1 hour', 120, id, 'site' from players where nick = 'Шурик' returning id""").splitlines()[0]
+        sql(f"insert into visit_players (visit_id, player_id) select {cmv}, id from players where nick = 'Шурик'")
+        cm_n = lambda s: s.js(f"() => document.querySelectorAll('[data-cmt-del^=\"{cmv}:\"]').length")
+        cm_txt = lambda s: s.js(f"() => [...document.querySelectorAll('.f-cmts')].find((x) => x.querySelector('[data-cmt-open=\"{cmv}\"], [data-cmt-form=\"{cmv}\"]'))?.innerText || ''")
+        def comment(s, text):
+            s.page.click(f'[data-cmt-open="{cmv}"]')
+            s.page.fill(f'[data-cmt-form="{cmv}"] input', text)
+            s.page.press(f'[data-cmt-form="{cmv}"] input', "Enter")
+            for _ in range(30):
+                if text[:20] in cm_txt(s): break
+                s.page.wait_for_timeout(300)
+        s = Site(browser, url, name="comments-guest")
+        s.view("feed")
+        check("гость: комментариев и кнопки «Комментировать» нет", not s.js("() => !!document.querySelector('.f-cmts')"))
+        s.close()
+        s = Site(browser, url, sess=vitek, name="comments-commission")
+        s.view("feed")
+        try: s.page.wait_for_selector(f'[data-cmt-open="{cmv}"]', timeout=8000)
+        except Exception: pass
+        comment(s, "С лёгким паром — проверка сайта")
+        check("Комиссия: комментарий под походом на проверке — с ником, записан в базу",
+              "Витёк" in cm_txt(s) and "С лёгким паром" in cm_txt(s) and sql(f"select count(*) from visit_comments where visit_id = {cmv}") == "1", cm_txt(s))
+        s.clean("Комментарии у Комиссии"); s.close()
+        sql(f"update visits set status = 'ok' where id = {cmv}")
+        s = Site(browser, url, sess=shurik, mobile=True, name="comments-phone")
+        s.view("feed")
+        try: s.page.wait_for_selector(f'[data-cmt-open="{cmv}"]', timeout=8000)
+        except Exception: pass
+        check("участник: видит чужой комментарий под засчитанным походом, удалить его не может", "С лёгким паром" in cm_txt(s) and cm_n(s) == 0, cm_txt(s))
+        comment(s, "Спасибо" + "о" * 120)
+        check("участник: свой комментарий появился сразу, с кнопкой удаления", "Спасибо" in cm_txt(s) and cm_n(s) == 1
+              and sql(f"select count(*) from visit_comments where visit_id = {cmv}") == "2", cm_txt(s))
+        s.no_clip("Комментарии на телефоне", "#view-feed"); s.nav_free("Комментарии на телефоне")
+        s.page.click(f'[data-cmt-del^="{cmv}:"]')
+        for _ in range(30):
+            if cm_n(s) == 0: break
+            s.page.wait_for_timeout(300)
+        check("участник: удалил свой комментарий", cm_n(s) == 0 and "Спасибо" not in cm_txt(s) and sql(f"select count(*) from visit_comments where visit_id = {cmv}") == "1")
+        s.clean("Комментарии у участника"); s.close()
+        sql(f"insert into visit_comments (visit_id, player_id, text) select {cmv}, id, 'Лишнее — проверка сайта' from players where nick = 'Шурик'")
+        s = Site(browser, url, sess=vitek, name="comments-moderate")
+        s.view("feed")
+        try: s.page.wait_for_selector(f'[data-cmt-del^="{cmv}:"]', timeout=8000)
+        except Exception: pass
+        check("Комиссия: удалить может и свой, и чужой", cm_n(s) == 2)
+        s.page.click(f'.f-cmt:has-text("Лишнее") [data-cmt-del^="{cmv}:"]')
+        for _ in range(30):
+            if cm_n(s) == 1: break
+            s.page.wait_for_timeout(300)
+        check("Комиссия: чужой комментарий удалён", "Лишнее" not in cm_txt(s) and sql(f"select count(*) from visit_comments where visit_id = {cmv}") == "1", cm_txt(s))
+        s.clean("Удаление комментария Комиссией"); s.close()
+        sql(f"delete from visits where id = {cmv}")
+        req("POST", "/functions/v1/recompute", {})
+
         print("Режим витрины (пустой config.js)")
         s = Site(browser, url, config=SHOWCASE_CONFIG, name="showcase")
         all_views(s, "витрина")
         check("витрина: кубка нет — вкладка скрыта", s.js("() => document.querySelector('.nav [data-view=\"cup\"]').hidden"))
+        s.view("feed")
+        check("витрина: комментариев в ленте нет", not s.js("() => !!document.querySelector('.f-cmts')"))
         s.close()
     finally:
         sql(f"delete from visits where source = 'site' and created_at > now() - interval '1 hour' and created_by = '{player_id('Шурик')}'")

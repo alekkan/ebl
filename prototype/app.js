@@ -2392,6 +2392,17 @@
   let feedFilter = "all";
   let feedRatings = null;   // свежие оценки — для ленты; пришли — перерисовать, если лента открыта
   if (D.live && member) D.recentRatings().then((r) => { feedRatings = r; if (!$("#view-feed").hidden) renderFeed(); }).catch(() => {});
+  let cmtOpen = null, cmtDraft = "";   // поход, под которым открыта строка комментария, и набранное — лента перерисовывается, текст не теряем
+  $("#feed").addEventListener("input", (e) => { if (e.target.closest("[data-cmt-form]")) cmtDraft = e.target.value; });
+  $("#feed").addEventListener("submit", (e) => {
+    const f = e.target.closest("[data-cmt-form]"); if (!f) return;
+    e.preventDefault();
+    const v = visits.find((x) => x.id === +f.dataset.cmtForm), text = f.elements.text.value.trim();
+    if (!v || !text) return;
+    f.querySelector("button").disabled = true;
+    D.addComment(v.id, text).then((c) => { (v.comments ||= []).push(c); cmtOpen = null; cmtDraft = ""; renderFeed(); })
+      .catch((err) => { f.querySelector("button").disabled = false; toast("Не получилось: " + err.message); });
+  });
   let feedPhotos = {};   // фото походов — превью в строке; нажал — во весь экран
   if (D.live && member) D.feedPhotos().then((r) => { feedPhotos = r || {}; if (!$("#view-feed").hidden) renderFeed(); }).catch(() => {});
   $$("#feedFilter button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.f === feedFilter)));
@@ -2469,6 +2480,16 @@
       const btn = sec && D.live ? ` <button type="button" class="cup-longbtn" data-long="${v.id}">${v.longOk ? "Снять подтверждение" : "Подтвердить долгую"}</button>` : "";
       return `<${tag} class="cup-long">${v.longOk ? `<span class="cup-longok">🔥 долгая подтверждена Комиссией</span>` : `<span class="cup-wait">🔥 долгая ждёт подтверждения Комиссии — два фото в чат</span>`}${btn}</${tag}>`;
     };
+    // комментарии к походу (23.11): участники лиги, только текст; свой удаляет автор, любой — Комиссия
+    const cmtTime = (at) => { const t = mskIso(at); return `${t.slice(8, 10)}.${t.slice(5, 7)} ${t.slice(11, 16)}`; };
+    const cmts = (v) => {
+      if (!D.live) return "";
+      const list = (v.comments || []).map((c) => `<div class="f-cmt">${ava(c.nick)}<span><b>${esc(c.nick || "участник")}</b> ${esc(c.text)} <small>${cmtTime(c.at)}</small></span>`
+        + (c.nick === myNick || sec ? `<button type="button" class="f-cmt-del" data-cmt-del="${v.id}:${c.id}" aria-label="Удалить комментарий" title="Удалить">×</button>` : "") + `</div>`).join("");
+      return `<div class="f-cmts">${list}${cmtOpen === v.id
+        ? `<form class="f-cmt-form" data-cmt-form="${v.id}"><input class="inp" name="text" maxlength="500" placeholder="Комментарий" autocomplete="off" required value="${esc(cmtDraft)}"><button class="btn" type="submit">Отправить</button></form>`
+        : `<button type="button" class="linkbtn f-cmt-add" data-cmt-open="${v.id}">Комментировать</button>`}</div>`;
+    };
     const card = (v) => {
       const b = byId.get(v.bathId), who = people(v);
       const rep = repeatOf(v);
@@ -2480,6 +2501,7 @@
         ${longLine(v, "div")}
         ${rep.length ? `<div class="warn">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</div>` : ""}
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<a class="f-tg" href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
+        ${cmts(v)}
         ${sec || inVisit(v) ? `<div class="post-actions">
           ${sec ? `<button class="btn solid" data-ok="${v.id}">${icon("check")}Засчитать</button><button class="btn danger" data-no="${v.id}">Отклонить</button>` : ""}
           ${inVisit(v) ? `<button class="btn" data-addph="${v.id}" aria-label="Добавить фото">📷</button>` : ""}
@@ -2504,6 +2526,7 @@
           ${rejected ? "" : longLine(v, "small")}
           ${(feedPhotos[v.id] || []).length ? `<div class="f-photos">${feedPhotos[v.id].slice(0, 6).map((ph, i) => `<button type="button" class="f-ph" data-fph="${v.id}:${i}" aria-label="Фото ${i + 1}"><img src="${esc(ph.thumb)}" alt="" loading="lazy" onerror="this.remove()"></button>`).join("")}${feedPhotos[v.id].length > 6 ? `<button type="button" class="f-ph more" data-fph="${v.id}:6">+${feedPhotos[v.id].length - 6}</button>` : ""}</div>` : ""}
           ${rateLine(attached.get(v.id) || [])}
+          ${cmts(v)}
         </div>
         ${sec && D.live || inVisit(v) ? `<span class="f-acts">${inVisit(v) && !rejected ? `<button class="f-ic" data-addph="${v.id}" aria-label="Добавить фото" title="Добавить фото">${icon("camplus")}</button>` : ""}${sec && D.live ? `<button class="f-ic" data-edit="${v.id}" aria-label="Изменить поход">${icon("pencil")}</button>` : ""}</span>` : ""}
       </div>`;
@@ -2518,6 +2541,14 @@
     const fph = e.target.closest("[data-fph]"); if (fph) { const [vid, i] = fph.dataset.fph.split(":"); return openPhotos(feedPhotos[vid] || [], +i); }   // длинный отзыв — две строки, нажал — целиком
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
+    const co = e.target.closest("[data-cmt-open]"), cd = e.target.closest("[data-cmt-del]");
+    if (co) { cmtOpen = +co.dataset.cmtOpen; cmtDraft = ""; renderFeed(); return $(`[data-cmt-form="${cmtOpen}"] input`)?.focus(); }
+    if (cd) {
+      const [vid, cid] = cd.dataset.cmtDel.split(":").map(Number), v = visits.find((x) => x.id === vid);
+      cd.disabled = true;
+      return D.deleteComment(cid).then(() => { v.comments = v.comments.filter((c) => c.id !== cid); renderFeed(); })
+        .catch((err) => { cd.disabled = false; toast("Не получилось: " + err.message); });
+    }
     const lg = e.target.closest("[data-long]");
     if (lg) {
       const v = visits.find((x) => x.id === +lg.dataset.long);
