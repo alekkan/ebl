@@ -10,7 +10,7 @@
 import base64, functools, http.server, json, pathlib, re, threading, time, urllib.error, urllib.parse, urllib.request
 from playwright.sync_api import sync_playwright
 import stub
-from local import API, KEY, TELEGRAM, check, link, player_id, session, sql, webapp_init
+from local import API, KEY, TELEGRAM, check, link, player_id, req, session, sql, webapp_init
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ART = ROOT / "tests" / "artifacts"
@@ -1605,9 +1605,59 @@ with sync_playwright() as pw:
         sql(f"delete from legacy_visits where bath_id = {vb}"); sql(f"delete from radar_places where key like 'view-test:%'"); sql(f"delete from baths where id in ({vb}, {nb})")
         sql("delete from radar_places where key like 'view-test:%'"); sql("delete from radar_view_keys where key = 'view-test-key'")
 
+        print("Кубок: вкладка с командами тура, Комиссия подтверждает долгую")
+        rounds0 = sql("select json_agg(r) from cup_rounds r")
+        sql("update cup_rounds set starts_at = now() - interval '1 day', ends_at = now() + interval '2 days' where n = 1")
+        sql("""insert into settings (key, value) select 'long_confirm', json_build_object('from', now() - interval '10 days', 'to', now() + interval '10 days')::jsonb
+               on conflict (key) do update set value = excluded.value""")
+        for num, nicks in ((91, ("Шурик", "Витёк", "Леха")), (92, ("Ден", "Арс", "Фил"))):
+            t = sql(f"insert into cup_teams (round, num) values (1, {num}) returning id").splitlines()[0]
+            for n in nicks: sql(f"insert into cup_team_players (team_id, player_id) select {t}, id from players where nick = '{n}'")
+        cupb = sql("insert into baths (name, status, type) values ('Тест-Кубок-Сайт', 'ok', 'public') returning id").splitlines()[0]
+        cupv = sql(f"""insert into visits (bath_id, entered_at, posted_at, duration_min, created_by, source)
+                       select {cupb}, now() - interval '1 hour', now() - interval '1 hour', 180, id, 'site' from players where nick = 'Шурик' returning id""").splitlines()[0]
+        for n in ("Шурик", "Витёк"): sql(f"insert into visit_players (visit_id, player_id) select {cupv}, id from players where nick = '{n}'")
+        sql(f"update visits set status = 'ok' where id = {cupv}")
+        req("POST", "/functions/v1/recompute", {})
+        cup_top = "() => { const t = document.querySelector('#cupTeams .cup-team'); return t ? t.dataset.team + ':' + t.querySelector('.cup-total b').innerText : ''; }"
+        s = Site(browser, url, name="cup-guest")
+        s.view("cup")
+        check("гость: вкладка «Кубок» — две команды тура, первая — у кого больше очков (без долгой: 5 + 5)",
+              s.js("() => document.querySelectorAll('#cupTeams .cup-team').length") == 2 and s.js(cup_top) == "91:10", s.js(cup_top))
+        check("гость: тур и срок в заголовке, походы тура ему не показаны",
+              "Тур 1" in s.js("() => document.getElementById('cupTitle').innerText") and not s.js("() => !!document.querySelector('#cupTeams .cup-more')"))
+        s.clean("Кубок у гостя"); s.close()
+        s = Site(browser, url, mobile=True, name="cup-phone")
+        s.view("cup")
+        s.no_clip("Кубок на телефоне", "#view-cup"); s.nav_free("Кубок на телефоне")
+        s.clean("Кубок на телефоне"); s.close()
+        s = Site(browser, url, sess=vitek, name="cup-commission")
+        s.view("feed")
+        try: s.page.wait_for_selector(f'[data-long="{cupv}"]', timeout=8000)
+        except Exception: pass
+        check("лента: долгая ждёт подтверждения Комиссии", s.js(f"() => (document.querySelector('[data-long=\"{cupv}\"]')?.closest('.frow')?.innerText || '').includes('ждёт подтверждения')"))
+        s.page.click(f'[data-long="{cupv}"]')
+        for _ in range(60):
+            if sql(f"select coalesce(sum(total), 0) from cup_points where visit_id = {cupv}") == "12": break
+            s.page.wait_for_timeout(500)
+        check("Комиссия подтвердила долгую: отметка на походе, очки кубка пересчитаны (6 + 6)",
+              sql(f"select long_ok from visits where id = {cupv}") == "t" and sql(f"select coalesce(sum(total), 0) from cup_points where visit_id = {cupv}") == "12")
+        s.page.wait_for_timeout(1500)   # сайт перечитывает данные после пересчёта
+        s.view("cup")
+        try: s.page.wait_for_selector("#cupTeams .cup-more", timeout=8000)
+        except Exception: pass
+        check("участнику — очки с долгой и походы тура по командам", s.js(cup_top) == "91:12"
+              and "встреча команды" in s.js("() => document.querySelector('#cupTeams .cup-more')?.textContent || ''"), s.js(cup_top))
+        s.clean("Кубок у Комиссии"); s.close()
+        sql(f"delete from visits where id = {cupv}"); sql(f"delete from baths where id = {cupb}"); sql("delete from cup_teams")
+        sql("delete from settings where key = 'long_confirm'")
+        sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{rounds0}') x where x.n = r.n")
+        req("POST", "/functions/v1/recompute", {})
+
         print("Режим витрины (пустой config.js)")
         s = Site(browser, url, config=SHOWCASE_CONFIG, name="showcase")
         all_views(s, "витрина")
+        check("витрина: кубка нет — вкладка скрыта", s.js("() => document.querySelector('.nav [data-view=\"cup\"]').hidden"))
         s.close()
     finally:
         sql(f"delete from visits where source = 'site' and created_at > now() - interval '1 hour' and created_by = '{player_id('Шурик')}'")

@@ -3,6 +3,7 @@
 // Расчёт детерминированный: повторный вызов ничего не ломает.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { computeStandings } from "../_shared/scoring.js";
+import { computeCup } from "../_shared/cup.js";
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -36,17 +37,20 @@ Deno.serve(async (req) => {
       all("baths", "id, type, country, region", ["id"]),
       all("legacy_visits", "bath_id, year, nick, n", ["bath_id", "year", "nick"]),
       all("legacy_standings", "*", ["nick"]),
-      all("visits", "id, bath_id, entered_at, posted_at, duration_min, visit_players(duration_min, players(nick))", ["id"], (q) => q.eq("status", "ok")),
+      all("visits", "id, bath_id, entered_at, posted_at, duration_min, long_ok, visit_players(duration_min, players(nick))", ["id"], (q) => q.eq("status", "ok")),
     ]);
     const cfg = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+    const bathMap = new Map(baths.map((b) => [b.id, b]));
+    const journal = visits.map((v) => ({ ...v, players: v.visit_players.map((vp: any) => ({ nick: vp.players.nick, duration_min: vp.duration_min })) }));
     const { standings, breakdown, currentWeek } = computeStandings({
       season: Number(cfg.season ?? 2026),
       cutoverWeek: Number(cfg.cutover_week ?? 40),
       now: new Date(),
-      baths: new Map(baths.map((b) => [b.id, b])),
+      baths: bathMap,
       legacyVisits,
       legacyStandings,
-      visits: visits.map((v) => ({ ...v, players: v.visit_players.map((vp: any) => ({ nick: vp.players.nick, duration_min: vp.duration_min })) })),
+      visits: journal,
+      longGate: cfg.long_confirm ?? null,
     });
     const now = new Date().toISOString();
     const points = Object.entries(breakdown).flatMap(([visitId, byNick]: [string, any]) =>
@@ -56,7 +60,24 @@ Deno.serve(async (req) => {
       p_standings: standings.map((s) => ({ ...s, updated_at: now })), p_points: points,
     });
     if (error) throw new Error(error.message);
-    return new Response(JSON.stringify({ ok: true, players: standings.length, currentWeek, updated_at: now }), { headers });
+    // кубок — отдельным зачётом поверх готовой разбивки; его сбой таблицу чемпионата не трогает
+    let cup: any = null;
+    try {
+      const [rounds, teams] = await Promise.all([
+        all("cup_rounds", "n, starts_at, ends_at", ["n"]),
+        all("cup_teams", "id, round, cup_team_players(players(nick))", ["id"]),
+      ]);
+      const cupPoints = computeCup({
+        rounds, baths: bathMap, visits: journal, breakdown,
+        teams: teams.map((t) => ({ id: t.id, round: t.round, players: t.cup_team_players.map((tp: any) => tp.players.nick) })),
+      });
+      const res = await sb.rpc("cup_apply", { p_points: cupPoints });
+      if (res.error) throw new Error(res.error.message);
+      cup = { ok: true, rows: cupPoints.length };
+    } catch (e) {
+      cup = { ok: false, error: String(e) };
+    }
+    return new Response(JSON.stringify({ ok: true, players: standings.length, currentWeek, updated_at: now, cup }), { headers });
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers });
   }

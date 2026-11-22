@@ -140,6 +140,8 @@
   const member = !D.live || !!me?.nick;
   const canModerate = !D.live || !!me?.isCommission;
   let visits = data.visits;
+  let cup = data.cup?.teams?.length ? data.cup : null;   // кубок: туры, команды, очки (нет команд или витрина — вкладки нет)
+  let longGate = data.cup?.gate || null;                 // срок, когда долгую подтверждает Комиссия
   const reviews = data.reviews;
   const prices = data.prices;
   const beerPrices = data.beerPrices;
@@ -307,7 +309,7 @@
   function show(view, fromBack) {
     if (!fromBack && document.body.dataset.view !== view) pushStep({ type: "view", from: document.body.dataset.view, to: view });
     $$(".nav button[data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
-    $("#moreBtn").setAttribute("aria-selected", String(["owners", "rules", "dir"].includes(view)));
+    $("#moreBtn").setAttribute("aria-selected", String(["owners", "rules", "dir", "cup"].includes(view)));
     document.body.dataset.view = view;   // на телефоне поиск и типы поверх карты — только на вкладке «Карта»
     // телефон (03.11): на страницах аватарка — в строке заголовка раздела, а не отдельной полосой над ним
     const head = phone.matches && $(`#view-${view} .page-head`);
@@ -316,6 +318,7 @@
     if (view === "map") setTimeout(() => map.invalidateSize(), 0);
     if (view === "owners") { initOwners(); setTimeout(() => setOwnSheet(ownSheet), 0); }
     if (view === "feed") renderFeed();
+    if (view === "cup") renderCup();
     if (view === "dir") renderDir();
     history.replaceState(history.state, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
   }
@@ -324,6 +327,7 @@
   // «Ещё» (02.11): на телефоне в нижнем меню — Карта, Таблица, веник «+ Баня», Лента; остальное — здесь
   $("#moreBtn").addEventListener("click", () => {
     $('#moreModal [data-go="dir"]').hidden = $('.nav [data-view="dir"]').hidden;
+    $('#moreModal [data-go="cup"]').hidden = !cup;
     $("#moreModal").hidden = false;
   });
   $("#moreModal").addEventListener("click", (e) => {
@@ -2178,10 +2182,14 @@
   // очки похода на проверке — заранее, у каждого свои (03.11, «за что очки»): как в талоне формы, но без самого этого похода
   function previewFor(v, nick) {
     const b = byId.get(v.bathId); if (!b) return null;
-    return pointsFor(b, nick, v.durs?.[nick] ?? v.dur, v.companions.length + 1, v.id);
+    return pointsFor(b, nick, v.durs?.[nick] ?? v.dur, v.companions.length + 1, v.id, longHeld(v));
   }
-  // b — баня (у новой нет id), skip — сам этот поход, если он уже в журнале
-  function pointsFor(b, nick, dur, n, skip) {
+  // на время кубка (22.11) долгая идёт в зачёт после подтверждения Комиссии — срок в настройке long_confirm
+  const longGated = (t) => !!longGate && t >= Date.parse(longGate.from) && t < Date.parse(longGate.to);
+  const longHeld = (v) => !v.longOk && longGated(v.postedAt);
+  const hasLong = (v) => [v.dur, ...Object.values(v.durs || {})].some((m) => m > 150);
+  // b — баня (у новой нет id), skip — сам этот поход, если он уже в журнале, held — долгая ждёт Комиссию
+  function pointsFor(b, nick, dur, n, skip, held) {
     const bathIds = new Set(), regions = new Set(), countries = new Set();
     const add = (x) => { if (!x) return; bathIds.add(x.id); if (x.region) regions.add(placeKey(x)); if (x.country) countries.add(regionKey(x.country)); };
     baths.forEach((x) => x.v26?.[nick] && add(x));
@@ -2192,7 +2200,7 @@
     if (!b.n26 && !b.nHist) lines.push(["ультра?", 0]);
     if (b.region && b.country && !regions.has(placeKey(b))) lines.push(["новый регион", 1]);
     if (b.country && !countries.has(regionKey(b.country))) lines.push(["новая страна", 1]);
-    if (dur > 150) lines.push(["долгая", 1]);
+    if (dur > 150) lines.push(held ? ["долгая — после Комиссии", 0] : ["долгая", 1]);
     if (n >= 9) lines.push(["компания ККК", 3]); else if (n >= 6) lines.push(["компания КК", 2]); else if (n >= 3) lines.push(["компания К", 1]);
     return { total: lines.reduce((a, l) => a + l[1], 0), lines };
   }
@@ -2220,7 +2228,7 @@
     else if (!b.n26 && !b.nHist) lines.push(["Ультра? Комиссия проверит", 0, "muted"]);
     if (b.region && b.country && !s.regions.has(placeKey(b))) lines.push([`Новый регион · ${b.region}`, 1]);
     if (b.country && !s.countries.has(regionKey(b.country))) lines.push([`Новая страна · ${b.country}`, 1]);
-    if (dur > 150) lines.push(["Долгий поход", 1]);
+    if (dur > 150) lines.push(longGated(Date.now()) ? ["Долгий поход — после подтверждения Комиссии (два фото в чат)", 0, "muted"] : ["Долгий поход", 1]);
     const n = comp.length + 1;
     if (n >= 9) lines.push([`Компания ККК · ${n}`, 3]);
     else if (n >= 6) lines.push([`Компания КК · ${n}`, 2]);
@@ -2455,6 +2463,12 @@
       return (bare.length ? `<div class="f-rates">${bare.map(rchip).join("")}</div>` : "")
         + said.map((r) => `<div class="f-rate"><div class="f-rates">${rchip(r)}</div><blockquote class="f-rv" title="Нажми — отзыв целиком"><span>${esc(r.text)}</span></blockquote></div>`).join("");
     };
+    // долгая на время кубка: всем — ждёт или подтверждена, Комиссии — кнопка (одна отметка на поход, и кубку, и чемпионату)
+    const longLine = (v, tag) => {
+      if (!hasLong(v) || !longGated(v.postedAt)) return "";
+      const btn = sec && D.live ? ` <button type="button" class="cup-longbtn" data-long="${v.id}">${v.longOk ? "Снять подтверждение" : "Подтвердить долгую"}</button>` : "";
+      return `<${tag} class="cup-long">${v.longOk ? `<span class="cup-longok">🔥 долгая подтверждена Комиссией</span>` : `<span class="cup-wait">🔥 долгая ждёт подтверждения Комиссии — два фото в чат</span>`}${btn}</${tag}>`;
+    };
     const card = (v) => {
       const b = byId.get(v.bathId), who = people(v);
       const rep = repeatOf(v);
@@ -2463,6 +2477,7 @@
         <div class="f-head">${stack(who)}<div class="f-who"><b>${esc(who.length > 2 ? `${who[0]}, ${who[1]} и ещё ${who.length - 2}` : who.join(" и "))}</b><small>${time(v.date)} · W${v.week ?? weekOf(v.posted || v.date)}${v.enteredBy ? ` · внёс ${esc(v.enteredBy)}` : ""}</small></div><span class="status pending">на проверке</span></div>
         <a class="f-bath" href="#map" data-bath="${v.bathId}">${b ? tdot(b.t) : ""}<span><b>${esc(b?.name || v.bathName || "баня")}</b><small>${[b && esc(where(b)), durLabel(v), v.companions.length && "компания"].filter(Boolean).join(" · ")}</small></span></a>
         ${pts ? `<div class="f-pts">${pts}</div>` : `<div class="f-why">${who.map((n) => { const r = previewFor(v, n); return r ? `<div class="f-why-row"><b>${esc(n)}</b><b class="f-why-pts">+${r.total}</b><small>${r.lines.map(([t, k]) => k ? `${t}${k > 1 ? ` ${k}` : ""}` : t).join(" · ")}</small></div>` : ""; }).join("")}</div>`}
+        ${longLine(v, "div")}
         ${rep.length ? `<div class="warn">⚠️ похоже на повтор бани в те же сутки${rep.length < who.length ? " у " + rep.map(esc).join(", ") : ""} — проверь дату (п. 5)</div>` : ""}
         ${/^https:\/\/t\.me\//.test(v.tgLink || "") ? `<a class="f-tg" href="${esc(v.tgLink)}" target="_blank" rel="noopener">пост в группе ↗</a>` : ""}
         ${sec || inVisit(v) ? `<div class="post-actions">
@@ -2486,6 +2501,7 @@
           <a class="f-title" href="#map" data-bath="${v.bathId}">${esc(b?.name || v.bathName || "баня")}</a>
           <small>${time(v.date)} · ${durLabel(v)}${v.companions.length ? ` · компания` : ""}${rejected ? ` · <span class="f-no">отклонён${v.reason ? `: ${esc(v.reason)}` : ""}</span>` : ""}</small>
           <div class="f-split">${split}</div>
+          ${rejected ? "" : longLine(v, "small")}
           ${(feedPhotos[v.id] || []).length ? `<div class="f-photos">${feedPhotos[v.id].slice(0, 6).map((ph, i) => `<button type="button" class="f-ph" data-fph="${v.id}:${i}" aria-label="Фото ${i + 1}"><img src="${esc(ph.thumb)}" alt="" loading="lazy" onerror="this.remove()"></button>`).join("")}${feedPhotos[v.id].length > 6 ? `<button type="button" class="f-ph more" data-fph="${v.id}:6">+${feedPhotos[v.id].length - 6}</button>` : ""}</div>` : ""}
           ${rateLine(attached.get(v.id) || [])}
         </div>
@@ -2502,6 +2518,15 @@
     const fph = e.target.closest("[data-fph]"); if (fph) { const [vid, i] = fph.dataset.fph.split(":"); return openPhotos(feedPhotos[vid] || [], +i); }   // длинный отзыв — две строки, нажал — целиком
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
+    const lg = e.target.closest("[data-long]");
+    if (lg) {
+      const v = visits.find((x) => x.id === +lg.dataset.long);
+      lg.disabled = true;
+      return D.confirmLong(v.id, !v.longOk).then(() => {
+        v.longOk = !v.longOk; renderFeed(); toast(v.longOk ? "Долгая подтверждена — таблица пересчитывается" : "Подтверждение снято");
+        if (v.status === "ok") recomputeSoon();
+      }).catch((err) => { lg.disabled = false; toast("Не получилось: " + err.message); });
+    }
     if (ed) return openEdit(visits.find((x) => x.id === +ed));
     if (ph) return pickPhotos(visits.find((x) => x.id === +ph));
     if (ok || no) {
@@ -2541,13 +2566,64 @@
       hydrate(b);
     }
     visits = fresh.visits;
+    cup = fresh.cup?.teams?.length ? fresh.cup : null; longGate = fresh.cup?.gate || null; cupVisits = {};
     Object.keys(reviews).forEach((k) => delete reviews[k]); Object.assign(reviews, fresh.reviews);
     Object.keys(prices).forEach((k) => delete prices[k]); Object.assign(prices, fresh.prices);
     Object.keys(beerPrices).forEach((k) => delete beerPrices[k]); Object.assign(beerPrices, fresh.beerPrices);
     rankTable(); renderKpis(); render(); renderRace(); renderTable(); updateBadge();
     if (!$("#tWeek").hidden) renderWeek();
     if (!$("#view-feed").hidden) renderFeed();
+    if (!$("#view-cup").hidden) renderCup();
   }
+
+  // ---------- кубок (22.11, docs/cup.md): команды тура по очкам; походы тура — только участникам лиги ----------
+  let cupRound = null, cupVisits = {};
+  const CUP_LINE = { visit: "поход", public: "общественная", unique: "уникальная", ultra: "ультра", long: "долгая", team: "встреча команды" };
+  function renderCup() {
+    if (!cup) return;
+    const now = Date.now(), played = cup.rounds.filter((r) => cup.teams.some((t) => t.round === r.n));
+    const live = played.find((r) => now >= Date.parse(r.starts_at) && now < Date.parse(r.ends_at));
+    if (!played.some((r) => r.n === cupRound)) cupRound = (live || (now < Date.parse(played[0].starts_at) ? played[0] : played[played.length - 1])).n;
+    const round = played.find((r) => r.n === cupRound);
+    const day = (iso, shift = 0) => new Date(Date.parse(iso) - shift).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "Europe/Moscow" });
+    const left = (ms) => { const d = Math.floor(ms / 864e5), h = Math.floor((ms % 864e5) / 36e5), m = Math.floor((ms % 36e5) / 6e4); return d ? `${d} д ${h} ч` : h ? `${h} ч ${m} мин` : `${m} мин`; };
+    $("#cupTitle").innerHTML = `Тур ${round.n} <small class="cup-dates">· ${day(round.starts_at)} – ${day(round.ends_at, 1)}</small>`;
+    const start = Date.parse(round.starts_at), end = Date.parse(round.ends_at);
+    $("#cupTimer").innerHTML = now < start ? `${icon("clock")}до старта <b>${left(start - now)}</b>` : now < end ? `${icon("clock")}до конца тура <b>${left(end - now)}</b>` : `${icon("check")}тур сыгран`;
+    $("#cupRounds").hidden = played.length < 2;
+    $("#cupRounds").innerHTML = played.map((r) => `<button type="button" data-round="${r.n}" aria-pressed="${r.n === cupRound}">Тур ${r.n}</button>`).join("");
+
+    const pts = Object.fromEntries(cup.points.filter((p) => p.round === cupRound).map((p) => [p.nick, p]));
+    const placeOf = (nick) => ranked.find((s) => s.name === nick)?.place ?? 99;
+    // места: очки команды, поровну — выше та, у кого меньше сумма мест в чемпионате, потом — у кого больше бань в туре
+    const teams = cup.teams.filter((t) => t.round === cupRound).map((t) => ({ ...t,
+      total: t.players.reduce((a, n) => a + (pts[n]?.total || 0), 0), baths: t.players.reduce((a, n) => a + (pts[n]?.baths || 0), 0),
+      places: t.players.reduce((a, n) => a + placeOf(n), 0) }))
+      .sort((a, b) => b.total - a.total || a.places - b.places || b.baths - a.baths || a.num - b.num);
+    const detail = member && D.live ? cupVisits[cupRound] : null;
+    if (member && D.live && !detail) {
+      const n = cupRound;
+      cupVisits[n] = [];   // пока грузится — пусто; ответ перерисует
+      D.cupVisits(n).then((rows) => { cupVisits[n] = rows; if (rows.length && cupRound === n && !$("#view-cup").hidden) renderCup(); }).catch(() => {});
+    }
+    const visitRow = (r) => `<div class="cup-visit">${esc(r.nick)} · ${esc(byId.get(r.bathId)?.name || "баня")} <small>${r.date.slice(8, 10)}.${r.date.slice(5, 7)}</small> `
+      + (r.total ? `<b>+${r.total}</b> <small>${r.lines.map(([k]) => CUP_LINE[k] || k).join(" · ")}</small>` : `<small>не общественная — 0</small>`) + `</div>`;
+    const card = (t, i) => {
+      const mine = (detail || []).filter((r) => t.players.includes(r.nick));
+      return `<article class="cup-team${t.players.includes(myNick) ? " mine" : ""}" data-team="${t.num}">
+        <div class="cup-head"><span class="cup-pos${i ? "" : " lead"}">${i + 1}</span><span class="cup-name">Команда ${t.num}</span><span class="cup-total"><b>${t.total}</b> ${plural(t.total, "очко", "очка", "очков")}</span></div>
+        <div class="cup-players">${[...t.players].sort((a, b) => (pts[b]?.total || 0) - (pts[a]?.total || 0) || a.localeCompare(b)).map((n) =>
+          `<span class="cup-pl">${ava(n)}${esc(n)} <b>${pts[n]?.total || 0}</b>${pts[n]?.baths ? `<small>· ${pts[n].baths} ${plural(pts[n].baths, "баня", "бани", "бань")}</small>` : ""}</span>`).join("")}</div>
+        ${mine.length ? `<details class="cup-more"><summary>Походы тура · ${mine.length}</summary>${mine.map(visitRow).join("")}</details>` : ""}
+      </article>`;
+    };
+    const paths = [["champions", "Путь чемпионов"], ["losers", "Путь ебланов"]].map(([k, name]) => [name, teams.filter((t) => t.path === k)]).filter(([, list]) => list.length);
+    $("#cupTeams").innerHTML = paths.map(([name, list]) => `${paths.length > 1 ? `<h3 class="cup-path">${name}</h3>` : ""}${list.map(card).join("")}`).join("");
+  }
+  $("#cupRounds").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-round]"); if (!b) return;
+    cupRound = +b.dataset.round; renderCup();
+  });
 
   // ---------- правка заявки Комиссией ----------
   function openEdit(v) {
@@ -3750,7 +3826,8 @@
   loadRatings();
   const linked = h.match(/^bath=(\d+)$/);   // ссылка на баню — сразу её карточка на карте
   if (linked && byId.has(+linked[1])) { show("map"); openBath(+linked[1], true); }
-  if (["owners", "table", "feed", "rules"].includes(h) || (h === "dir" && canModerate && D.live)) {
+  $('.nav [data-view="cup"]').hidden = !cup;
+  if (["owners", "table", "feed", "rules"].includes(h) || (h === "cup" && cup) || (h === "dir" && canModerate && D.live)) {
     show(h);
     setTimeout(() => $(`#view-${h}`)?.scrollTo(0, 0), 0);   // «#feed» — ещё и id списка: браузер прокручивал к нему, заголовок уезжал
   }

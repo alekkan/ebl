@@ -105,7 +105,7 @@ window.EBLData = (() => {
     const newBaths = store.get("newBaths", []);
     return {
       baths: [...baths, ...newBaths], standings, reviews: store.get("reviews", {}), prices: store.get("prices", {}), beerPrices: store.get("beerPrices", {}), visits: store.get("visits", []),
-      players: standings.map((s) => s.name), me: null,
+      players: standings.map((s) => s.name), me: null, cup: null,   // кубка в витрине нет
       commission: ["Витёк", "Леха"],   // в витрине — как в scripts/seed.py
     };
   }
@@ -125,7 +125,7 @@ window.EBLData = (() => {
   async function journal() {
     if (sessionUser() === "guest") return [];
     return check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, baths(name), visit_players(player_id, duration_min), visit_points(nick, total, lines)")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, long_ok, baths(name), visit_players(player_id, duration_min), visit_points(nick, total, lines)")
       .order("posted_at", { ascending: false }).limit(300));
   }
   function loadVisits(rows, playersById) {
@@ -145,6 +145,7 @@ window.EBLData = (() => {
         pts: Object.fromEntries(Object.entries(ptsBy[v.id] || {}).map(([nick, x]) => [nick, +x.total])),
         // своя длительность участника, если не как у похода (18.10): { ник: минуты }
         durs: Object.fromEntries(vp.filter((x) => x.duration_min != null && x.nick).map((x) => [x.nick, x.duration_min])),
+        postedAt: Date.parse(v.posted_at), longOk: !!v.long_ok,   // на время кубка долгую подтверждает Комиссия
       };
     });
   }
@@ -197,6 +198,7 @@ window.EBLData = (() => {
         weekPts: s.week_pts, weekBaths: s.week_baths, weekGain: +(s.week_gain ?? 0), updatedAt: s.updated_at })),
       reviews: rv, prices: pr, beerPrices: bpr, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
+      cup: common.cup ? { ...common.cup, gate: common.cup.long_gate || null } : null,
       photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, avaCopy[p.photo_url] || viaApi(p.photo_url)])),
     };
   }
@@ -409,6 +411,17 @@ window.EBLData = (() => {
       for (const [id, m] of want) {
         if (have.has(id) && have.get(id) !== m) check(await sb.from("visit_players").update({ duration_min: m }).eq("visit_id", visitId).eq("player_id", id));
       }
+    },
+    // Комиссия подтверждает долгую (на время кубка — по двум фото в чате); одна отметка на поход
+    async confirmLong(visitId, ok) {
+      if (!live) return;
+      check(await sb.from("visits").update({ long_ok: ok }).eq("id", visitId));
+    },
+    // очки кубка по походам за тур — только участникам лиги, по запросу (гостю хватает сумм из boot_public)
+    async cupVisits(round) {
+      if (!live) return [];
+      const rows = check(await sb.from("cup_points").select("visit_id, nick, total, lines, visits(bath_id, entered_at)").eq("round", round).order("visit_id"));
+      return rows.map((r) => ({ id: r.visit_id, nick: r.nick, total: r.total, lines: r.lines, bathId: r.visits?.bath_id, date: r.visits ? mskLocal(r.visits.entered_at) : "" }));
     },
     async recompute() {
       if (!live) return;

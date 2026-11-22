@@ -65,8 +65,8 @@ req("POST", "/functions/v1/recompute", {})  # после db reset таблица
 me, vit, leha = player_id("Шурик"), player_id("Витёк"), player_id("Леха")
 check("аноним видит таблицу", len(req("GET", "/rest/v1/standings?select=nick")[1]) > 0)
 s, bp = req("GET", "/rest/v1/rpc/boot_public")
-check("всё общее для первого экрана — одним запросом и гостю: бани, посещения, таблица, отзывы, цены, пиво, участники",
-      s == 200 and isinstance(bp, dict) and set(bp) == {"baths", "counts", "standings", "reviews", "prices", "beer", "players"}
+check("всё общее для первого экрана — одним запросом и гостю: бани, посещения, таблица, отзывы, цены, пиво, участники, кубок",
+      s == 200 and isinstance(bp, dict) and set(bp) == {"baths", "counts", "standings", "reviews", "prices", "beer", "players", "cup"}
       and len(bp["baths"]) > 100 and len(bp["counts"]) > 100 and len(bp["standings"]) > 0 and len(bp["players"]) > 0, (s, list(bp)[:9] if isinstance(bp, dict) else bp))
 check("…отклонённые бани в нём гостю не видны, как и в обычном запросе", all(b["status"] != "rejected" for b in bp["baths"]))
 s2, bp2 = req("GET", "/rest/v1/rpc/boot_public?apikey=" + urllib.parse.quote(KEY))
@@ -626,4 +626,68 @@ req("POST", "/rest/v1/rpc/rate_bath", {"p_bath": rb2, "p_scores": S(stove=1)}, t
 check("…повторная оценка правит прежнюю, а не плодит", sql(f"select count(*) || ' ' || max(stove) from bath_ratings where bath_id = {rb2}") == "1 1")
 sql(f"delete from baths where id = {rb2}")
 sql(f"delete from visits where bath_id = {rb}"); sql(f"delete from baths where id = {rb}")
+
+print("Кубок: очки тура отдельным зачётом, долгая — после подтверждения Комиссии")
+# туры и срок подтверждения долгой — вокруг «сейчас», чтобы проверка не зависела от даты прогона
+ROUNDS = sql("select json_agg(r) from cup_rounds r")
+sql("update cup_rounds set starts_at = now() - interval '3 days', ends_at = now() - interval '1 day' where n = 1")
+sql("update cup_rounds set starts_at = now() - interval '1 day', ends_at = now() + interval '1 day' where n = 2")
+sql("""insert into settings (key, value) select 'long_confirm', json_build_object('from', now() - interval '10 days', 'to', now() + interval '10 days')::jsonb
+       on conflict (key) do update set value = excluded.value""")
+def cteam(rnd, num, nicks):
+    t = sql(f"insert into cup_teams (round, num) values ({rnd}, {num}) returning id").splitlines()[0]
+    for n in nicks: sql(f"insert into cup_team_players (team_id, player_id) select {t}, id from players where nick = '{n}'")
+    return int(t)
+ta, tb, tc = cteam(1, 91, ("Шурик", "Витёк", "Леха")), cteam(1, 92, ("Ден", "Арс")), cteam(2, 93, ("Шурик",))
+cb1 = sql("insert into baths (name, status, type) values ('Тест-Кубок-1', 'ok', 'public') returning id").splitlines()[0]
+cb2 = sql("insert into baths (name, status, type) values ('Тест-Кубок-2', 'ok', 'spa') returning id").splitlines()[0]
+def cvisit(bath, ago, who, dur=120):
+    v = sql(f"""insert into visits (bath_id, entered_at, posted_at, duration_min, status, created_by)
+                select {bath}, now() - interval '{ago}', now() - interval '{ago}', {dur}, 'pending', id from players where nick = '{who[0]}' returning id""").splitlines()[0]
+    for n in who: sql(f"insert into visit_players (visit_id, player_id) select {v}, id from players where nick = '{n}'")
+    sql(f"update visits set status = 'ok' where id = {v}")
+    return int(v)
+cv1 = cvisit(cb1, "2 days", ("Шурик", "Витёк"), dur=180)   # первый тур: двое из одной команды, долгая
+cv2 = cvisit(cb2, "2 days", ("Шурик",))                     # хуитнес
+cv3 = cvisit(cb1, "2 hours", ("Шурик",))                    # та же баня уже во втором туре
+cv4 = cvisit(cb1, "2 days", ("Ден", "Фил"))                 # Фил в кубке не играет
+s, r = req("POST", "/functions/v1/recompute", {})
+check("пересчёт считает и кубок", s == 200 and r["ok"] and r["cup"]["ok"], r)
+def cpts():
+    return {(p["visit_id"], p["nick"]): p for p in req("GET", "/rest/v1/cup_points?select=visit_id,nick,round,team_id,total,lines", token=shurik)[1]}
+keys = lambda p: sorted(l[0] for l in p["lines"])
+c = cpts()
+check("общественная в туре: поход, общественная, уникальная, ультра, встреча команды; долгая без подтверждения — нет",
+      keys(c[(cv1, "Шурик")]) == ["public", "team", "ultra", "unique", "visit"] and c[(cv1, "Шурик")]["total"] == 5
+      and c[(cv1, "Витёк")]["total"] == 5 and c[(cv1, "Шурик")]["round"] == 1 and c[(cv1, "Шурик")]["team_id"] == ta, c)
+check("хуитнес в кубке — ноль", c[(cv2, "Шурик")]["total"] == 0 and c[(cv2, "Шурик")]["lines"] == [], c.get((cv2, "Шурик")))
+check("следующий тур — по времени поста; уникальная считается с начала кубка, между турами не обнуляется",
+      c[(cv3, "Шурик")]["round"] == 2 and c[(cv3, "Шурик")]["team_id"] == tc and keys(c[(cv3, "Шурик")]) == ["public", "visit"], c.get((cv3, "Шурик")))
+check("один из команды — без встречи; кто в кубке не играет — без очков кубка; компания в кубке не считается",
+      keys(c[(cv4, "Ден")]) == ["public", "ultra", "unique", "visit"] and (cv4, "Фил") not in c
+      and not any(l[0] in ("company", "region", "country") for p in c.values() for l in p["lines"]), c)
+champ = lambda: {p["nick"]: [l[0] for l in p["lines"]] for p in req("GET", f"/rest/v1/visit_points?visit_id=eq.{cv1}&select=nick,lines", token=shurik)[1]}
+check("в чемпионате долгая тоже ждёт Комиссию, остальное — как было", all("long" not in l and "visit" in l for l in champ().values()) and len(champ()) == 2, champ())
+row = f"/rest/v1/visits?id=eq.{cv1}"
+s1, r1 = req("PATCH", row, {"long_ok": True}, token=shurik, headers={"Prefer": "return=representation"})
+s2, r2 = req("PATCH", row, {"long_ok": True}, token=vitek, headers={"Prefer": "return=representation"})
+check("долгую подтверждает Комиссия, участник — нет", (s1 >= 400 or r1 == []) and s2 == 200 and r2 and r2[0]["long_ok"] is True, (s1, r1, s2, r2))
+req("POST", "/functions/v1/recompute", {})
+c = cpts()
+check("подтвердили — долгая и в кубке, и в чемпионате", "long" in keys(c[(cv1, "Шурик")]) and c[(cv1, "Витёк")]["total"] == 6
+      and all("long" in l for l in champ().values()), (c[(cv1, "Шурик")], champ()))
+sql("delete from settings where key = 'long_confirm'"); sql(f"update visits set long_ok = false where id = {cv1}")
+req("POST", "/functions/v1/recompute", {})
+check("срока нет (кубок кончился) — долгая снова без подтверждения", all("long" in l for l in champ().values()), champ())
+check("очки кубка по походам гостю закрыты", (req("GET", "/rest/v1/cup_points?select=nick")[1] or []) == [] or req("GET", "/rest/v1/cup_points?select=nick")[0] >= 400)
+check("запись в кубок — только пересчётом", req("POST", "/rest/v1/rpc/cup_apply", {"p_points": []}, token=vitek)[0] >= 400
+      and req("POST", "/rest/v1/cup_teams", {"round": 1, "num": 99}, token=vitek)[0] >= 400)
+cup = req("POST", "/rest/v1/rpc/boot_public", {})[1].get("cup") or {}
+me1 = [p for p in cup.get("points", []) if p["nick"] == "Шурик" and p["round"] == 1]
+check("гостю в boot_public — туры, команды и суммы по турам (без походов)",
+      len(cup.get("rounds", [])) == 5 and any(t["num"] == 91 and sorted(t["players"]) == ["Витёк", "Леха", "Шурик"] for t in cup.get("teams", []))
+      and me1 and me1[0]["total"] == 6 and me1[0]["baths"] == 1 and "visit_id" not in json.dumps(cup), cup)
+sql(f"delete from visits where bath_id in ({cb1}, {cb2})"); sql(f"delete from baths where id in ({cb1}, {cb2})"); sql("delete from cup_teams")
+sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{ROUNDS}') x where x.n = r.n")
+req("POST", "/functions/v1/recompute", {})
 print("Готово.")
