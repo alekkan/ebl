@@ -69,7 +69,10 @@ export function roundText(h: Any, state: Any, site: string, fix = false) {
     const next = (state.rounds ?? []).find((r: Any) => r.n === h.round + 1);
     out.push("", `<b>${h.round + 1 === 5 ? "Финал" : `Тур ${h.round + 1}`}</b>${next ? ` · ${dates(next)}` : ""}`);
     path = "";
+    // кто сошёл с пути чемпионов — представляем перед командами пути ебланов
+    const fresh = (h.results ?? []).filter((t: Any) => t.path === "champions").flatMap((t: Any) => (t.players ?? []).filter((p: Any) => p.to === "losers").map((p: Any) => p.nick));
     for (const t of h.teams) {
+      if (t.path !== path && t.path === "losers" && fresh.length && h.round + 1 < 5) out.push("", `👋 Поприветствуем новых ебланов: ${names(fresh)}`);
       if (t.path !== path && h.round + 1 < 5) { path = t.path; out.push(`<i>${PATH[path] ?? path}</i>${path === "losers" && h.draw ? " — по жребию" : ""}`); }
       out.push(`• ${names(t.players)}`);
     }

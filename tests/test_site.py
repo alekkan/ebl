@@ -1702,6 +1702,14 @@ with sync_playwright() as pw:
               and s.js("() => document.querySelectorAll('#cupTeams .cup-fate[data-to=\"losers\"]').length") == 9
               and s.js("() => !!document.querySelector('#cupNext [data-cup-act=\"reopen\"]')"))
         s.no_clip("История тура на телефоне", "#view-cup")
+        s.view("feed")
+        cup_res = "() => document.querySelector('#feed .f-cupres')?.innerText || ''"
+        check("лента: принятые итоги тура — запись с местами команд по очкам и что дальше",
+              "Кубок · итоги тура 1" in s.js(cup_res) and "дальше — тур 2" in s.js(cup_res) and s.js("() => document.querySelectorAll('#feed .f-cupres .f-pt').length") == 6, s.js(cup_res))
+        s.no_clip("Итоги тура в ленте на телефоне", "#view-feed")
+        s.page.click('#feed [data-cup-res]')
+        s.page.wait_for_timeout(400)
+        check("лента: нажал на итоги тура — вкладка «Кубок», этот тур", s.js("() => !document.getElementById('view-cup').hidden") and "Тур 1" in s.js(cup_title), s.js(cup_title))
         s.page.wait_for_timeout(1500)   # пересчёт после принятия
         s.clean("Итоги тура у Комиссии"); s.close()
         sql("delete from cup_transitions"); sql("delete from cup_teams")
@@ -1784,7 +1792,7 @@ with sync_playwright() as pw:
         all_views(s, "витрина")
         check("витрина: кубка нет — вкладка скрыта", s.js("() => document.querySelector('.nav [data-view=\"cup\"]').hidden"))
         s.view("feed")
-        check("витрина: комментариев и итогов недели в ленте нет", not s.js("() => !!document.querySelector('.f-cmts, .f-week')"))
+        check("витрина: комментариев и итогов недели в ленте нет", not s.js("() => !!document.querySelector('.f-cmts, .f-week, .f-cupres')"))
         s.close()
     finally:
         sql(f"delete from visits where source = 'site' and created_at > now() - interval '1 hour' and created_by = '{player_id('Шурик')}'")

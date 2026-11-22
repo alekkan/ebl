@@ -1356,7 +1356,7 @@ cup_call("post")
 said = cup_said(seen)
 check("Комиссия приняла итоги тура — одно сообщение: очки команд, составы следующего тура со жребием, кто покидает кубок",
       len(said) == 1 and "итоги тура 1" in said[0] and "Ден 6 · Арс 4 · Alex B 2 — <b>12</b>" in said[0] and "Тур 2" in said[0]
-      and "Путь ебланов</i> — по жребию" in said[0] and "• Витёк, Женёк В, Шурик" in said[0] and "Покидают кубок: Миша П" in said[0] and "уточнение" not in said[0], said)
+      and "Путь ебланов</i> — по жребию" in said[0] and "Поприветствуем новых ебланов: Витёк, Женёк В\n<i>Путь ебланов" in said[0] and "• Витёк, Женёк В, Шурик" in said[0] and "Покидают кубок: Миша П" in said[0] and "уточнение" not in said[0], said)
 seen = len(TELEGRAM.calls)
 cup_call("post")
 check("…и только один раз", cup_said(seen) == [])
