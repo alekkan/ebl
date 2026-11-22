@@ -2636,7 +2636,7 @@
   // ---------- кубок (22.11, docs/cup.md): команды тура по очкам; походы тура — только участникам лиги ----------
   let cupRound = null, cupVisits = {}, cupDraft = null;   // cupDraft — предложение итогов тура, его видит только Комиссия
   const CUP_TO = { champions: "путь чемпионов", losers: "путь ебланов", out: "выбыл", final: "в финал", winner: "победитель", second: "финалист" };
-  const CUP_LINE = { visit: "поход", public: "общественная", unique: "уникальная", ultra: "ультра", long: "долгая", team: "встреча команды" };
+  const CUP_LINE = { visit: "поход", public: "общественная", unique: "уникальная", ultra: "ультра", long: "долгая", team: "встреча команды", company: "компания" };
   function renderCup() {
     if (!cup) return;
     const now = Date.now(), played = cup.rounds.filter((r) => cup.teams.some((t) => t.round === r.n));
