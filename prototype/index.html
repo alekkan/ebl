@@ -130,6 +130,7 @@
     <button role="tab" data-view="map" aria-selected="true"><svg class="ic"><use href="#i-map"/></svg><span>Карта</span></button>
     <button role="tab" data-view="owners"><svg class="ic"><use href="#i-hat"/></svg><span>Хозяева</span></button>
     <button role="tab" data-view="table"><svg class="ic"><use href="#i-trophy"/></svg><span>Таблица</span></button>
+    <button role="tab" data-view="cup" hidden><svg class="ic"><use href="#i-flame"/></svg><span>Кубок</span></button>
     <button role="tab" data-view="feed"><svg class="ic"><use href="#i-feed"/></svg><span>Лента</span><b class="badge" id="pendingBadge" hidden>0</b></button>
     <button role="tab" data-view="rules"><svg class="ic"><use href="#i-doc"/></svg><span>Правила</span></button>
     <button role="tab" data-view="dir" hidden><svg class="ic"><use href="#i-seal"/></svg><span>Бани</span></button>
@@ -314,6 +315,16 @@
   </section>
 
   <!-- ЛЕНТА -->
+  <!-- Четвёртый кубок ЕБЛ (22.11): команды тура и их очки, см. docs/cup.md -->
+  <section class="view page" id="view-cup" hidden>
+    <div class="wrap narrow">
+      <div class="page-head"><div><div class="eyebrow">Четвёртый кубок ЕБЛ</div><h1 id="cupTitle">Кубок</h1></div><div class="timer" id="cupTimer"></div></div>
+      <div class="cup-rounds" id="cupRounds" hidden></div>
+      <div id="cupTeams"></div>
+      <p class="cup-note">В зачёт кубка — только общественные бани: поход, общественная, уникальная (первый раз с начала кубка), ультрауникальная, долгая и встреча команды — по очку. Долгую подтверждает Комиссия по двум фото в чате.</p>
+    </div>
+  </section>
+
   <section class="view page" id="view-feed" hidden>
     <div class="wrap narrow">
       <!-- 03.11 (макет ленты): заголовок и неделя одной строкой, фильтры — чипами -->
@@ -602,6 +613,7 @@
 <!-- «Ещё» на телефоне (02.11): разделы, которым не хватило места в нижнем меню -->
 <div class="modal" id="moreModal" hidden>
   <div class="sheet sheet-narrow more-sheet" role="dialog" aria-modal="true" aria-label="Ещё">
+    <button class="more-it" data-go="cup" hidden><svg class="ic"><use href="#i-flame"/></svg><span><b>Кубок</b><small>четвёртый кубок ЕБЛ: команды и туры</small></span></button>
     <button class="more-it" data-go="owners"><svg class="ic"><use href="#i-hat"/></svg><span><b>Хозяева</b><small>у кого какие шапки</small></span></button>
     <button class="more-it" data-go="rules"><svg class="ic"><use href="#i-doc"/></svg><span><b>Правила</b><small>как считаются очки</small></span></button>
     <button class="more-it kom" data-go="dir" hidden><svg class="ic"><use href="#i-seal"/></svg><span><b>Бани</b><small>Справочник, Радар и Сверка — Комиссии</small></span></button>

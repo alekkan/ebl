@@ -1433,7 +1433,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   /* шторка фильтров — отдельным блоком ниже */
 
   /* нижнее меню: Карта, Таблица, веник «+ Баня», Лента, Ещё */
-  .nav [data-view="owners"], .nav [data-view="rules"], .nav [data-view="dir"] { display: none !important; }
+  .nav [data-view="owners"], .nav [data-view="rules"], .nav [data-view="dir"], .nav [data-view="cup"] { display: none !important; }
   .nav [data-view="map"] { order: 1; } .nav [data-view="table"] { order: 2; } .nav-gap { display: block; order: 3; flex: 1 1 0; }
   .nav [data-view="feed"] { order: 4; } .nav .nav-more { display: flex; order: 5; }
   /* «+ Баня» (03.11, макет «Г»): светлый дубовый кружок 42 px с белой обводкой чуть над меню, цветной веник,
@@ -1671,6 +1671,37 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .frow:has(> .rv-rate) .f-title { padding-right: 70px; }
 .frow.rejected .f-title { color: var(--ink-3); text-decoration: line-through; }
 .f-no { color: var(--ember); }
+
+/* ---------- кубок (22.11) ---------- */
+.cup-rounds { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+.cup-rounds button { border: 0; border-radius: 999px; padding: 7px 14px; background: var(--panel); color: var(--ink-2); font: inherit; font-size: 14px; cursor: pointer; box-shadow: var(--shadow-s); }
+.cup-rounds button[aria-pressed="true"] { background: var(--oak); color: var(--oak-ink); }
+.cup-path { margin: 22px 0 10px; font-family: var(--display); font-size: 15px; }
+.cup-team { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-s); padding: 14px 16px; margin-bottom: 12px; }
+.cup-team.mine { box-shadow: var(--shadow-s), inset 0 0 0 2px var(--oak-lite); }
+.cup-head { display: flex; align-items: center; gap: 10px; }
+.cup-pos { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--panel-2); font-weight: 700; font-size: 14px; }
+.cup-pos.lead { background: var(--gold); }
+.cup-dates { font-family: var(--body); font-size: .5em; font-weight: 400; color: var(--ink-3); white-space: nowrap; }
+.cup-name { flex: 1 1 auto; min-width: 0; font-weight: 700; }
+.cup-total { flex: none; color: var(--ink-2); font-size: 14px; }
+.cup-total b { font-family: var(--display); font-size: 20px; color: var(--ember); }
+.cup-players { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; }
+.cup-pl { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
+.cup-pl .ava { --s: 26px; }
+.cup-pl b { color: var(--ember); }
+.cup-pl small { color: var(--ink-3); }
+.cup-more { margin-top: 10px; font-size: 13.5px; color: var(--ink-2); }
+.cup-more summary { cursor: pointer; color: var(--oak); }
+.cup-visit { padding: 6px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.cup-visit:first-of-type { margin-top: 6px; }
+.cup-visit b { color: var(--ember); }
+.cup-visit small { color: var(--ink-3); }
+.cup-note { margin: 16px 2px 32px; font-size: 13px; color: var(--ink-3); }
+/* долгая на время кубка — после подтверждения Комиссии */
+.cup-wait { color: color-mix(in srgb, var(--honey) 55%, var(--ink)); }
+.cup-longok { color: var(--oak); }
+.cup-longbtn { display: inline-block; margin-top: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
 .f-acts { display: flex; gap: 2px; flex: none; }
 .f-ic { width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; font-size: 15px; }
 .f-ic .ic { width: 16px; height: 16px; }

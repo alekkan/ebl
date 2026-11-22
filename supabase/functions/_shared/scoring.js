@@ -6,7 +6,7 @@ export const PLACE_PTS = [15, 12, 10, 8, 6, 4, 2, 1];
 
 // Date, у которой UTC-поля показывают московское время
 export const msk = (d) => new Date(new Date(d).getTime() + 3 * 3600e3);
-const dayKey = (m) => m.toISOString().slice(0, 10);
+export const dayKey = (m) => m.toISOString().slice(0, 10);
 
 // Неделя сезона по московскому времени (п. 6, 18): W1 — от 1 января до первого воскресенья,
 // дальше пн–вс; после 22:59 МСК воскресенья — уже следующая неделя.
@@ -35,6 +35,13 @@ export function placePoints(rows) {
   return out;
 }
 
+// ждёт ли долгая подтверждения Комиссии: поход запощен в срок из настройки long_confirm
+export function longGated(gate, postedAt) {
+  if (!gate?.from || !gate?.to) return false;
+  const t = new Date(postedAt).getTime();
+  return t >= new Date(gate.from).getTime() && t < new Date(gate.to).getTime();
+}
+
 const companyPts = (n) => (n >= 9 ? 3 : n >= 6 ? 2 : n >= 3 ? 1 : 0);
 
 // Ключ страны/региона для сравнения (п. 14): в таблице встречается и «Московская обл», и «Московская обл.»,
@@ -55,8 +62,10 @@ export function regionKey(s) {
  * @param {{nick,total,baths,u,uu,long,k,pub,reg,week_pts,week_baths}[]} p.legacyStandings
  * @param {{id,bath_id,entered_at,posted_at,duration_min,players:{nick,duration_min?}[]}[]} p.visits  только status = ok;
  *   у участника может быть своя длительность (18.10: «я и Фил — долгую, Диман — экспресс»), пусто — как у похода
+ * @param {{from,to}|null} [p.longGate]  на время кубка (22.11) долгая у походов, запощенных в этот срок, идёт в зачёт
+ *   только с отметкой Комиссии long_ok (два фото в чате)
  */
-export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits, legacyStandings, visits }) {
+export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits, legacyStandings, visits, longGate = null }) {
   const S = new Map();
   const row = (nick) => {
     if (!S.has(nick)) S.set(nick, { nick, total: 0, baths: 0, u: 0, uu: 0, long: 0, k: 0, pub: 0, reg: 0, week_pts: {}, week_baths: {}, week_gain: 0 });
@@ -118,7 +127,8 @@ export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits
     if (ultraDay.get(e.v.bath_id) === e.v.day) { lines.push(["ultra", 1]); r.uu += 1; }
     if (b.region && b.country && !setOf(regions, e.nick).has(regionKey(b.country) + "/" + regionKey(b.region))) { lines.push(["region", 1]); r.reg += 1; }
     if (b.country && !setOf(countries, e.nick).has(regionKey(b.country))) { lines.push(["country", 1]); r.reg += 1; }
-    if (e.dur > 150) { lines.push(["long", 1]); r.long += 1; }   // долгий — по своей длительности каждого (п. 15)
+    // долгий — по своей длительности каждого (п. 15); на время кубка — после подтверждения Комиссии
+    if (e.dur > 150 && (e.v.long_ok || !longGated(longGate, e.v.posted_at))) { lines.push(["long", 1]); r.long += 1; }
     remember(e.nick, e.v.bath_id);
     const pts = lines.reduce((a, l) => a + l[1], 0);
     r.total += pts;
