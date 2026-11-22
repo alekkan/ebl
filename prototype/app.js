@@ -2577,7 +2577,8 @@
   }
 
   // ---------- кубок (22.11, docs/cup.md): команды тура по очкам; походы тура — только участникам лиги ----------
-  let cupRound = null, cupVisits = {};
+  let cupRound = null, cupVisits = {}, cupDraft = null;   // cupDraft — предложение итогов тура, его видит только Комиссия
+  const CUP_TO = { champions: "путь чемпионов", losers: "путь ебланов", out: "выбыл", final: "в финал", winner: "победитель", second: "финалист" };
   const CUP_LINE = { visit: "поход", public: "общественная", unique: "уникальная", ultra: "ультра", long: "долгая", team: "встреча команды" };
   function renderCup() {
     if (!cup) return;
@@ -2585,11 +2586,14 @@
     const live = played.find((r) => now >= Date.parse(r.starts_at) && now < Date.parse(r.ends_at));
     if (!played.some((r) => r.n === cupRound)) cupRound = (live || (now < Date.parse(played[0].starts_at) ? played[0] : played[played.length - 1])).n;
     const round = played.find((r) => r.n === cupRound);
+    const history = cup.history || [], hist = history.find((h) => h.round === cupRound);
+    // куда участник пошёл после тура — из принятых Комиссией итогов
+    const fate = Object.fromEntries((hist?.results || []).flatMap((t) => t.players.map((p) => [p.nick, p.to])));
     const day = (iso, shift = 0) => new Date(Date.parse(iso) - shift).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "Europe/Moscow" });
     const left = (ms) => { const d = Math.floor(ms / 864e5), h = Math.floor((ms % 864e5) / 36e5), m = Math.floor((ms % 36e5) / 6e4); return d ? `${d} д ${h} ч` : h ? `${h} ч ${m} мин` : `${m} мин`; };
     $("#cupTitle").innerHTML = `Тур ${round.n} <small class="cup-dates">· ${day(round.starts_at)} – ${day(round.ends_at, 1)}</small>`;
     const start = Date.parse(round.starts_at), end = Date.parse(round.ends_at);
-    $("#cupTimer").innerHTML = now < start ? `${icon("clock")}до старта <b>${left(start - now)}</b>` : now < end ? `${icon("clock")}до конца тура <b>${left(end - now)}</b>` : `${icon("check")}тур сыгран`;
+    $("#cupTimer").innerHTML = now < start ? `${icon("clock")}до старта <b>${left(start - now)}</b>` : now < end ? `${icon("clock")}до конца тура <b>${left(end - now)}</b>` : `${icon("check")}тур сыгран${hist ? "" : " · итоги за Комиссией"}`;
     $("#cupRounds").hidden = played.length < 2;
     $("#cupRounds").innerHTML = played.map((r) => `<button type="button" data-round="${r.n}" aria-pressed="${r.n === cupRound}">Тур ${r.n}</button>`).join("");
 
@@ -2613,13 +2617,63 @@
       return `<article class="cup-team${t.players.includes(myNick) ? " mine" : ""}" data-team="${t.num}">
         <div class="cup-head"><span class="cup-pos${i ? "" : " lead"}">${i + 1}</span><span class="cup-name">Команда ${t.num}</span><span class="cup-total"><b>${t.total}</b> ${plural(t.total, "очко", "очка", "очков")}</span></div>
         <div class="cup-players">${[...t.players].sort((a, b) => (pts[b]?.total || 0) - (pts[a]?.total || 0) || a.localeCompare(b)).map((n) =>
-          `<span class="cup-pl">${ava(n)}${esc(n)} <b>${pts[n]?.total || 0}</b>${pts[n]?.baths ? `<small>· ${pts[n].baths} ${plural(pts[n].baths, "баня", "бани", "бань")}</small>` : ""}</span>`).join("")}</div>
+          `<span class="cup-pl">${ava(n)}${esc(n)} <b>${pts[n]?.total || 0}</b>${pts[n]?.baths ? `<small>· ${pts[n].baths} ${plural(pts[n].baths, "баня", "бани", "бань")}</small>` : ""}${fate[n] ? `<small class="cup-fate" data-to="${fate[n]}">${CUP_TO[fate[n]]}</small>` : ""}</span>`).join("")}</div>
         ${mine.length ? `<details class="cup-more"><summary>Походы тура · ${mine.length}</summary>${mine.map(visitRow).join("")}</details>` : ""}
       </article>`;
     };
     const paths = [["champions", "Путь чемпионов"], ["losers", "Путь ебланов"]].map(([k, name]) => [name, teams.filter((t) => t.path === k)]).filter(([, list]) => list.length);
-    $("#cupTeams").innerHTML = paths.map(([name, list]) => `${paths.length > 1 ? `<h3 class="cup-path">${name}</h3>` : ""}${list.map(card).join("")}`).join("");
+    const won = hist?.results.find((t) => t.players.some((p) => p.to === "winner"));
+    const rest = cupRound === 4 && history.find((h) => h.round === 3)?.rest;
+    const banner = won ? `<p class="cup-banner">🏆 Кубок взяла Команда ${won.num}: ${won.players.map((p) => esc(p.nick)).join(", ")}</p>`
+      : rest ? `<p class="cup-banner">В финале ждёт победитель пути чемпионов: ${rest.map(esc).join(", ")}</p>` : "";
+    $("#cupTeams").innerHTML = banner + paths.map(([name, list]) => `${paths.length > 1 ? `<h3 class="cup-path">${name}</h3>` : ""}${list.map(card).join("")}`).join("");
+    renderCupNext(round, hist, now >= end);
   }
+  // переход между турами (23.11): итоги и составы считает сервер, Комиссия принимает; жребий можно перетянуть
+  function renderCupNext(round, hist, ended) {
+    const box = $("#cupNext"), n = round.n, last = (cup.history || []).reduce((a, h) => Math.max(a, h.round), 0);
+    box.hidden = !(canModerate && D.live && ended && (hist ? n === last : n === last + 1));
+    if (box.hidden) return;
+    const btn = (act, text, main) => `<button type="button" class="cup-longbtn${main ? " cup-main" : ""}" data-cup-act="${act}">${text}</button>`;
+    if (hist) { box.innerHTML = `<div class="cup-next"><p>Итоги тура ${n} приняты Комиссией.</p><div class="cup-acts">${btn("reopen", "Отменить принятие")}</div></div>`; return; }
+    const d = cupDraft?.round === n ? cupDraft : null;
+    if (!d) { box.innerHTML = `<div class="cup-next"><p>Тур ${n} сыгран. Проверь заявки и долгие, потом подведи итоги.</p><div class="cup-acts">${btn("propose", `Подвести итоги тура ${n}`, 1)}</div></div>`; return; }
+    const PATH = { champions: "Путь чемпионов", losers: "Путь ебланов" };
+    const res = d.results.map((t) => `<div class="cup-res"><b>${n < 5 && d.results.some((x) => x.path !== t.path) ? PATH[t.path] + " · " : ""}${t.place}. Команда ${t.num}</b> — ${t.total} ${plural(t.total, "очко", "очка", "очков")}`
+      + `<small>${t.players.map((p) => `${esc(p.nick)} ${p.total} → ${CUP_TO[p.to]}`).join(" · ")}</small></div>`).join("");
+    const next = d.teams.map((t) => `<div class="cup-res"><b>${PATH[t.path]} · Команда ${t.num}</b><small>${t.players.map(esc).join(", ")}</small></div>`).join("");
+    box.innerHTML = `<div class="cup-next" data-draft="${n}">
+      <h3>Итоги тура ${n} — предложение</h3>
+      ${d.pending ? `<p class="warn">⚠️ На проверке ещё ${d.pending} ${plural(d.pending, "заявка", "заявки", "заявок")} этого тура — сначала разбери.</p>` : ""}
+      ${res}
+      ${next ? `<h3>Тур ${n + 1}</h3>${next}` : ""}
+      ${d.rest ? `<p>В финал выходит и тур 4 отдыхает: ${d.rest.map(esc).join(", ")}.</p>` : ""}
+      ${d.draw ? `<p>Команды пути ебланов развёл жребий. Не устраивает — тяни заново.</p>` : ""}
+      <div class="cup-acts">${btn("accept", "Принять", 1)}${d.draw ? btn("redraw", "Другой жребий") : ""}${btn("close", "Закрыть")}</div></div>`;
+  }
+  $("#cupNext").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-cup-act]"); if (!b) return;
+    const act = b.dataset.cupAct, n = cupRound;
+    if (act === "close") { cupDraft = null; return renderCup(); }
+    if (act === "reopen" && !confirm(`Отменить итоги тура ${n}? Команды следующего тура уберутся.`)) return;
+    b.disabled = true;
+    try {
+      if (act === "propose" || act === "redraw") { cupDraft = await D.cupPropose(n, act === "redraw"); return renderCup(); }
+      if (act === "accept") await D.cupAccept(n); else await D.cupReopen(n);
+      cupDraft = null;
+      if (act === "accept" && n < 5) cupRound = null;   // сразу показываем новый тур
+      await refreshData();
+      toast(act === "accept" ? `Итоги тура ${n} приняты` : `Итоги тура ${n} отменены`);
+      recomputeSoon();   // походы, запощенные уже в новом туре, получают команду
+    } catch (err) { b.disabled = false; toast("Не получилось: " + err.message); }
+  });
+  // правила: чемпионат и кубок — двумя вкладками
+  $("#rulesTabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-rules]"); if (!b) return;
+    const isCup = b.dataset.rules === "cup";
+    $("#rulesChamp").hidden = isCup; $("#rulesCup").hidden = !isCup;
+    for (const x of b.parentNode.children) x.setAttribute("aria-pressed", String(x === b));
+  });
   $("#cupRounds").addEventListener("click", (e) => {
     const b = e.target.closest("[data-round]"); if (!b) return;
     cupRound = +b.dataset.round; renderCup();

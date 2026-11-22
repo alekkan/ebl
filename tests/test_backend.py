@@ -689,5 +689,114 @@ check("гостю в boot_public — туры, команды и суммы по
       and me1 and me1[0]["total"] == 6 and me1[0]["baths"] == 1 and "visit_id" not in json.dumps(cup), cup)
 sql(f"delete from visits where bath_id in ({cb1}, {cb2})"); sql(f"delete from baths where id in ({cb1}, {cb2})"); sql("delete from cup_teams")
 sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{ROUNDS}') x where x.n = r.n")
+print("Кубок: итоги тура считает система, принимает Комиссия; жребий можно перетянуть")
+rpc = lambda fn, body, token=None: req("POST", f"/rest/v1/rpc/{fn}", body, token=token)
+CUP18 = [["Ден", "Арс", "Alex B"], ["Витёк", "Женёк В", "Миша П"], ["Денис", "Махмуд", "Даня"],
+         ["Шурик", "Фил", "Данюс"], ["Леха", "Ахмед", "san4ony"], ["Диман", "Хвост", "Симба"]]
+for i, nicks in enumerate(CUP18): cteam(1, i + 1, nicks)
+sql("update cup_rounds set starts_at = now() - interval '1 day', ends_at = now() + interval '1 day' where n = 1")
+s, r = rpc("cup_propose", {"p_round": 1}, vitek)
+check("тур ещё идёт — итоги не подвести", s >= 400 and "не сыгран" in json.dumps(r, ensure_ascii=False), (s, r))
+for n in range(1, 6):   # все пять туров уже сыграны, один за другим
+    sql(f"update cup_rounds set starts_at = now() - interval '{12 - 2 * n} hours', ends_at = now() - interval '{10 - 2 * n} hours' where n = {n}")
+tb3 = sql("insert into baths (name, status, type) values ('Тест-Кубок-3', 'ok', 'public') returning id").splitlines()[0]
+# походы-носители очков, по одному на тур: очки кладём прямо в cup_points — так места известны заранее.
+# Первый ждёт проверки и запощен в первом туре, остальные — задолго до кубка
+tvs = [sql(f"""insert into visits (bath_id, entered_at, posted_at, duration_min, status, created_by)
+               select {tb3}, now() - interval '{ago}', now() - interval '{ago}', 120, 'pending', id from players where nick = 'Шурик' returning id""").splitlines()[0]
+       for ago in ("9 hours", "40 days", "41 days", "42 days", "43 days")]
+def cup_teams_of(rnd):
+    rows = json.loads(sql(f"""select coalesce(json_agg(json_build_object('id', t.id, 'num', t.num, 'path', t.path, 'players',
+        (select json_agg(p.nick order by p.nick) from cup_team_players tp join players p on p.id = tp.player_id where tp.team_id = t.id)) order by t.path, t.num), '[]')
+        from cup_teams t where t.round = {rnd}"""))
+    return rows
+def cup_score(rnd, totals=None):
+    """Очки тура: команды по порядку (путь, номер) — по убыванию, внутри команды — тоже; totals — свои очки по нику."""
+    sql(f"delete from cup_points where round = {rnd}")
+    teams = cup_teams_of(rnd)
+    for i, t in enumerate(teams):
+        for j, nick in enumerate(t["players"]):
+            total = (totals or {}).get(nick, 60 - 10 * i - j)
+            sql(f"insert into cup_points (visit_id, nick, round, team_id, total) values ({tvs[rnd - 1]}, '{nick}', {rnd}, {t['id']}, {total})")
+    return teams
+fates = lambda pr, to: sorted(p["nick"] for t in pr["results"] for p in t["players"] if p["to"] == to)
+sets = lambda pr, path: sorted(sorted(t["players"]) for t in pr["teams"] if t["path"] == path)
+# тур 1: команды 1..6 по убыванию; в команде первый по списку — лучший
+pts1 = {n: 60 - 10 * i - j for i, t in enumerate(CUP18) for j, n in enumerate(t)}
+cup_score(1, pts1)
+check("итоги подводит только Комиссия", rpc("cup_propose", {"p_round": 1}, shurik)[0] >= 400 and rpc("cup_propose", {"p_round": 1})[0] >= 400
+      and rpc("cup_accept", {"p_round": 1}, shurik)[0] >= 400 and rpc("cup_build", {"p_round": 1}, vitek)[0] >= 400)
+s, p1 = rpc("cup_propose", {"p_round": 1}, vitek)
+T = CUP18
+check("после тура 1: первая команда целиком, во второй и третьей — двое лучших плюс лучшие пятой и четвёртой",
+      s == 200 and sets(p1, "champions") == sorted([sorted(T[0]), sorted(T[1][:2] + T[4][:1]), sorted(T[2][:2] + T[3][:1])]), (s, p1))
+losers1 = sorted([T[1][2], T[2][2]] + T[3][1:] + T[4][1:] + T[5])
+check("остальные девять — на путь ебланов, жребий развёл их в три команды по трое; заявка тура на проверке посчитана",
+      p1["draw"] is True and len(sets(p1, "losers")) == 3 and sorted(n for t in sets(p1, "losers") for n in t) == losers1
+      and all(len(t) == 3 for t in sets(p1, "losers")) and fates(p1, "losers") == losers1 and p1["pending"] == 1, p1)
+check("повторно — то же предложение (его видит вся Комиссия)", rpc("cup_propose", {"p_round": 1}, vitek)[1]["teams"] == p1["teams"])
+redraws = [rpc("cup_propose", {"p_round": 1, "p_redraw": True}, vitek)[1] for _ in range(6)]
+check("не устроил жребий — новый: путь ебланов другой, путь чемпионов тот же",
+      any(sets(x, "losers") != sets(p1, "losers") for x in redraws) and all(sets(x, "champions") == sets(p1, "champions") for x in redraws))
+p1 = redraws[-1]
+hist = lambda: (req("POST", "/rest/v1/rpc/boot_public", {})[1].get("cup") or {}).get("history")
+check("пока Комиссия не приняла — команд следующего тура нет, предложение никому не видно",
+      cup_teams_of(2) == [] and hist() == [] and (req("GET", "/rest/v1/cup_transitions?select=round", token=shurik)[0] >= 400
+      or req("GET", "/rest/v1/cup_transitions?select=round", token=shurik)[1] == []))
+sql(f"update cup_points set total = total + 1 where round = 1 and nick = '{T[0][0]}'")
+s, r = rpc("cup_accept", {"p_round": 1}, vitek)
+check("очки изменились после предложения — принять нельзя", s >= 400 and "изменились" in json.dumps(r, ensure_ascii=False) and cup_teams_of(2) == [], (s, r))
+p1 = rpc("cup_propose", {"p_round": 1}, vitek)[1]
+s, r = rpc("cup_accept", {"p_round": 1}, vitek)
+t2 = cup_teams_of(2)
+check("Комиссия приняла — команды тура 2 ровно как в предложении, итог в истории",
+      s < 300 and sorted(sorted(t["players"]) for t in t2 if t["path"] == "losers") == sets(p1, "losers")
+      and sorted(sorted(t["players"]) for t in t2 if t["path"] == "champions") == sets(p1, "champions")
+      and [h["round"] for h in hist()] == [1] and "basis" not in json.dumps(hist()), (s, r, t2))
+check("принятое не переподвести, через тур не перескочить",
+      rpc("cup_propose", {"p_round": 1}, vitek)[0] >= 400 and rpc("cup_accept", {"p_round": 1}, vitek)[0] >= 400 and rpc("cup_propose", {"p_round": 3}, vitek)[0] >= 400)
+check("отменить принятие — только Комиссия; команды тура 2 убраны", rpc("cup_reopen", {"p_round": 1}, shurik)[0] >= 400
+      and rpc("cup_reopen", {"p_round": 1}, vitek)[0] < 300 and cup_teams_of(2) == [] and hist() == [])
+check("и принять снова — те же команды", rpc("cup_accept", {"p_round": 1}, vitek)[0] < 300
+      and sorted(sorted(t["players"]) for t in cup_teams_of(2)) == sorted(sorted(t["players"]) for t in t2))
+# тур 2: на пути ебланов во второй команде двое набрали поровну — выбывает тот, кто ниже в чемпионате
+t2 = cup_teams_of(2)
+ch, lo = [t for t in t2 if t["path"] == "champions"], [t for t in t2 if t["path"] == "losers"]
+tie = lo[1]["players"][1:]
+teams2 = cup_score(2, {tie[0]: 15, tie[1]: 15, lo[1]["players"][0]: 19})
+place = {n: int(x) for n, x in (row.split("|") for row in sql("select nick, row_number() over (order by total desc, baths desc, nick) from standings").splitlines())}
+s, p2 = rpc("cup_propose", {"p_round": 2}, vitek)
+out2 = fates(p2, "out")
+worse = max(tie, key=lambda n: place.get(n, 99))
+check("после тура 2, путь чемпионов: первая целиком, двое лучших второй и лучший третьей; трое выбывших — третья команда пути ебланов как есть",
+      s == 200 and p2["draw"] is False and sets(p2, "champions") == sorted([sorted(ch[0]["players"]), sorted(ch[1]["players"][:2] + ch[2]["players"][:1])])
+      and sorted(ch[1]["players"][2:] + ch[2]["players"][1:]) in sets(p2, "losers"), (s, p2))
+check("путь ебланов: первая целиком, вторая теряет худшего и берёт лучшего третьей; трое покидают кубок",
+      sorted(lo[0]["players"]) in sets(p2, "losers") and len(sets(p2, "losers")) == 3 and len(out2) == 3
+      and sorted(lo[2]["players"][1:]) == sorted(n for n in out2 if n in lo[2]["players"]) and lo[2]["players"][0] in fates(p2, "losers"), p2)
+check("поровну очков в команде — выбывает тот, кто ниже в чемпионате",
+      len([n for n in tie if n in out2]) == 1 and (place.get(tie[0], 99) == place.get(tie[1], 99) or worse in out2), (tie, out2, place))
+rpc("cup_accept", {"p_round": 2}, vitek)
+t3 = cup_score(3)
+check("тур 3: две команды на пути чемпионов и три на пути ебланов", [t["path"] for t in t3] == ["champions"] * 2 + ["losers"] * 3, t3)
+s, p3 = rpc("cup_propose", {"p_round": 3}, vitek)
+check("после тура 3: победитель пути чемпионов — в финал и отдыхает, проигравший — на путь ебланов; в туре 4 три команды пути ебланов",
+      s == 200 and sorted(p3["rest"]) == sorted(t3[0]["players"]) == fates(p3, "final") and sets(p3, "champions") == []
+      and len(sets(p3, "losers")) == 3 and sorted(t3[1]["players"]) in sets(p3, "losers") and len(fates(p3, "out")) == 3, (s, p3))
+rpc("cup_accept", {"p_round": 3}, vitek)
+t4 = cup_score(4)
+s, p4 = rpc("cup_propose", {"p_round": 4}, vitek)
+check("после тура 4: в финале — отдыхавшие чемпионы и лучшая команда пути ебланов, шестеро покидают кубок",
+      s == 200 and len(t4) == 3 and sets(p4, "champions") == [sorted(p3["rest"])] and sets(p4, "losers") == [sorted(t4[0]["players"])]
+      and len(fates(p4, "out")) == 6, (s, p4))
+rpc("cup_accept", {"p_round": 4}, vitek)
+t5 = cup_score(5)
+s, p5 = rpc("cup_propose", {"p_round": 5}, vitek)
+check("финал: победитель — кто набрал больше, следующего тура нет", s == 200 and p5["teams"] == [] and fates(p5, "winner") == sorted(t5[0]["players"])
+      and fates(p5, "second") == sorted(t5[1]["players"]), (s, p5))
+check("итоги финала приняты — в истории все пять туров", rpc("cup_accept", {"p_round": 5}, vitek)[0] < 300 and [h["round"] for h in hist()] == [1, 2, 3, 4, 5]
+      and cup_teams_of(6) == [])
+sql("delete from cup_transitions"); sql("delete from cup_teams"); sql(f"delete from visits where bath_id = {tb3}"); sql(f"delete from baths where id = {tb3}")
+sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{ROUNDS}') x where x.n = r.n")
 req("POST", "/functions/v1/recompute", {})
 print("Готово.")

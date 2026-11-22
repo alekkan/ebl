@@ -1697,6 +1697,19 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .cup-visit:first-of-type { margin-top: 6px; }
 .cup-visit b { color: var(--ember); }
 .cup-visit small { color: var(--ink-3); }
+.cup-fate { border-radius: 999px; padding: 1px 8px; background: var(--panel-2); color: var(--ink-2) !important; white-space: nowrap; }
+.cup-fate[data-to="out"] { opacity: .7; }
+.cup-fate[data-to="champions"], .cup-fate[data-to="final"], .cup-fate[data-to="winner"] { background: var(--gold); color: var(--ink) !important; }
+.cup-banner { margin: 0 0 14px; padding: 12px 16px; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-s); font-weight: 600; overflow-wrap: anywhere; }
+.cup-next { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-s), inset 0 0 0 2px var(--oak-lite); padding: 14px 16px; margin-bottom: 16px; font-size: 14px; }
+.cup-next h3 { margin: 10px 0 8px; font-family: var(--display); font-size: 16px; }
+.cup-next h3:first-child { margin-top: 0; }
+.cup-next p { margin: 0 0 8px; color: var(--ink-2); }
+.cup-res { padding: 6px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.cup-res small { display: block; color: var(--ink-2); }
+.cup-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.cup-acts .cup-longbtn { margin-top: 0; }
+.cup-main { background: var(--oak); color: var(--oak-ink); border-color: var(--oak); }
 .cup-note { margin: 16px 2px 32px; font-size: 13px; color: var(--ink-3); }
 /* долгая на время кубка — после подтверждения Комиссии */
 .cup-wait { color: color-mix(in srgb, var(--honey) 55%, var(--ink)); }
