@@ -1323,8 +1323,9 @@ rounds0 = sql("select json_agg(r) from cup_rounds r")
 sql("delete from cup_posts"); sql("delete from cup_transitions"); sql("delete from cup_teams")
 cup_call = lambda mode: (req("GET", f"/functions/v1/week-results?cup={mode}")[1] or {}).get("cup")
 cup_said = lambda seen: [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == league]
-check("кубок ещё не начался — объявлять нечего", cup_call("dry") == [], cup_call("dry"))
-sql("update cup_rounds set starts_at = now() - interval '1 hour', ends_at = now() + interval '2 days' where n = 1")
+sql("update cup_rounds set starts_at = now() + interval '3 hours', ends_at = now() + interval '2 days' where n = 1")
+check("до первого тура больше двух часов — старт ещё не объявляем", cup_call("dry") == [], cup_call("dry"))
+sql("update cup_rounds set starts_at = now() + interval '1 hour' where n = 1")
 sql("update cup_rounds set starts_at = now() + interval '2 days', ends_at = now() + interval '9 days' where n = 2")
 CUP = (("Ден", "Арс", "Alex B"), ("Витёк", "Женёк В", "Миша П"))
 for num, team in enumerate(CUP, 1):
@@ -1334,8 +1335,11 @@ seen = len(TELEGRAM.calls)
 r = cup_call("post")
 said = cup_said(seen)
 check("первый тур идёт — в чат лиги одно сообщение о старте: срок и команды",
-      len(said) == 1 and "старт" in said[0] and "Тур 1" in said[0] and all(n in said[0] for t in CUP for n in t) and "#cup" in said[0]
+      len(said) == 1 and "начинаем наш банный кубок" in said[0] and "Тур 1" in said[0] and all(n in said[0] for t in CUP for n in t) and "#cup" in said[0]
       and sql("select count(*) from cup_posts where round = 0 and message_id is not null") == "1", (r, said))
+by_place = sql("""select string_agg(nick, '|' order by total desc, baths desc, nick) from standings where nick in ('Ден', 'Арс', 'Alex B')""").split("|")
+shown = sorted(CUP[0], key=lambda n: said[0].index(f"<b>{n}</b>")) if said else []
+check("…участники команды — по местам в чемпионате, каждый с представлением", shown[:len(by_place)] == by_place and "<b>Арс</b> — главный" in said[0], (shown, by_place))
 seen = len(TELEGRAM.calls)
 cup_call("post")
 check("повторный вызов — старт второй раз не объявляется", cup_said(seen) == [])

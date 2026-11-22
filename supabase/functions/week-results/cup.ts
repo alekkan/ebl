@@ -19,12 +19,39 @@ function dates(r: Any) {
   return `${day(from, !sameMonth)}–${day(to, true)}, посты до ${till} МСК`;
 }
 
-export function startText(state: Any, site: string) {
+// представление участников в сообщении о старте — слова лиги (23.11); кого тут нет, идёт просто ником
+const BIO: Record<string, string> = {
+  "Ден": "граф Долгопский, который, несмотря на свои регалии, тоже ебланит",
+  "Арс": "главный пиздабол лиги с улицы Сизам",
+  "Alex B": "готов организовать приём ставок",
+  "Витёк": "Комиссия, так что ждите команду 2 в финале",
+  "Женёк В": "японский участник лиги — с путём и без цели",
+  "Миша П": "чудом заскочивший паделист-хоккеист",
+  "Даня": "знатный хуитнесист в прошлом, завязавший с привычками",
+  "Денис": "главный хуитнес-боец лиги — посмотрим, справится ли он с таким регламентом без хуитнесов",
+  "Махмуд": "гоп-стоп лиги — есть чем накрыться?",
+  "Данюс": "поволжский участник лиги",
+  "Фил": "главный развратник Москвы и по совместительству призёр и победитель прошлых чемпов и кубков",
+  "Шурик": "клоун, еблан, дед-пердед, но в целом уважаемый участник лиги",
+  "san4ony": "участник лиги с города на Неве",
+  "Ахмед": "человек, выигравший первый кубок и расширивший ЕБЛ до Океании",
+  "Леха": "серый кардинал и главный манипулятор лиги, он же вайбкодер и ультрамарафонец",
+  "Диман": "Тигр, просто тигр",
+  "Симба": "человек-мем и главный претендент на звание MVP лиги",
+  "Хвост": "был близок к победе в кубке, но вмешались обстоятельства",
+};
+const NUM = ["", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"];
+
+// rank — места в чемпионате (ник → место): внутри команды участники идут по ним, кого в таблице нет — в конце
+export function startText(state: Any, site: string, rank: Map<string, number> = new Map()) {
   const r1 = (state.rounds ?? []).find((r: Any) => r.n === 1), teams = (state.teams ?? []).filter((t: Any) => t.round === 1);
-  return ["🏆 <b>Четвёртый кубок ЕБЛ — старт!</b>", `<b>Тур 1</b> · ${dates(r1)}`, "",
-    ...teams.map((t: Any) => `${t.num}. ${names(t.players)}`), "",
-    "В зачёт кубка идут только общественные бани, очки команды — сумма троих. Долгая — после подтверждения Комиссии (два фото в чат).",
-    `Кубок: ${site}#cup`].join("\n");
+  const byPlace = (a: string, b: string) => (rank.get(a) ?? 1e9) - (rank.get(b) ?? 1e9) || a.localeCompare(b, "ru");
+  const team = (t: Any) => [`${NUM[t.num] ?? "🔸"} <b>Команда ${t.num}</b>`,
+    ...[...(t.players ?? [])].sort(byPlace).map((n: string) => `• <b>${esc(n)}</b>${BIO[n] ? ` — ${esc(BIO[n])}` : ""}`), ""];
+  return ["🏆🔥 <b>Уважаемые участники ЕБЛ, начинаем наш банный кубок 2026 года!</b>", `🗓 <b>Тур 1</b> · ${dates(r1)}`, "",
+    `🧖 В кубке ${teams.length} ${plural(teams.length, "команда", "команды", "команд")} по трое.`, "🎤 А теперь представляем участников команд:", "",
+    ...teams.flatMap(team),
+    `📜 Полный регламент кубка: ${site}#cup`].join("\n").slice(0, 4096);
 }
 
 export function roundText(h: Any, state: Any, site: string, fix = false) {
@@ -53,11 +80,12 @@ export function roundText(h: Any, state: Any, site: string, fix = false) {
   return out.join("\n").slice(0, 4096);
 }
 
-// что объявить сейчас: старт (пока идёт первый тур) и принятые итоги, о которых чат ещё не знает
+// что объявить сейчас: старт (с вечера накануне и пока идёт первый тур) и принятые итоги, о которых чат ещё не знает
+const START_LEAD = 2 * 3600e3;   // старт объявляем в 22:00 МСК накануне: тур открывается в полночь, когда чат спит
 export function cupDue(state: Any, posts: Any[], now = Date.now()) {
   const posted = new Map(posts.map((p) => [p.round, p])), due: { round: number; accepted_at: string | null; fix: boolean; h?: Any }[] = [];
   const r1 = (state?.rounds ?? []).find((r: Any) => r.n === 1);
-  if (r1 && !posted.has(0) && (state.teams ?? []).some((t: Any) => t.round === 1) && now >= Date.parse(r1.starts_at) && now < Date.parse(r1.ends_at))
+  if (r1 && !posted.has(0) && (state.teams ?? []).some((t: Any) => t.round === 1) && now >= Date.parse(r1.starts_at) - START_LEAD && now < Date.parse(r1.ends_at))
     due.push({ round: 0, accepted_at: null, fix: false });
   for (const h of state?.history ?? []) {
     const p = posted.get(h.round);
@@ -70,7 +98,13 @@ export function cupDue(state: Any, posts: Any[], now = Date.now()) {
 export async function cupPosts(sb: any, chat: number, token: string, site: string, dry = false) {
   const [{ data: state }, { data: posts }] = await Promise.all([sb.rpc("cup_state"), sb.from("cup_posts").select("round, accepted_at")]);
   const due = cupDue(state, posts ?? []);
-  const text = (d: Any) => d.round === 0 ? startText(state, site) : roundText(d.h, state, site, d.fix);
+  // места в чемпионате нужны только сообщению о старте
+  const rank = new Map<string, number>();
+  if (due.some((d) => d.round === 0)) {
+    const { data: table } = await sb.from("standings").select("nick, total, baths");
+    [...(table ?? [])].sort((a: Any, b: Any) => b.total - a.total || b.baths - a.baths || a.nick.localeCompare(b.nick, "ru")).forEach((s: Any, i: number) => rank.set(s.nick, i + 1));
+  }
+  const text = (d: Any) => d.round === 0 ? startText(state, site, rank) : roundText(d.h, state, site, d.fix);
   if (dry) return due.map((d) => ({ round: d.round, fix: d.fix, text: text(d) }));
   if (!chat) return [];
   const done = [];
