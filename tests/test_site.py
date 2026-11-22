@@ -1734,6 +1734,10 @@ with sync_playwright() as pw:
               "Витёк" in cm_txt(s) and "С лёгким паром" in cm_txt(s) and sql(f"select count(*) from visit_comments where visit_id = {cmv}") == "1", cm_txt(s))
         s.clean("Комментарии у Комиссии"); s.close()
         sql(f"update visits set status = 'ok' where id = {cmv}")
+        # итоги недели в ленте: бот запостил неделю в чат — в ленте запись с пьедесталом
+        fw = sql("select max(wk::int) from standings, jsonb_object_keys(week_baths) wk where (week_baths ->> wk)::int > 0")
+        sql(f"insert into week_posts (season, week, chat_id, posted_at) values (2026, {fw}, 1, now()) on conflict (season, week) do update set posted_at = now()")
+        fw_txt = "() => document.querySelector('#feed .f-week')?.innerText || ''"
         s = Site(browser, url, sess=shurik, mobile=True, name="comments-phone")
         s.view("feed")
         try: s.page.wait_for_selector(f'[data-cmt-open="{cmv}"]', timeout=8000)
@@ -1742,6 +1746,11 @@ with sync_playwright() as pw:
         comment(s, "Спасибо" + "о" * 120)
         check("участник: свой комментарий появился сразу, с кнопкой удаления", "Спасибо" in cm_txt(s) and cm_n(s) == 1
               and sql(f"select count(*) from visit_comments where visit_id = {cmv}") == "2", cm_txt(s))
+        check("лента: итоги недели — запись с неделей, призёрами и числом походов",
+              f"Итоги недели W{fw}" in s.js(fw_txt) and "🥇" in s.js(fw_txt) and "поход" in s.js(fw_txt), s.js(fw_txt))
+        s.page.click('#feedFilter button[data-f="mine"]')
+        check("лента: в «Моих» итогов недели нет", not s.js(fw_txt))
+        s.page.click('#feedFilter button[data-f="all"]')
         s.no_clip("Комментарии на телефоне", "#view-feed"); s.nav_free("Комментарии на телефоне")
         s.page.click(f'[data-cmt-del^="{cmv}:"]')
         for _ in range(30):
@@ -1760,7 +1769,13 @@ with sync_playwright() as pw:
             if cm_n(s) == 1: break
             s.page.wait_for_timeout(300)
         check("Комиссия: чужой комментарий удалён", "Лишнее" not in cm_txt(s) and sql(f"select count(*) from visit_comments where visit_id = {cmv}") == "1", cm_txt(s))
+        s.page.click('#feed .f-week [data-week]')
+        s.page.wait_for_timeout(400)
+        check("лента: нажал на итоги недели — недельный зачёт этой недели",
+              s.js("() => !document.getElementById('view-table').hidden && !document.getElementById('tWeek').hidden")
+              and f"W{fw}" in s.js("() => document.getElementById('wTitle').innerText"))
         s.clean("Удаление комментария Комиссией"); s.close()
+        sql("delete from week_posts where chat_id = 1")
         sql(f"delete from visits where id = {cmv}")
         req("POST", "/functions/v1/recompute", {})
 
@@ -1769,7 +1784,7 @@ with sync_playwright() as pw:
         all_views(s, "витрина")
         check("витрина: кубка нет — вкладка скрыта", s.js("() => document.querySelector('.nav [data-view=\"cup\"]').hidden"))
         s.view("feed")
-        check("витрина: комментариев в ленте нет", not s.js("() => !!document.querySelector('.f-cmts')"))
+        check("витрина: комментариев и итогов недели в ленте нет", not s.js("() => !!document.querySelector('.f-cmts, .f-week')"))
         s.close()
     finally:
         sql(f"delete from visits where source = 'site' and created_at > now() - interval '1 hour' and created_by = '{player_id('Шурик')}'")

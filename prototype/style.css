@@ -1712,6 +1712,9 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .cup-main { background: var(--oak); color: var(--oak-ink); border-color: var(--oak); }
 .cup-note { margin: 16px 2px 32px; font-size: 13px; color: var(--ink-3); }
 /* долгая на время кубка — после подтверждения Комиссии */
+/* итоги недели в ленте (23.11) */
+.f-week-ic { flex: none; width: 30px; height: 30px; display: grid; place-items: center; font-size: 20px; }
+.f-week-top { display: grid; gap: 2px; }
 /* комментарии к походам в ленте (23.11) */
 .f-cmts { margin-top: 8px; display: grid; gap: 6px; font-size: 13.5px; }
 .f-cmt { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
