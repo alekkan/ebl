@@ -1651,6 +1651,60 @@ with sync_playwright() as pw:
         s.clean("Кубок у Комиссии"); s.close()
         sql(f"delete from visits where id = {cupv}"); sql(f"delete from baths where id = {cupb}"); sql("delete from cup_teams")
         sql("delete from settings where key = 'long_confirm'")
+
+        print("Кубок: Комиссия подводит итоги тура — жребий, принятие, история; правила кубка")
+        sql("update cup_rounds set starts_at = now() - interval '2 days', ends_at = now() - interval '1 hour' where n = 1")
+        sql("update cup_rounds set starts_at = now() - interval '1 hour', ends_at = now() + interval '2 days' where n = 2")
+        for num, nicks in enumerate((("Ден", "Арс", "Alex B"), ("Витёк", "Женёк В", "Миша П"), ("Денис", "Махмуд", "Даня"),
+                                     ("Шурик", "Фил", "Данюс"), ("Леха", "Ахмед", "san4ony"), ("Диман", "Хвост", "Симба")), 1):
+            t = sql(f"insert into cup_teams (round, num) values (1, {num}) returning id").splitlines()[0]
+            for n in nicks: sql(f"insert into cup_team_players (team_id, player_id) select {t}, id from players where nick = '{n}'")
+        cup_title = "() => document.getElementById('cupTitle').innerText"
+        s = Site(browser, url, name="cup-next-guest")
+        s.view("cup")
+        check("гость: тур сыгран, итоги за Комиссией; подвести итоги ему нечем",
+              "итоги за Комиссией" in s.js("() => document.getElementById('cupTimer').innerText") and s.js("() => document.getElementById('cupNext').hidden"))
+        s.view("rules")
+        s.page.click('#rulesTabs [data-rules="cup"]')
+        check("правила: вкладка «Кубок» — очки кубка и пути, правила чемпионата скрыты",
+              s.js("() => document.getElementById('rulesChamp').hidden && !document.getElementById('rulesCup').hidden")
+              and "Встреча команды" in s.js("() => document.getElementById('rulesCup').innerText"))
+        s.page.click('#rulesTabs [data-rules="champ"]')
+        check("правила: обратно на чемпионат", s.js("() => !document.getElementById('rulesChamp').hidden && document.getElementById('rulesCup').hidden"))
+        s.clean("Итоги тура у гостя"); s.close()
+        s = Site(browser, url, sess=vitek, mobile=True, name="cup-next")
+        s.view("cup")
+        s.page.click('#cupNext [data-cup-act="propose"]')
+        try: s.page.wait_for_selector('#cupNext [data-cup-act="accept"]', timeout=8000)
+        except Exception: pass
+        draft = "() => [...document.querySelectorAll('#cupNext .cup-res small')].map((x) => x.innerText).join('|')"
+        d1 = s.js(draft)
+        check("Комиссия: предложение — места шести команд и шесть команд тура 2, жребий можно перетянуть",
+              s.js("() => document.querySelectorAll('#cupNext .cup-res').length") == 12 and "путь ебланов" in d1
+              and s.js("() => !!document.querySelector('#cupNext [data-cup-act=\"redraw\"]')"), d1)
+        s.no_clip("Итоги тура на телефоне", "#view-cup")
+        check("до принятия команд тура 2 нет", sql("select count(*) from cup_teams where round = 2") == "0")
+        for _ in range(5):   # другой жребий — другое предложение (совпасть пять раз подряд не может)
+            s.page.click('#cupNext [data-cup-act="redraw"]')
+            s.page.wait_for_timeout(700)
+            if s.js(draft) != d1: break
+        check("«Другой жребий» — команды пути ебланов другие", s.js(draft) != d1 and sql("select count(*) from cup_teams where round = 2") == "0")
+        s.page.click('#cupNext [data-cup-act="accept"]')
+        for _ in range(40):
+            if sql("select count(*) from cup_teams where round = 2") == "6" and "Тур 2" in s.js(cup_title): break
+            s.page.wait_for_timeout(500)
+        check("приняла — на сайте тур 2: три команды пути чемпионов и три пути ебланов",
+              "Тур 2" in s.js(cup_title) and s.js("() => document.querySelectorAll('#cupTeams .cup-team').length") == 6
+              and s.js("() => document.querySelectorAll('#cupTeams .cup-path').length") == 2, s.js(cup_title))
+        s.page.click('#cupRounds [data-round="1"]')
+        check("история: в туре 1 у каждого — куда пошёл; принятие можно отменить",
+              s.js("() => document.querySelectorAll('#cupTeams .cup-fate').length") == 18
+              and s.js("() => document.querySelectorAll('#cupTeams .cup-fate[data-to=\"losers\"]').length") == 9
+              and s.js("() => !!document.querySelector('#cupNext [data-cup-act=\"reopen\"]')"))
+        s.no_clip("История тура на телефоне", "#view-cup")
+        s.page.wait_for_timeout(1500)   # пересчёт после принятия
+        s.clean("Итоги тура у Комиссии"); s.close()
+        sql("delete from cup_transitions"); sql("delete from cup_teams")
         sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{rounds0}') x where x.n = r.n")
         req("POST", "/functions/v1/recompute", {})
 

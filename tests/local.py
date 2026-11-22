@@ -128,6 +128,7 @@ def sweep():
     # кубок (22.11): срок «долгую подтверждает Комиссия» и команды из миграции зависят от даты прогона и от сида —
     # тесты кубка заводят свои и убирают за собой, остальным они не должны мешать
     sql("delete from settings where key = 'long_confirm'")
+    sql("delete from cup_transitions")
     sql("delete from cup_teams")
 
 

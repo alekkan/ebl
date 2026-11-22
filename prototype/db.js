@@ -423,6 +423,10 @@ window.EBLData = (() => {
       const rows = check(await sb.from("cup_points").select("visit_id, nick, total, lines, visits(bath_id, entered_at)").eq("round", round).order("visit_id"));
       return rows.map((r) => ({ id: r.visit_id, nick: r.nick, total: r.total, lines: r.lines, bathId: r.visits?.bath_id, date: r.visits ? mskLocal(r.visits.entered_at) : "" }));
     },
+    // переход между турами кубка — только Комиссия: итоги тура и составы следующего считает сервер
+    async cupPropose(round, redraw) { return check(await sb.rpc("cup_propose", { p_round: round, p_redraw: !!redraw })); },
+    async cupAccept(round) { check(await sb.rpc("cup_accept", { p_round: round })); },
+    async cupReopen(round) { check(await sb.rpc("cup_reopen", { p_round: round })); },
     async recompute() {
       if (!live) return;
       const r = await viaBest(cfg.supabaseUrl + "/functions/v1/recompute", { method: "POST", headers: { apikey: cfg.supabaseKey } });
