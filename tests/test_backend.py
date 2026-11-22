@@ -639,6 +639,7 @@ def cteam(rnd, num, nicks):
     for n in nicks: sql(f"insert into cup_team_players (team_id, player_id) select {t}, id from players where nick = '{n}'")
     return int(t)
 ta, tb, tc = cteam(1, 91, ("Шурик", "Витёк", "Леха")), cteam(1, 92, ("Ден", "Арс")), cteam(2, 93, ("Шурик",))
+cb3 = sql("insert into baths (name, status, type) values ('Тест-Кубок-3', 'ok', 'public') returning id").splitlines()[0]
 cb1 = sql("insert into baths (name, status, type) values ('Тест-Кубок-1', 'ok', 'public') returning id").splitlines()[0]
 cb2 = sql("insert into baths (name, status, type) values ('Тест-Кубок-2', 'ok', 'spa') returning id").splitlines()[0]
 def cvisit(bath, ago, who, dur=120):
@@ -651,21 +652,24 @@ cv1 = cvisit(cb1, "2 days", ("Шурик", "Витёк"), dur=180)   # перв�
 cv2 = cvisit(cb2, "2 days", ("Шурик",))                     # хуитнес
 cv3 = cvisit(cb1, "2 hours", ("Шурик",))                    # та же баня уже во втором туре
 cv4 = cvisit(cb1, "2 days", ("Ден", "Фил"))                 # Фил в кубке не играет
+cv5 = cvisit(cb3, "2 days", ("Леха", "Арс"))                # двое из разных команд: ни компании, ни встречи
 s, r = req("POST", "/functions/v1/recompute", {})
 check("пересчёт считает и кубок", s == 200 and r["ok"] and r["cup"]["ok"], r)
 def cpts():
     return {(p["visit_id"], p["nick"]): p for p in req("GET", "/rest/v1/cup_points?select=visit_id,nick,round,team_id,total,lines", token=shurik)[1]}
 keys = lambda p: sorted(l[0] for l in p["lines"])
 c = cpts()
-check("общественная в туре: поход, общественная, уникальная, ультра, встреча команды; долгая без подтверждения — нет",
-      keys(c[(cv1, "Шурик")]) == ["public", "team", "ultra", "unique", "visit"] and c[(cv1, "Шурик")]["total"] == 5
-      and c[(cv1, "Витёк")]["total"] == 5 and c[(cv1, "Шурик")]["round"] == 1 and c[(cv1, "Шурик")]["team_id"] == ta, c)
+check("общественная в туре: поход, общественная, уникальная, ультра, встреча команды, компания как в чемпионате (в бане четверо — +1); долгая без подтверждения — нет",
+      keys(c[(cv1, "Шурик")]) == ["company", "public", "team", "ultra", "unique", "visit"] and c[(cv1, "Шурик")]["total"] == 6
+      and c[(cv1, "Витёк")]["total"] == 6 and c[(cv1, "Шурик")]["round"] == 1 and c[(cv1, "Шурик")]["team_id"] == ta, c)
 check("хуитнес в кубке — ноль", c[(cv2, "Шурик")]["total"] == 0 and c[(cv2, "Шурик")]["lines"] == [], c.get((cv2, "Шурик")))
 check("следующий тур — по времени поста; уникальная считается с начала кубка, между турами не обнуляется",
       c[(cv3, "Шурик")]["round"] == 2 and c[(cv3, "Шурик")]["team_id"] == tc and keys(c[(cv3, "Шурик")]) == ["public", "visit"], c.get((cv3, "Шурик")))
-check("один из команды — без встречи; кто в кубке не играет — без очков кубка; компания в кубке не считается",
-      keys(c[(cv4, "Ден")]) == ["public", "ultra", "unique", "visit"] and (cv4, "Фил") not in c
-      and not any(l[0] in ("company", "region", "country") for p in c.values() for l in p["lines"]), c)
+check("один из команды — компания есть, встречи нет; кто в кубке не играет — без очков кубка, но в компанию считается; регионов и стран в кубке нет",
+      keys(c[(cv4, "Ден")]) == ["company", "public", "ultra", "unique", "visit"] and (cv4, "Фил") not in c
+      and not any(l[0] in ("region", "country") for p in c.values() for l in p["lines"]), c)
+check("двое из разных команд — ни компании, ни встречи команды",
+      all(keys(c[(cv5, n)]) == ["public", "ultra", "unique", "visit"] for n in ("Леха", "Арс")), [c.get((cv5, n)) for n in ("Леха", "Арс")])
 champ = lambda: {p["nick"]: [l[0] for l in p["lines"]] for p in req("GET", f"/rest/v1/visit_points?visit_id=eq.{cv1}&select=nick,lines", token=shurik)[1]}
 check("в чемпионате долгая тоже ждёт Комиссию, остальное — как было", all("long" not in l and "visit" in l for l in champ().values()) and len(champ()) == 2, champ())
 row = f"/rest/v1/visits?id=eq.{cv1}"
@@ -674,7 +678,7 @@ s2, r2 = req("PATCH", row, {"long_ok": True}, token=vitek, headers={"Prefer": "r
 check("долгую подтверждает Комиссия, участник — нет", (s1 >= 400 or r1 == []) and s2 == 200 and r2 and r2[0]["long_ok"] is True, (s1, r1, s2, r2))
 req("POST", "/functions/v1/recompute", {})
 c = cpts()
-check("подтвердили — долгая и в кубке, и в чемпионате", "long" in keys(c[(cv1, "Шурик")]) and c[(cv1, "Витёк")]["total"] == 6
+check("подтвердили — долгая и в кубке, и в чемпионате", "long" in keys(c[(cv1, "Шурик")]) and c[(cv1, "Витёк")]["total"] == 7
       and all("long" in l for l in champ().values()), (c[(cv1, "Шурик")], champ()))
 sql("delete from settings where key = 'long_confirm'"); sql(f"update visits set long_ok = false where id = {cv1}")
 req("POST", "/functions/v1/recompute", {})
@@ -686,8 +690,8 @@ cup = req("POST", "/rest/v1/rpc/boot_public", {})[1].get("cup") or {}
 me1 = [p for p in cup.get("points", []) if p["nick"] == "Шурик" and p["round"] == 1]
 check("гостю в boot_public — туры, команды и суммы по турам (без походов)",
       len(cup.get("rounds", [])) == 5 and any(t["num"] == 91 and sorted(t["players"]) == ["Витёк", "Леха", "Шурик"] for t in cup.get("teams", []))
-      and me1 and me1[0]["total"] == 6 and me1[0]["baths"] == 1 and "visit_id" not in json.dumps(cup), cup)
-sql(f"delete from visits where bath_id in ({cb1}, {cb2})"); sql(f"delete from baths where id in ({cb1}, {cb2})"); sql("delete from cup_teams")
+      and me1 and me1[0]["total"] == 7 and me1[0]["baths"] == 1 and "visit_id" not in json.dumps(cup), cup)
+sql(f"delete from visits where bath_id in ({cb1}, {cb2}, {cb3})"); sql(f"delete from baths where id in ({cb1}, {cb2}, {cb3})"); sql("delete from cup_teams")
 sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{ROUNDS}') x where x.n = r.n")
 print("Кубок: итоги тура считает система, принимает Комиссия; жребий можно перетянуть")
 rpc = lambda fn, body, token=None: req("POST", f"/rest/v1/rpc/{fn}", body, token=token)

@@ -1339,7 +1339,7 @@ check("первый тур идёт — в чат лиги одно сообще
       and sql("select count(*) from cup_posts where round = 0 and message_id is not null") == "1", (r, said))
 by_place = sql("""select string_agg(nick, '|' order by total desc, baths desc, nick) from standings where nick in ('Ден', 'Арс', 'Alex B')""").split("|")
 shown = sorted(CUP[0], key=lambda n: said[0].index(f"<b>{n}</b>")) if said else []
-check("…участники команды — по местам в чемпионате, каждый с представлением", shown[:len(by_place)] == by_place and "<b>Арс</b> — главный" in said[0], (shown, by_place))
+check("…участники команды — по местам в чемпионате, каждый с представлением", shown[:len(by_place)] == by_place and "<b>Арс</b> — экс-чесночный" in said[0], (shown, by_place))
 seen = len(TELEGRAM.calls)
 cup_call("post")
 check("повторный вызов — старт второй раз не объявляется", cup_said(seen) == [])

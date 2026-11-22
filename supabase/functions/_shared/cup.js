@@ -50,6 +50,8 @@ export function computeCup({ rounds, teams, baths, visits, breakdown }) {
       if (has("ultra")) lines.push(["ultra", 1]);
       if (has("long")) lines.push(["long", 1]);   // уже с учётом подтверждения Комиссии
       if (met.get(e.team + "|" + e.v.bath_id + "|" + e.v.day).size >= 2) lines.push(["team", 1]);
+      const company = e.champ.lines.find((l) => l[0] === "company");   // компания — как в чемпионате (решение лиги 22.11): тот же бонус К/КК/ККК
+      if (company) lines.push(["company", company[1]]);
     }
     out.push({ round: e.v.round, visit_id: e.v.id, nick: e.nick, team_id: e.team, total: lines.reduce((a, l) => a + l[1], 0), lines });
   }
