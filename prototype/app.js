@@ -2460,7 +2460,9 @@
     // итоги недели — когда бот запостил их в чат; только во «Все» и не глубже самого старого похода в ленте
     const oldest = visits.reduce((m, v) => (v.date < m ? v.date : m), "9");
     const weeks = feedFilter === "all" ? weekPosts.map((w) => ({ kind: "week", w: w.week, rows: weekRows(w.week), at: mskIso(w.at) })).filter((e) => e.rows.length && e.at >= oldest) : [];
-    const entries = [...shown.map((v) => ({ kind: "visit", v, at: v.date })), ...loose.map((r) => ({ kind: "rate", r, at: mskIso(r.at) })), ...weeks]
+    // итоги туров кубка — когда их приняла Комиссия; там же, где итоги недели
+    const cups = feedFilter === "all" ? (cup?.history || []).map((h) => ({ kind: "cup", h, at: mskIso(h.accepted_at) })).filter((e) => e.at >= oldest) : [];
+    const entries = [...shown.map((v) => ({ kind: "visit", v, at: v.date })), ...loose.map((r) => ({ kind: "rate", r, at: mskIso(r.at) })), ...weeks, ...cups]
       .sort((a, b) => b.at.localeCompare(a.at));
     const days = [];
     for (const e of entries) { const d = dayOf(e.at); if (days[days.length - 1]?.d !== d) days.push({ d, items: [] }); days[days.length - 1].items.push(e); }
@@ -2522,6 +2524,15 @@
           <small>${weekRange(e.w)} · ${total} ${plural(total, "поход", "похода", "походов")} от ${e.rows.length} ${plural(e.rows.length, "участника", "участников", "участников")}</small>
           <div class="f-split f-week-top">${top}</div></div></div>`;
       }
+      if (e.kind === "cup") {
+        const h = e.h, res = h.results || [], fin = !(h.teams || []).length, paths = [...new Set(res.map((t) => t.path))];
+        const won = res.flatMap((t) => t.players).filter((p) => p.to === "winner").map((p) => esc(p.nick));
+        const body = paths.map((p) => `${paths.length > 1 ? `<small>${p === "losers" ? "Путь ебланов" : "Путь чемпионов"}</small>` : ""}${res.filter((t) => t.path === p)
+          .map((t) => `<span class="f-pt">${t.place}. ${t.players.map((x) => esc(x.nick)).join(", ")} <b>${fmt(t.total)}</b></span>`).join("")}`).join("");
+        return `<div class="frow f-cupres"><span class="f-week-ic" aria-hidden="true">🏆</span><div class="f-main"><a class="f-title" href="#cup" data-cup-res="${h.round}">Кубок · итоги ${h.round === 5 ? "финала" : `тура ${h.round}`}</a>
+          <small>${fin ? (won.length ? `Кубок выиграли ${won.join(", ")}` : "кубок сыгран") : `дальше — ${h.round + 1 === 5 ? "финал" : `тур ${h.round + 1}`}`}</small>
+          <div class="f-split f-week-top">${body}</div></div></div>`;
+      }
       if (e.kind === "rate") {
         const r = e.r, b = byId.get(r.bathId);
         // оценка без похода: отзыв — такой же цитатой, как в строке похода (две строки, нажал — целиком)
@@ -2554,6 +2565,7 @@
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
     const wl = e.target.closest("[data-week]"); if (wl) { e.preventDefault(); viewWeek = +wl.dataset.week; return window.openWeekly(); }
+    const cr = e.target.closest("[data-cup-res]"); if (cr) { e.preventDefault(); cupRound = +cr.dataset.cupRes; return show("cup"); }
     const co = e.target.closest("[data-cmt-open]"), cd = e.target.closest("[data-cmt-del]");
     if (co) { cmtOpen = +co.dataset.cmtOpen; cmtDraft = ""; renderFeed(); return $(`[data-cmt-form="${cmtOpen}"] input`)?.focus(); }
     if (cd) {
