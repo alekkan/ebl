@@ -201,6 +201,7 @@ window.EBLData = (() => {
       reviews: rv, prices: pr, beerPrices: bpr, visits, players: players.map((p) => p.nick), playerIds: Object.fromEntries(players.map((p) => [p.nick, p.id])), me,
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
       cup: common.cup ? { ...common.cup, gate: common.cup.long_gate || null } : null,
+      weekPosts: (common.week_posts || []).map((w) => ({ week: w.week, at: w.posted_at })),   // итоги недель, которые бот запостил в чат — в ленту
       photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, avaCopy[p.photo_url] || viaApi(p.photo_url)])),
     };
   }

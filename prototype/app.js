@@ -140,6 +140,7 @@
   const member = !D.live || !!me?.nick;
   const canModerate = !D.live || !!me?.isCommission;
   let visits = data.visits;
+  let weekPosts = data.weekPosts || [];   // итоги недель, вышедшие в чате, — записи в ленте
   let cup = data.cup?.teams?.length ? data.cup : null;   // кубок: туры, команды, очки (нет команд или витрина — вкладки нет)
   let longGate = data.cup?.gate || null;                 // срок, когда долгую подтверждает Комиссия
   const reviews = data.reviews;
@@ -2456,7 +2457,10 @@
     const dayOf = (iso) => iso.slice(0, 10), today = mskNow().slice(0, 10), yest = new Date(Date.parse(today) - 864e5).toISOString().slice(0, 10);
     const dayName = (d) => d === today ? "Сегодня" : d === yest ? "Вчера"
       : new Date(d + "T12:00:00Z").toLocaleDateString("ru-RU", { day: "numeric", month: "long", ...(d.slice(0, 4) !== today.slice(0, 4) ? { year: "numeric" } : {}), timeZone: "UTC" });
-    const entries = [...shown.map((v) => ({ kind: "visit", v, at: v.date })), ...loose.map((r) => ({ kind: "rate", r, at: mskIso(r.at) }))]
+    // итоги недели — когда бот запостил их в чат; только во «Все» и не глубже самого старого похода в ленте
+    const oldest = visits.reduce((m, v) => (v.date < m ? v.date : m), "9");
+    const weeks = feedFilter === "all" ? weekPosts.map((w) => ({ kind: "week", w: w.week, rows: weekRows(w.week), at: mskIso(w.at) })).filter((e) => e.rows.length && e.at >= oldest) : [];
+    const entries = [...shown.map((v) => ({ kind: "visit", v, at: v.date })), ...loose.map((r) => ({ kind: "rate", r, at: mskIso(r.at) })), ...weeks]
       .sort((a, b) => b.at.localeCompare(a.at));
     const days = [];
     for (const e of entries) { const d = dayOf(e.at); if (days[days.length - 1]?.d !== d) days.push({ d, items: [] }); days[days.length - 1].items.push(e); }
@@ -2510,6 +2514,14 @@
       </article>`;
     };
     const row = (e) => {
+      if (e.kind === "week") {
+        const total = e.rows.reduce((a, r) => a + r.baths, 0), medal = ["🥇", "🥈", "🥉"];
+        const top = [...new Set(e.rows.map((r) => r.place))].slice(0, 3).map((pl, i) => { const g = e.rows.filter((r) => r.place === pl);
+          return `<span class="f-pt">${medal[i]} ${g.map((r) => esc(r.name)).join(", ")} · ${g[0].baths} ${plural(g[0].baths, "баня", "бани", "бань")}${g[0].pts ? ` <b>+${fmt(g[0].pts)}</b>` : ""}</span>`; }).join("");
+        return `<div class="frow f-week"><span class="f-week-ic" aria-hidden="true">🏆</span><div class="f-main"><a class="f-title" href="#table" data-week="${e.w}">Итоги недели W${e.w}</a>
+          <small>${weekRange(e.w)} · ${total} ${plural(total, "поход", "похода", "походов")} от ${e.rows.length} ${plural(e.rows.length, "участника", "участников", "участников")}</small>
+          <div class="f-split f-week-top">${top}</div></div></div>`;
+      }
       if (e.kind === "rate") {
         const r = e.r, b = byId.get(r.bathId);
         // оценка без похода: отзыв — такой же цитатой, как в строке похода (две строки, нажал — целиком)
@@ -2541,6 +2553,7 @@
     const fph = e.target.closest("[data-fph]"); if (fph) { const [vid, i] = fph.dataset.fph.split(":"); return openPhotos(feedPhotos[vid] || [], +i); }   // длинный отзыв — две строки, нажал — целиком
     const ok = e.target.closest("[data-ok]")?.dataset.ok, no = e.target.closest("[data-no]")?.dataset.no, bl = e.target.closest("[data-bath]");
     const ed = e.target.closest("[data-edit]")?.dataset.edit, ph = e.target.closest("[data-addph]")?.dataset.addph;
+    const wl = e.target.closest("[data-week]"); if (wl) { e.preventDefault(); viewWeek = +wl.dataset.week; return window.openWeekly(); }
     const co = e.target.closest("[data-cmt-open]"), cd = e.target.closest("[data-cmt-del]");
     if (co) { cmtOpen = +co.dataset.cmtOpen; cmtDraft = ""; renderFeed(); return $(`[data-cmt-form="${cmtOpen}"] input`)?.focus(); }
     if (cd) {
@@ -2597,6 +2610,7 @@
       hydrate(b);
     }
     visits = fresh.visits;
+    weekPosts = fresh.weekPosts || [];
     cup = fresh.cup?.teams?.length ? fresh.cup : null; longGate = fresh.cup?.gate || null; cupVisits = {};
     Object.keys(reviews).forEach((k) => delete reviews[k]); Object.assign(reviews, fresh.reviews);
     Object.keys(prices).forEach((k) => delete prices[k]); Object.assign(prices, fresh.prices);

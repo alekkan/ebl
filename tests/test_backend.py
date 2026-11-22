@@ -65,8 +65,8 @@ req("POST", "/functions/v1/recompute", {})  # после db reset таблица
 me, vit, leha = player_id("Шурик"), player_id("Витёк"), player_id("Леха")
 check("аноним видит таблицу", len(req("GET", "/rest/v1/standings?select=nick")[1]) > 0)
 s, bp = req("GET", "/rest/v1/rpc/boot_public")
-check("всё общее для первого экрана — одним запросом и гостю: бани, посещения, таблица, отзывы, цены, пиво, участники, кубок",
-      s == 200 and isinstance(bp, dict) and set(bp) == {"baths", "counts", "standings", "reviews", "prices", "beer", "players", "cup"}
+check("всё общее для первого экрана — одним запросом и гостю: бани, посещения, таблица, отзывы, цены, пиво, участники, кубок, итоги недель",
+      s == 200 and isinstance(bp, dict) and set(bp) == {"baths", "counts", "standings", "reviews", "prices", "beer", "players", "cup", "week_posts"}
       and len(bp["baths"]) > 100 and len(bp["counts"]) > 100 and len(bp["standings"]) > 0 and len(bp["players"]) > 0, (s, list(bp)[:9] if isinstance(bp, dict) else bp))
 check("…отклонённые бани в нём гостю не видны, как и в обычном запросе", all(b["status"] != "rejected" for b in bp["baths"]))
 s2, bp2 = req("GET", "/rest/v1/rpc/boot_public?apikey=" + urllib.parse.quote(KEY))
@@ -822,4 +822,13 @@ req("DELETE", f"/rest/v1/visit_comments?visit_id=eq.{cv}&player_id=eq.{player_id
 check("Комиссия удаляет любой", cn() == "1")
 sql(f"delete from visits where id = {cv}")
 check("удалили поход — комментарии ушли с ним", cn() == "0")
+
+print("Итоги недели в ленту: какие недели бот запостил — в boot_public, сама таблица закрыта")
+sql("insert into week_posts (season, week, chat_id) values (2026, 3, 1), (2025, 4, 1) on conflict do nothing")
+wp = req("GET", "/rest/v1/rpc/boot_public")[1]["week_posts"]
+check("в boot_public — недели этого сезона с временем поста, без чата и сообщения",
+      [set(w) for w in wp if w["week"] == 3] == [{"week", "posted_at"}] and not [w for w in wp if w["week"] == 4], wp)
+hidden = lambda tok=None: req("GET", "/rest/v1/week_posts?select=week", token=tok)
+check("сама таблица week_posts гостю и участнику не видна", not (hidden()[0] == 200 and hidden()[1]) and not (hidden(shurik)[0] == 200 and hidden(shurik)[1]))
+sql("delete from week_posts where chat_id = 1 and week in (3, 4)")
 print("Готово.")
