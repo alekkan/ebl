@@ -9,11 +9,14 @@
 //   ?render=<неделя>         — картинка PNG (данные те же, что в открытой таблице на сайте)
 //   ?dry=<неделя>            — JSON: места, очки и что ещё ждёт решения (для тестов)
 //   ?preview=<tg_id>&week=<n> — пример в личку участнику Комиссии (не чаще раза в 2 минуты)
+//   ?cup=dry | ?cup=post     — кубок (cup.ts): что бот объявит в чате (JSON, без отправки) | объявить сейчас, не трогая итоги недели
+// Тот же вызов pg_cron объявляет и кубок: старт первого тура и итоги туров, принятые Комиссией.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 import { msk, placePoints, weekOf } from "../_shared/scoring.js";
 import { GOLOS400, GOLOS700, UNBOUNDED700 } from "../_shared/fonts.ts";
 import { HAT } from "./hat.ts";
+import { cupPosts } from "./cup.ts";
 import { NPM_CDN, TELEGRAM_API } from "../_shared/hosts.ts";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
@@ -238,7 +241,11 @@ Deno.serve(async (req) => {
       const r = await sendPhoto(tg, await renderPng(w, data), `👀 <b>Пример</b> — так будет выглядеть пост в чате\n\n${caption(w, data)}`);
       return json({ sent: !!r.ok, error: r.description });
     }
-    return json(await autoPost());
+    const cup = () => setting("league_chat").then((chat) => cupPosts(sb, Number(chat) || 0, TOKEN, SITE, url.searchParams.get("cup") === "dry"));
+    if (url.searchParams.has("cup")) return json({ cup: await cup() });
+    const week = await autoPost();
+    // кубок — своим заходом: его ошибка итогам недели не мешает
+    return json({ ...week, cup: await cup().catch((e) => ({ error: String(e?.message ?? e) })) });
   } catch (e) {
     console.error("week-results", e);
     return json({ error: String((e as Error)?.message ?? e) }, 500);

@@ -17,6 +17,7 @@ import { placePatch } from "../_shared/place.ts";
 import { requestPoint } from "../_shared/point-request.ts";
 import { greetLine } from "../_shared/greetings.ts";
 import { TELEGRAM_API } from "../_shared/hosts.ts";
+import { longGated } from "../_shared/scoring.js";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
@@ -1499,6 +1500,8 @@ async function implicitAnswer(msg: Any): Promise<boolean> {
 // Долгая — на доверии: одно «долгая» от любого из компании делает поход долгим, ошибки правит Комиссия.
 // Отметить можно в любой момент до 8 часов после захода — хоть сразу («долгая будет»); позже — только Комиссия на сайте.
 const LONG_STRANGER = "Это для тех, кто был в походе";
+// на время кубка долгая идёт в зачёт только после подтверждения Комиссии (settings.long_confirm) — «+1» не обещаем
+const longPts = async () => longGated(await setting("long_confirm"), Date.now()) ? "в зачёт после подтверждения Комиссии (два фото в чат)" : "+1 всей компании";
 const LONG_LATE = "Прошло больше 8 часов с захода — долгую теперь отмечает Комиссия на сайте";
 const LONG_MAX = 8 * 3600e3;
 async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late"> {
@@ -1528,8 +1531,8 @@ async function longAnswer(msg: Any, post: Any, me: Any, claimed = false) {
     const res = await markLong(post.visit_id, me);
     if (res !== "ok") return send(msg.chat.id, longRefusal(res, null), undefined, msg.message_id);
     await react(msg.chat.id, msg.message_id, "🔥");
-    if (living) return noteLong(post.visit_id, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
-    return send(msg.chat.id, `🔥 ${esc(me.nick)}: долгая — +1 всей компании.`, undefined, msg.message_id);
+    if (living) return noteLong(post.visit_id, `🔥 Долгая — ответ: ${esc(me.nick)}, ${await longPts()}`, true);
+    return send(msg.chat.id, `🔥 ${esc(me.nick)}: долгая — ${await longPts()}.`, undefined, msg.message_id);
   }
   if (/^(нет|не|обычная|экспресс|no|-)(?![\p{L}\p{N}])/iu.test(text)) {
     await react(msg.chat.id, msg.message_id, "👌");
@@ -1582,8 +1585,8 @@ async function claimLong(msg: Any, me: Any) {
   const res = await markLong(target.id, me);
   if (res !== "ok") return send(msg.chat.id, longRefusal(res, Date.now() - target.at), undefined, msg.chat.type === "private" ? undefined : msg.message_id);
   await react(msg.chat.id, msg.message_id, "🔥");
-  if (await refreshable(target.id)) await noteLong(target.id, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
-  if (msg.chat.type === "private") return send(msg.chat.id, "🔥 Отметил долгую — +1 всей компании.");
+  if (await refreshable(target.id)) await noteLong(target.id, `🔥 Долгая — ответ: ${esc(me.nick)}, ${await longPts()}`, true);
+  if (msg.chat.type === "private") return send(msg.chat.id, `🔥 Отметил долгую — ${await longPts()}.`);
 }
 
 // ---------- «@eblany» — позвать всех ----------
@@ -2061,8 +2064,8 @@ async function onCallback(cq: Any) {
     const vid = Number(data.slice(3));
     const res = await markLong(vid, me);
     if (res !== "ok") return answer(cq.id, res === "late" ? LONG_LATE : LONG_STRANGER, res === "late");
-    await answer(cq.id, "🔥 Долгая — +1 всей компании");
-    if (await refreshable(vid)) return noteLong(vid, `🔥 Долгая — ответ: ${esc(me.nick)}, +1 всей компании`, true);
+    await answer(cq.id, `🔥 Долгая — ${await longPts()}`);
+    if (await refreshable(vid)) return noteLong(vid, `🔥 Долгая — ответ: ${esc(me.nick)}, ${await longPts()}`, true);
     return noteLongAnswer(cq, vid, `${me.nick}: долгая 🔥`);
   }
   if (data.startsWith("nl:")) {

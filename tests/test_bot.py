@@ -1318,6 +1318,77 @@ st = post("Banya1", 1207, chat=ME, chat_type="private")
 check("шесть латинских букв, но не код — обычный пост про баню", st is not None and not any("Войти" in (p.get("text") or "") for p in dm_sent(seen)), st)
 sql("delete from bot_sessions"); sql(f"delete from player_accounts where tg_id = {NEWBIE}")
 
+print("Кубок: бот объявляет старт и итоги туров; долгая на время кубка — после подтверждения")
+rounds0 = sql("select json_agg(r) from cup_rounds r")
+sql("delete from cup_posts"); sql("delete from cup_transitions"); sql("delete from cup_teams")
+cup_call = lambda mode: (req("GET", f"/functions/v1/week-results?cup={mode}")[1] or {}).get("cup")
+cup_said = lambda seen: [p.get("text") or "" for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and int(p.get("chat_id") or 0) == league]
+check("кубок ещё не начался — объявлять нечего", cup_call("dry") == [], cup_call("dry"))
+sql("update cup_rounds set starts_at = now() - interval '1 hour', ends_at = now() + interval '2 days' where n = 1")
+sql("update cup_rounds set starts_at = now() + interval '2 days', ends_at = now() + interval '9 days' where n = 2")
+CUP = (("Ден", "Арс", "Alex B"), ("Витёк", "Женёк В", "Миша П"))
+for num, team in enumerate(CUP, 1):
+    t = sql(f"insert into cup_teams (round, num) values (1, {num}) returning id").splitlines()[0]
+    for n in team: sql(f"insert into cup_team_players (team_id, player_id) select {t}, id from players where nick = '{n}'")
+seen = len(TELEGRAM.calls)
+r = cup_call("post")
+said = cup_said(seen)
+check("первый тур идёт — в чат лиги одно сообщение о старте: срок и команды",
+      len(said) == 1 and "старт" in said[0] and "Тур 1" in said[0] and all(n in said[0] for t in CUP for n in t) and "#cup" in said[0]
+      and sql("select count(*) from cup_posts where round = 0 and message_id is not null") == "1", (r, said))
+seen = len(TELEGRAM.calls)
+cup_call("post")
+check("повторный вызов — старт второй раз не объявляется", cup_said(seen) == [])
+pl = lambda nick, total, to: {"nick": nick, "total": total, "baths": 1, "place": 1, "to": to}
+prop = {"round": 1, "draw": True, "rest": [], "basis": "тест",
+        "results": [{"num": 1, "path": "champions", "place": 1, "total": 12, "baths": 3, "places": 9, "players": [pl("Ден", 6, "champions"), pl("Арс", 4, "champions"), pl("Alex B", 2, "champions")]},
+                    {"num": 2, "path": "champions", "place": 2, "total": 7, "baths": 3, "places": 12, "players": [pl("Витёк", 4, "losers"), pl("Женёк В", 3, "losers"), pl("Миша П", 0, "out")]}],
+        "teams": [{"num": 1, "path": "champions", "players": ["Ден", "Арс", "Alex B"]}, {"num": 2, "path": "losers", "players": ["Витёк", "Женёк В", "Шурик"]}]}
+put = lambda rnd, p: sql(f"""insert into cup_transitions (round, proposal, basis, proposed_at, accepted_at) values ({rnd}, '{json.dumps(p, ensure_ascii=False)}', 'тест', now(), now())
+                             on conflict (round) do update set proposal = excluded.proposal, accepted_at = now()""")
+put(1, prop)
+seen = len(TELEGRAM.calls)
+cup_call("post")
+said = cup_said(seen)
+check("Комиссия приняла итоги тура — одно сообщение: очки команд, составы следующего тура со жребием, кто покидает кубок",
+      len(said) == 1 and "итоги тура 1" in said[0] and "Ден 6 · Арс 4 · Alex B 2 — <b>12</b>" in said[0] and "Тур 2" in said[0]
+      and "Путь ебланов</i> — по жребию" in said[0] and "• Витёк, Женёк В, Шурик" in said[0] and "Покидают кубок: Миша П" in said[0] and "уточнение" not in said[0], said)
+seen = len(TELEGRAM.calls)
+cup_call("post")
+check("…и только один раз", cup_said(seen) == [])
+prop["teams"][1]["players"] = ["Витёк", "Женёк В", "Фил"]
+put(1, prop)
+seen = len(TELEGRAM.calls)
+cup_call("post")
+said = cup_said(seen)
+check("итоги отменили и приняли заново — выходит уточнение с новым составом", len(said) == 1 and "уточнение" in said[0] and "• Витёк, Женёк В, Фил" in said[0], said)
+fin = {"round": 5, "draw": False, "rest": [], "basis": "тест", "teams": [],
+       "results": [{"num": 1, "path": "champions", "place": 1, "total": 9, "baths": 3, "places": 9, "players": [pl(n, 3, "winner") for n in CUP[0]]},
+                   {"num": 2, "path": "losers", "place": 1, "total": 6, "baths": 3, "places": 12, "players": [pl(n, 2, "second") for n in CUP[1]]}]}
+put(5, fin)
+seen = len(TELEGRAM.calls)
+cup_call("post")
+said = cup_said(seen)
+check("финал: кто выиграл кубок и кто второй, следующего тура нет",
+      len(said) == 1 and "Кубок выиграли Ден, Арс, Alex B" in said[0] and "Второе место: Витёк, Женёк В, Миша П" in said[0] and "Тур 6" not in said[0], said)
+sql("delete from cup_posts"); sql("delete from cup_transitions"); sql("delete from cup_teams")
+sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{rounds0}') x where x.n = r.n")
+# долгая на время кубка: бот «+1» не обещает
+vid = visit_ago(4)
+seen = len(TELEGRAM.calls)
+post("долгая", 1301, chat=ME, chat_type="private")
+plain = " ".join(p.get("text") or "" for p in dm_sent(seen))
+sql(f"delete from visits where id = {vid}")
+sql("""insert into settings (key, value) values ('long_confirm', jsonb_build_object('from', now() - interval '1 day', 'to', now() + interval '1 day'))
+       on conflict (key) do update set value = excluded.value""")
+vid = visit_ago(4)
+seen = len(TELEGRAM.calls)
+post("долгая", 1302, chat=ME, chat_type="private")
+gated = " ".join(p.get("text") or "" for p in dm_sent(seen))
+check("долгая вне кубка — «+1 всей компании»; на время кубка — «после подтверждения Комиссии»",
+      "+1 всей компании" in plain and "после подтверждения Комиссии" in gated and "+1 всей компании" not in gated, (plain, gated))
+sql(f"delete from visits where id = {vid}"); sql("delete from settings where key = 'long_confirm'")
+
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
 check("?diag отдаёт из журнала только время и тип", all(set(e) <= {"at", "kind"} for e in diag.get("log") or []), diag)
