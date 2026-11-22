@@ -125,7 +125,7 @@ window.EBLData = (() => {
   async function journal() {
     if (sessionUser() === "guest") return [];
     return check(await sb.from("visits")
-      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, long_ok, baths(name), visit_players(player_id, duration_min), visit_points(nick, total, lines)")
+      .select("id, bath_id, entered_at, posted_at, duration_min, status, created_by, entered_by, reject_reason, tg_link, moderated_at, moderated_by, long_ok, baths(name), visit_players(player_id, duration_min), visit_points(nick, total, lines), visit_comments(id, player_id, text, created_at)")
       .order("posted_at", { ascending: false }).limit(300));
   }
   function loadVisits(rows, playersById) {
@@ -146,6 +146,8 @@ window.EBLData = (() => {
         // своя длительность участника, если не как у похода (18.10): { ник: минуты }
         durs: Object.fromEntries(vp.filter((x) => x.duration_min != null && x.nick).map((x) => [x.nick, x.duration_min])),
         postedAt: Date.parse(v.posted_at), longOk: !!v.long_ok,   // на время кубка долгую подтверждает Комиссия
+        // комментарии участников лиги к походу (23.11), старые сверху
+        comments: (v.visit_comments ?? []).map((c) => ({ id: c.id, nick: playersById[c.player_id], text: c.text, at: c.created_at })).sort((a, b) => a.at.localeCompare(b.at)),
       };
     });
   }
@@ -412,6 +414,12 @@ window.EBLData = (() => {
         if (have.has(id) && have.get(id) !== m) check(await sb.from("visit_players").update({ duration_min: m }).eq("visit_id", visitId).eq("player_id", id));
       }
     },
+    // комментарий к походу в ленте — от себя; удалить — свой или любой, если Комиссия (права — в базе)
+    async addComment(visitId, text) {
+      const c = check(await sb.from("visit_comments").insert({ visit_id: visitId, player_id: cache.me.playerId, text }).select("id, created_at").single());
+      return { id: c.id, nick: cache.me.nick, text, at: c.created_at };
+    },
+    async deleteComment(id) { check(await sb.from("visit_comments").delete().eq("id", id)); },
     // Комиссия подтверждает долгую (на время кубка — по двум фото в чате); одна отметка на поход
     async confirmLong(visitId, ok) {
       if (!live) return;

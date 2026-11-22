@@ -1712,6 +1712,18 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .cup-main { background: var(--oak); color: var(--oak-ink); border-color: var(--oak); }
 .cup-note { margin: 16px 2px 32px; font-size: 13px; color: var(--ink-3); }
 /* долгая на время кубка — после подтверждения Комиссии */
+/* комментарии к походам в ленте (23.11) */
+.f-cmts { margin-top: 8px; display: grid; gap: 6px; font-size: 13.5px; }
+.f-cmt { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.f-cmt .ava { --s: 22px; flex: none; }
+.f-cmt span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--ink-2); }
+.f-cmt span b { color: var(--ink); }
+.f-cmt small { color: var(--ink-3); white-space: nowrap; }
+.f-cmt-del { flex: none; border: 0; background: none; padding: 0 4px; color: var(--ink-3); font-size: 18px; line-height: 1; cursor: pointer; }
+.f-cmt-add { justify-self: start; text-decoration: none; color: var(--oak); font-weight: 600; }
+.f-cmt-form { display: flex; gap: 8px; min-width: 0; }
+.f-cmt-form .inp { flex: 1 1 auto; min-width: 0; }
+.f-cmt-form .btn { flex: none; }
 .cup-wait { color: color-mix(in srgb, var(--honey) 55%, var(--ink)); }
 .cup-longok { color: var(--oak); }
 .cup-longbtn { display: inline-block; margin-top: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
