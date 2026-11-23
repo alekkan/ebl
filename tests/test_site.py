@@ -1856,8 +1856,9 @@ with sync_playwright() as pw:
         check("после отправки у всей компании остаётся +7",
               preview.js("() => { const rows = [...document.querySelectorAll('#vSent .t-who')]; return rows.length === 8 && rows.every(r => r.querySelector('em').innerText === '+7'); }"))
         preview.page.click("#vDone")
-        preview.view("map"); preview.page.fill("#q", "Тест-Ультра-всей-компании")
-        preview.page.click('#list .item[data-id="100000"]'); preview.page.click("#shOpen")
+        preview.view("map"); preview.page.fill("#q", "Василевские")
+        preview.page.locator("#list .item").first.evaluate("(el) => el.click()")
+        preview.page.click("#shOpen")
         for width in (320, 412):
             preview.page.set_viewport_size({"width": width, "height": 915})
             preview.no_clip(f"ввод паров на {width}px", "#shForm")

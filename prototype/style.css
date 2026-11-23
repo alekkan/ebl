@@ -2077,3 +2077,5 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .sh-schedule > div { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
 .sh-schedule b { font-size: 13px; }
 .sh-schedule span { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; }
+
+#shMode button, #shEvery button, .sh-presets button, .sh-weekdays button { min-height: 44px; }

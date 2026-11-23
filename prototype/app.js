@@ -1019,6 +1019,7 @@
     $("#geoFixBtn", d)?.addEventListener("click", () => { const f = $("#geoFixForm", d); f.hidden = !f.hidden; if (!f.hidden) $("#geoFixInput", d).focus(); });
     // формы цены и пар — по кнопке: сначала то, что уже знаем о бане; открытая остаётся открытой, пока карточка та же
     const openForm = (key, btn, form, focus) => $(btn, d)?.addEventListener("click", () => {
+      if (key === "sh" && phone.matches) d.classList.add("full");
       cardOpen.add(key); $(btn, d).hidden = true; $(form, d).hidden = false; $(focus, d)?.focus();
     });
     openForm("pr", "#prOpen", "#prForm", "#prPrice");
@@ -1058,6 +1059,7 @@
         loadDays((groups.find((g) => g.days.includes(today)) || groups[0])?.days || STEAM_DAYS);
       });
       shForm.addEventListener("steam-edit", (e) => {
+        if (phone.matches) d.classList.add("full");
         touched = true; cardOpen.add("sh"); shForm.hidden = false; $("#shOpen", d).hidden = true;
         loadDays(e.detail); $(mode === "list" ? "#shTime" : "#shFrom", d).focus();
       });
