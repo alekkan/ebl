@@ -1631,6 +1631,12 @@ with sync_playwright() as pw:
         s.view("cup")
         s.no_clip("Кубок на телефоне", "#view-cup"); s.nav_free("Кубок на телефоне")
         s.clean("Кубок на телефоне"); s.close()
+        # терма (хуитнес) с походом участника кубка: в зачёт кубка её ставит Комиссия в карточке бани (п. 22)
+        cupt = sql("insert into baths (name, status, type, country, lat, lng, precision) values ('Тест-Кубок-Терма', 'ok', 'spa', 'Германия', 48.76, 8.24, 'exact') returning id").splitlines()[0]
+        cuptv = sql(f"""insert into visits (bath_id, entered_at, posted_at, duration_min, created_by, source)
+                        select {cupt}, now() - interval '2 hours', now() - interval '2 hours', 60, id, 'site' from players where nick = 'Шурик' returning id""").splitlines()[0]
+        sql(f"insert into visit_players (visit_id, player_id) select {cuptv}, id from players where nick = 'Шурик'")
+        sql(f"update visits set status = 'ok' where id = {cuptv}")
         s = Site(browser, url, sess=vitek, name="cup-commission")
         s.view("feed")
         try: s.page.wait_for_selector(f'[data-long="{cupv}"]', timeout=8000)
@@ -1648,8 +1654,21 @@ with sync_playwright() as pw:
         except Exception: pass
         check("участнику — очки с долгой и походы тура по командам", s.js(cup_top) == "91:12"
               and "встреча команды" in s.js("() => document.querySelector('#cupTeams .cup-more')?.textContent || ''"), s.js(cup_top))
+        cup_pts = lambda: sql(f"select coalesce(sum(total), 0) from cup_points where visit_id = {cuptv}")
+        s.view("map"); s.page.fill("#q", "Тест-Кубок-Терма"); s.page.wait_for_timeout(300)
+        s.page.click(f'#list .item[data-id="{cupt}"]'); s.page.wait_for_selector("#dEditBtn", timeout=8000)
+        check("терма без отметки: в кубке ноль, в карточке у Комиссии пункт «В зачёт кубка — нет»", cup_pts() == "0"
+              and "нет" in s.js("() => { document.getElementById('dEditBtn').click(); return document.getElementById('dCupBtn')?.innerText || ''; }"), cup_pts())
+        kom_click(s, "#dCupBtn")
+        for _ in range(40):
+            if cup_pts() != "0": break
+            s.page.wait_for_timeout(500)
+        check("Комиссия ставит «В зачёт кубка»: отметка в базе и в карточке, поход в терму даёт очки кубка",
+              sql(f"select cup_ok from baths where id = {cupt}") == "t" and cup_pts() != "0"
+              and "в зачёте кубка" in s.js("() => document.getElementById('drawer').innerText"), cup_pts())
+        s.page.click("#drawer .x"); s.page.fill("#q", "")
         s.clean("Кубок у Комиссии"); s.close()
-        sql(f"delete from visits where id = {cupv}"); sql(f"delete from baths where id = {cupb}"); sql("delete from cup_teams")
+        sql(f"delete from visits where id in ({cupv}, {cuptv})"); sql(f"delete from baths where id in ({cupb}, {cupt})"); sql("delete from cup_teams")
         sql("delete from settings where key = 'long_confirm'")
 
         print("Кубок: Комиссия подводит итоги тура — жребий, принятие, история; правила кубка")

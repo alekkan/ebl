@@ -63,7 +63,7 @@ export function regionKey(s) {
  * @param {{id,bath_id,entered_at,posted_at,duration_min,players:{nick,duration_min?}[]}[]} p.visits  только status = ok;
  *   у участника может быть своя длительность (18.10: «я и Фил — долгую, Диман — экспресс»), пусто — как у похода
  * @param {{from,to}|null} [p.longGate]  на время кубка (22.11) долгая у походов, запощенных в этот срок, идёт в зачёт
- *   только с отметкой Комиссии long_ok (два фото в чате)
+ *   только с отметкой Комиссии long_ok (две отметки в чате)
  */
 export function computeStandings({ season, cutoverWeek, now, baths, legacyVisits, legacyStandings, visits, longGate = null }) {
   const S = new Map();

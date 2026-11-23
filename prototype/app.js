@@ -678,7 +678,7 @@
     const geoAct = D.live && member ? (!exact ? "знаю, где это" : canModerate ? "перенести точку" : "точка не там?") : "";
     const geoSubmit = !exact ? "Поставить" : canModerate ? "Перенести" : "Предложить Комиссии";
     // флажки — текстом в строке типа, без плашек; «место силы» и «ультрауникальная» — то, ради чего стоит сходить
-    const flags = [b.closed_on && `закрыта с ${closedWhen(b)}`, b.isNew && "новая, на модерации", !b.n26 && !b.nHist && !b.isNew && "кандидат в ультрауникальные", b.n26 >= 15 && "🔥 место силы"].filter(Boolean);
+    const flags = [b.closed_on && `закрыта с ${closedWhen(b)}`, cup && b.cup_ok && b.t !== "public" && "в зачёте кубка", b.isNew && "новая, на модерации", !b.n26 && !b.nHist && !b.isNew && "кандидат в ультрауникальные", b.n26 >= 15 && "🔥 место силы"].filter(Boolean);
     const long = b.name.length > 18;   // длинное название — обычным жирным: широкий шрифт его рвёт на три строки
     if (cardFor !== id) { cardFor = id; cardOpen.clear(); }
     // кто парился — за всё время, с 2023-го (02.11, Леха: не делать упор на 2026); хозяин — по сезону, так и подписан
@@ -702,6 +702,7 @@
         <button type="button" role="menuitem" id="geoFixBtn">Точка на карте<small>${exact ? "точная" : b.ll ? "примерная" : "нет"}</small></button>
         <button type="button" role="menuitem" id="dPlaceBtn" aria-expanded="false" aria-controls="dPlaceAsk">Страна и регион</button>
         <button type="button" role="menuitem" id="dCloseBtn" aria-expanded="false">${b.closed_on ? "Работает снова" : "Закрылась"}</button>
+        ${cup && b.t !== "public" ? `<button type="button" role="menuitem" id="dCupBtn">В зачёт кубка<small>${b.cup_ok ? "да" : "нет"}</small></button>` : ""}
       </div>` : ""}
       <div class="d-body">
         <div class="d-hero t-${b.t}">
@@ -908,6 +909,18 @@
         } catch (err) { $("#dPlaceGo", d).disabled = false; toast("Не получилось: " + err.message); }
       };
     }
+    // в зачёт кубка (23.11, п. 22): термы лежат в «Хуитнесах», а в кубке считаются как общественные — Комиссия отмечает такую баню;
+    // чемпионат отметку не видит, тип бани не меняется
+    const cupBtn = $("#dCupBtn", d);
+    if (cupBtn) cupBtn.onclick = async () => {
+      cupBtn.disabled = true;
+      const cup_ok = !b.cup_ok;
+      try {
+        await D.moderateBath(b.id, { cup_ok });
+        b.cup_ok = cup_ok; render(); openBath(b.id);
+        toast(`«${b.name}»: ${cup_ok ? "в зачёте кубка" : "не в зачёте кубка"} — кубок пересчитывается`); recomputeSoon();
+      } catch (err) { cupBtn.disabled = false; toast("Не получилось: " + err.message); }
+    };
     // баня закрылась (19.10) — Комиссия отмечает месяцем с подтверждением; походы и очки остаются, это история
     const closeAsk = $("#dCloseAsk", d);
     if (closeAsk) {
@@ -2229,7 +2242,7 @@
     else if (!b.n26 && !b.nHist) lines.push(["Ультра? Комиссия проверит", 0, "muted"]);
     if (b.region && b.country && !s.regions.has(placeKey(b))) lines.push([`Новый регион · ${b.region}`, 1]);
     if (b.country && !s.countries.has(regionKey(b.country))) lines.push([`Новая страна · ${b.country}`, 1]);
-    if (dur > 150) lines.push(longGated(Date.now()) ? ["Долгий поход — после подтверждения Комиссии (два фото в чат)", 0, "muted"] : ["Долгий поход", 1]);
+    if (dur > 150) lines.push(longGated(Date.now()) ? ["Долгий поход — после подтверждения Комиссии (через 2,5 часа — второе сообщение в чат)", 0, "muted"] : ["Долгий поход", 1]);
     const n = comp.length + 1;
     if (n >= 9) lines.push([`Компания ККК · ${n}`, 3]);
     else if (n >= 6) lines.push([`Компания КК · ${n}`, 2]);
@@ -2618,7 +2631,7 @@
       const b = byId.get(nb.id);
       if (!b) { hydrate(nb); baths.push(nb); byId.set(nb.id, nb); continue; }
       Object.assign(b, { v26: nb.v26, hist: nb.hist, histBy: nb.histBy, type: nb.type, country: nb.country, region: nb.region,
-        lat: nb.lat, lng: nb.lng, precision: nb.precision, status: nb.status, isNew: nb.isNew, closed_on: nb.closed_on });
+        lat: nb.lat, lng: nb.lng, precision: nb.precision, status: nb.status, isNew: nb.isNew, closed_on: nb.closed_on, cup_ok: nb.cup_ok });
       hydrate(b);
     }
     visits = fresh.visits;
@@ -2668,7 +2681,7 @@
       D.cupVisits(n).then((rows) => { cupVisits[n] = rows; if (rows.length && cupRound === n && !$("#view-cup").hidden) renderCup(); }).catch(() => {});
     }
     const visitRow = (r) => `<div class="cup-visit">${esc(r.nick)} · ${esc(byId.get(r.bathId)?.name || "баня")} <small>${r.date.slice(8, 10)}.${r.date.slice(5, 7)}</small> `
-      + (r.total ? `<b>+${r.total}</b> <small>${r.lines.map(([k]) => CUP_LINE[k] || k).join(" · ")}</small>` : `<small>не общественная — 0</small>`) + `</div>`;
+      + (r.total ? `<b>+${r.total}</b> <small>${r.lines.map(([k]) => CUP_LINE[k] || k).join(" · ")}</small>` : `<small>не в зачёте кубка — 0</small>`) + `</div>`;
     const card = (t, i) => {
       const mine = (detail || []).filter((r) => t.players.includes(r.nick));
       return `<article class="cup-team${t.players.includes(myNick) ? " mine" : ""}" data-team="${t.num}">
@@ -2696,8 +2709,8 @@
     const d = cupDraft?.round === n ? cupDraft : null;
     if (!d) { box.innerHTML = `<div class="cup-next"><p>Тур ${n} сыгран. Проверь заявки и долгие, потом подведи итоги.</p><div class="cup-acts">${btn("propose", `Подвести итоги тура ${n}`, 1)}</div></div>`; return; }
     const PATH = { champions: "Путь чемпионов", losers: "Путь ебланов" };
-    const res = d.results.map((t) => `<div class="cup-res"><b>${n < 5 && d.results.some((x) => x.path !== t.path) ? PATH[t.path] + " · " : ""}${t.place}. Команда ${t.num}</b> — ${t.total} ${plural(t.total, "очко", "очка", "очков")}`
-      + `<small>${t.players.map((p) => `${esc(p.nick)} ${p.total} → ${CUP_TO[p.to]}`).join(" · ")}</small></div>`).join("");
+    const res = d.results.map((t) => `<div class="cup-res"><b>${n < 5 && d.results.some((x) => x.path !== t.path) ? PATH[t.path] + " · " : ""}${t.place}. Команда ${t.num}</b> — ${t.total} ${plural(t.total, "очко", "очка", "очков")}${t.lot ? " · место по жребию" : ""}`
+      + `<small>${t.players.map((p) => `${esc(p.nick)} ${p.total} → ${CUP_TO[p.to]}${p.lot ? " (жребий)" : ""}`).join(" · ")}</small></div>`).join("");
     const next = d.teams.map((t) => `<div class="cup-res"><b>${PATH[t.path]} · Команда ${t.num}</b><small>${t.players.map(esc).join(", ")}</small></div>`).join("");
     box.innerHTML = `<div class="cup-next" data-draft="${n}">
       <h3>Итоги тура ${n} — предложение</h3>
@@ -2706,7 +2719,8 @@
       ${next ? `<h3>Тур ${n + 1}</h3>${next}` : ""}
       ${d.rest ? `<p>В финал выходит и тур 4 отдыхает: ${d.rest.map(esc).join(", ")}.</p>` : ""}
       ${d.draw ? `<p>Команды пути ебланов развёл жребий. Не устраивает — тяни заново.</p>` : ""}
-      <div class="cup-acts">${btn("accept", "Принять", 1)}${d.draw ? btn("redraw", "Другой жребий") : ""}${btn("close", "Закрыть")}</div></div>`;
+      ${d.lot ? `<p>Равенство по всем показателям — места развёл жребий.</p>` : ""}
+      <div class="cup-acts">${btn("accept", "Принять", 1)}${d.draw || d.lot ? btn("redraw", "Другой жребий") : ""}${btn("close", "Закрыть")}</div></div>`;
   }
   $("#cupNext").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-cup-act]"); if (!b) return;

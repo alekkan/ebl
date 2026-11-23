@@ -1,4 +1,4 @@
-// Кубок в чате лиги: сообщение о старте первого тура и по одному на итоги каждого тура — когда Комиссия их приняла
+// Кубок в чате лиги: по одному сообщению на итоги каждого тура — когда Комиссия их приняла
 // (cup_accept на сайте). Источник — cup_state(): туры, команды, история принятых итогов. Что уже объявлено — cup_posts.
 // Итоги отменили и приняли заново (другой жребий, поправили очки) — выходит «Уточнение», а не тишина со старым составом.
 import { TELEGRAM_API } from "../_shared/hosts.ts";
@@ -6,7 +6,6 @@ import { TELEGRAM_API } from "../_shared/hosts.ts";
 // deno-lint-ignore no-explicit-any
 type Any = any;
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-const plural = (n: number, a: string, b: string, c: string) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
 const PATH: Record<string, string> = { champions: "Путь чемпионов", losers: "Путь ебланов" };
 const names = (a: string[]) => a.map(esc).join(", ");
 
@@ -19,47 +18,12 @@ function dates(r: Any) {
   return `${day(from, !sameMonth)}–${day(to, true)}, посты до ${till} МСК`;
 }
 
-// представление участников в сообщении о старте — слова лиги (23.11); кого тут нет, идёт просто ником
-const BIO: Record<string, string> = {
-  "Ден": "граф Долгопский: регалии регалиями, а ебланит как все",
-  "Арс": "экс-чесночный барон и главный пиздабол лиги с улицы Сизам",
-  "Alex B": "принимает ставки на всё, включая собственный вылет",
-  "Витёк": "просто Комиссия. Команду 2 ждите в финале — совпадение, конечно",
-  "Женёк В": "японский участник лиги: путь есть, цели нет — чистый дзен",
-  "Миша П": "паделист-хоккеист, чудом заскочивший в кубок: ракетка есть, клюшка есть, веника пока не видели",
-  "Даня": "в прошлом знатный хуитнесист, ныне в завязке",
-  "Денис": "главный хуитнес-боец лиги. Посмотрим, как он выживет в кубке, где хуитнесы не в зачёт",
-  "Махмуд": "гоп-стоп лиги, отжимает даже долги у индусов. Есть чем накрыться?",
-  "Данюс": "голос Поволжья в лиге: Волга течёт, Данюс парится",
-  "Фил": "хуй-перепьёшь, главный развратник Москвы и по совместительству призёр и победитель прошлых чемпов и кубков",
-  "Шурик": "ультра клоун и еблан, дед-пердед, но в целом всеми уважаемый участник лиги",
-  "san4ony": "посол города на Неве: парится культурно, через парадную",
-  "Ахмед": "выиграл первый кубок лиги и продвинул ЕБЛ в Океании",
-  "Леха": "серый кардинал и главный манипулятор лиги, он же вайбкодер и ультрамарафонец",
-  "Диман": "Тигр, просто тигр",
-  "Симба": "человек-мем и главный претендент на звание MVP лиги",
-  "Хвост": "был в шаге от индивидуального кубка, но вмешались непредвиденные обстоятельства",
-};
-const NUM = ["", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"];
-
-// rank — места в чемпионате (ник → место): внутри команды участники идут по ним, кого в таблице нет — в конце
-export function startText(state: Any, site: string, rank: Map<string, number> = new Map()) {
-  const r1 = (state.rounds ?? []).find((r: Any) => r.n === 1), teams = (state.teams ?? []).filter((t: Any) => t.round === 1);
-  const byPlace = (a: string, b: string) => (rank.get(a) ?? 1e9) - (rank.get(b) ?? 1e9) || a.localeCompare(b, "ru");
-  const team = (t: Any) => [`${NUM[t.num] ?? "🔸"} <b>Команда ${t.num}</b>`,
-    ...[...(t.players ?? [])].sort(byPlace).map((n: string) => `• <b>${esc(n)}</b>${BIO[n] ? ` — ${esc(BIO[n])}` : ""}`), ""];
-  return ["🏆🔥 <b>Уважаемые участники ЕБЛ, начинаем наш банный кубок 2026 года!</b>", `🗓 <b>Тур 1</b> · ${dates(r1)}`, "",
-    `🧖 В кубке ${teams.length} ${plural(teams.length, "команда", "команды", "команд")} по трое.`, "🎤 А теперь представляем участников команд:", "",
-    ...teams.flatMap(team),
-    `📜 Полный регламент кубка: ${site}#cup`].join("\n").slice(0, 4096);
-}
-
 export function roundText(h: Any, state: Any, site: string, fix = false) {
   const out: string[] = [`🏆 <b>Кубок ЕБЛ · итоги тура ${h.round}</b>${fix ? " — уточнение" : ""}`];
   let path = "";
   for (const t of h.results ?? []) {
     if (t.path !== path) { path = t.path; out.push("", `<i>${PATH[path] ?? path}</i>`); }
-    out.push(`${t.place}. ${(t.players ?? []).map((p: Any) => `${esc(p.nick)} ${p.total}`).join(" · ")} — <b>${t.total}</b>`);
+    out.push(`${t.place}. ${(t.players ?? []).map((p: Any) => `${esc(p.nick)} ${p.total}`).join(" · ")} — <b>${t.total}</b>${t.lot ? " · место по жребию" : ""}`);
   }
   const fate = (to: string) => (h.results ?? []).flatMap((t: Any) => (t.players ?? []).filter((p: Any) => p.to === to).map((p: Any) => p.nick));
   if (!(h.teams ?? []).length) {   // финал: дальше туров нет
@@ -83,13 +47,9 @@ export function roundText(h: Any, state: Any, site: string, fix = false) {
   return out.join("\n").slice(0, 4096);
 }
 
-// что объявить сейчас: старт (с вечера накануне и пока идёт первый тур) и принятые итоги, о которых чат ещё не знает
-const START_LEAD = 2 * 3600e3;   // старт объявляем в 22:00 МСК накануне: тур открывается в полночь, когда чат спит
-export function cupDue(state: Any, posts: Any[], now = Date.now()) {
-  const posted = new Map(posts.map((p) => [p.round, p])), due: { round: number; accepted_at: string | null; fix: boolean; h?: Any }[] = [];
-  const r1 = (state?.rounds ?? []).find((r: Any) => r.n === 1);
-  if (r1 && !posted.has(0) && (state.teams ?? []).some((t: Any) => t.round === 1) && now >= Date.parse(r1.starts_at) - START_LEAD && now < Date.parse(r1.ends_at))
-    due.push({ round: 0, accepted_at: null, fix: false });
+// что объявить сейчас: принятые итоги, о которых чат ещё не знает. Старт кубка объявлен 22.11 (в cup_posts — тур 0)
+export function cupDue(state: Any, posts: Any[]) {
+  const posted = new Map(posts.map((p) => [p.round, p])), due: { round: number; accepted_at: string; fix: boolean; h: Any }[] = [];
   for (const h of state?.history ?? []) {
     const p = posted.get(h.round);
     if (!p || Date.parse(p.accepted_at) !== Date.parse(h.accepted_at)) due.push({ round: h.round, accepted_at: h.accepted_at, fix: !!p, h });
@@ -101,13 +61,7 @@ export function cupDue(state: Any, posts: Any[], now = Date.now()) {
 export async function cupPosts(sb: any, chat: number, token: string, site: string, dry = false) {
   const [{ data: state }, { data: posts }] = await Promise.all([sb.rpc("cup_state"), sb.from("cup_posts").select("round, accepted_at")]);
   const due = cupDue(state, posts ?? []);
-  // места в чемпионате нужны только сообщению о старте
-  const rank = new Map<string, number>();
-  if (due.some((d) => d.round === 0)) {
-    const { data: table } = await sb.from("standings").select("nick, total, baths");
-    [...(table ?? [])].sort((a: Any, b: Any) => b.total - a.total || b.baths - a.baths || a.nick.localeCompare(b.nick, "ru")).forEach((s: Any, i: number) => rank.set(s.nick, i + 1));
-  }
-  const text = (d: Any) => d.round === 0 ? startText(state, site, rank) : roundText(d.h, state, site, d.fix);
+  const text = (d: Any) => roundText(d.h, state, site, d.fix);
   if (dry) return due.map((d) => ({ round: d.round, fix: d.fix, text: text(d) }));
   if (!chat) return [];
   const done = [];

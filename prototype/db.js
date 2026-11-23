@@ -421,7 +421,7 @@ window.EBLData = (() => {
       return { id: c.id, nick: cache.me.nick, text, at: c.created_at };
     },
     async deleteComment(id) { check(await sb.from("visit_comments").delete().eq("id", id)); },
-    // Комиссия подтверждает долгую (на время кубка — по двум фото в чате); одна отметка на поход
+    // Комиссия подтверждает долгую (на время кубка — по двум отметкам в чате); одна отметка на поход
     async confirmLong(visitId, ok) {
       if (!live) return;
       check(await sb.from("visits").update({ long_ok: ok }).eq("id", visitId));

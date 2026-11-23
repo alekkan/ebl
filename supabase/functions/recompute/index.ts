@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
   try {
     const [settings, baths, legacyVisits, legacyStandings, visits] = await Promise.all([
       all("settings", "key, value", ["key"]),
-      all("baths", "id, type, country, region", ["id"]),
+      all("baths", "id, type, country, region, cup_ok", ["id"]),
       all("legacy_visits", "bath_id, year, nick, n", ["bath_id", "year", "nick"]),
       all("legacy_standings", "*", ["nick"]),
       all("visits", "id, bath_id, entered_at, posted_at, duration_min, long_ok, visit_players(duration_min, players(nick))", ["id"], (q) => q.eq("status", "ok")),
