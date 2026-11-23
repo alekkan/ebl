@@ -1601,11 +1601,20 @@
         ${weeks.map((w) => { const b = s.weekBaths[w] ?? 0, p = placeOf[w]?.[s.name];
           return `<td class="${b ? (p <= 3 ? "c p" + p : "c") : "z"} ${w === viewWeek ? "on" : ""}" title="W${w}: ${b} ${plural(b, "баня", "бани", "бань")}${p ? `, ${p} место` : ""}">${b || ""}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
   }
+  // чемпионы прошлых лет (23.11, со слов лиги): год, чемпионат, кубок. Новый сезон — строкой сверху после финала
+  const CHAMPS = [[2025, ["Ден"], ["Хвост", "Денис"]], [2024, ["Диман"], ["Диман"]], [2023, ["Фил"], ["Ахмед"]]];
+  function renderChamps() {
+    const who = (a) => `<td class="l who-cell"><span>${a.map((n) => `<button type="button" data-player="${esc(n)}">${ava(n, "sm")}${esc(n)}</button>`).join("")}</span></td>`;
+    $("#champs").innerHTML = `<thead><tr><th class="l">Год</th><th class="l">Чемпионат</th><th class="l">Кубок</th></tr></thead>
+      <tbody>${CHAMPS.map(([y, champ, cup]) => `<tr><td class="l yr">${y}</td>${who(champ)}${who(cup)}</tr>`).join("")}</tbody>`;
+    $$("#champs [data-player]").forEach((b) => (b.onclick = () => openPlayer(b.dataset.player)));
+  }
   function setTableMode(m) {
     $$("#tMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
-    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week";
+    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week"; $("#tChamps").hidden = m !== "champs";
     $("#podium").hidden = m !== "season";
     if (m === "week") renderWeek();
+    if (m === "champs") renderChamps();
   }
   $("#tMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) setTableMode(b.dataset.m); });
   $("#wPrev").onclick = () => { viewWeek = Math.max(1, viewWeek - 1); renderWeek(); };
