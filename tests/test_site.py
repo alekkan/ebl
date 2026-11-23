@@ -233,6 +233,14 @@ def all_views(s, label, mobile=False):
           s.js("() => [...document.querySelectorAll('#weekPodium .pod')].every((p) => !p.classList.contains('empty') && getComputedStyle(p).boxShadow === 'none' && getComputedStyle(p).backgroundColor === 'rgba(0, 0, 0, 0)')"))
     if mobile:
         s.no_clip(f"{label}: недельный зачёт на телефоне", "#view-table")
+    # чемпионы прошлых лет (23.11): третий режим таблицы, ник открывает карточку участника
+    s.page.click('#tMode [data-m="champs"]')
+    champs = s.js("() => [...document.querySelectorAll('#champs tbody tr')].map((r) => r.innerText.replace(/\\s+/g, ' ').trim())")
+    check(f"{label}: «Чемпионы» — чемпионат и кубок по годам с 2023, таблица сезона скрыта",
+          len(champs) == 3 and champs[0].startswith("2025") and "Хвост" in champs[0] and "Денис" in champs[0] and "Фил" in champs[2] and "Ахмед" in champs[2]
+          and s.js("() => document.getElementById('tSeason').hidden && document.getElementById('tWeek').hidden"), champs)
+    if mobile:
+        s.no_clip(f"{label}: «Чемпионы» на телефоне", "#view-table")
     s.page.click('#tMode [data-m="season"]')
     # таблица по макету (04.11): линия Кубка с подписью, движение за неделю, столбцы словами с расшифровкой
     check(f"{label}: таблица — линия Кубка после 16-го, расшифровки у столбцов",

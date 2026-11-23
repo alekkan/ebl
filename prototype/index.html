@@ -292,6 +292,7 @@
       <div class="seg tmode" id="tMode" role="tablist" aria-label="Зачёт">
         <button type="button" data-m="season" aria-pressed="true">Общий зачёт</button>
         <button type="button" data-m="week" aria-pressed="false">Недельный зачёт</button>
+        <button type="button" data-m="champs" aria-pressed="false">Чемпионы</button>
       </div>
       <div id="tSeason">
         <div class="podium" id="podium"></div>
@@ -310,6 +311,11 @@
         <h2 class="h2">Все недели</h2>
         <p class="note">В клетке — сколько бань за неделю. Подсвечены три первых места недели. Нажми на неделю, чтобы открыть её.</p>
         <div class="tablecard"><div class="tablewrap"><table id="weekGrid" class="week-grid"></table></div></div>
+      </div>
+      <!-- чемпионы прошлых лет (23.11): список — CHAMPS в app.js -->
+      <div id="tChamps" hidden>
+        <div class="tablecard"><div class="tablewrap"><table id="champs" class="champs"></table></div></div>
+        <p class="note">Победители чемпионата и Кубка ЕБЛ прошлых лет. Сезон 2026 допишем после финала.</p>
       </div>
     </div>
   </section>
