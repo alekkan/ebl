@@ -248,8 +248,35 @@
     let a = m(from), b = m(to); if (a == null || b == null || !step) return [];
     if (b < a) b += 1440;
     const out = [];
-    for (let x = a; x <= b && out.length < 48; x += step) out.push(String(Math.floor(x / 60) % 24).padStart(2, "0") + ":" + String(x % 60).padStart(2, "0"));
+    for (let x = a; x <= b && out.length < 49; x += step) out.push(String(Math.floor(x / 60) % 24).padStart(2, "0") + ":" + String(x % 60).padStart(2, "0"));
     return out;
+  }
+
+  const STEAM_DAYS = [1, 2, 3, 4, 5, 6, 7];
+  const steamDaysLabel = (days) => {
+    const key = days.join();
+    if (key === "1,2,3,4,5,6,7") return "Ежедневно";
+    if (key === "1,2,3,4,5") return "Пн–Пт";
+    if (key === "6,7") return "Сб–Вс";
+    return days.map((d) => ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][d - 1]).join(", ");
+  };
+  const steamToday = (sc) => sc?.steam_week ? sc.steam_week[mskDate().getUTCDay() || 7] : sc?.steam;
+  function steamGroups(sc) {
+    if (!sc?.steam_week) return sc?.steam ? [{ ...sc.steam, days: STEAM_DAYS }] : [];
+    const groups = [];
+    for (const day of STEAM_DAYS) {
+      const s = sc.steam_week[day]; if (!s) continue;
+      const group = groups.find((g) => g.every_min === s.every_min && g.times.join() === s.times.join());
+      if (group) { group.days.push(day); if (s.at > group.at) group.at = s.at; }
+      else groups.push({ ...s, days: [day] });
+    }
+    return groups;
+  }
+  function steamSummary(s) {
+    const ts = s.times || [];
+    const even = s.every_min && ts.length > 1 && steamTimes(ts[0], ts[ts.length - 1], s.every_min).join() === ts.join();
+    const interval = { 60: "каждый час", 90: "раз в 1,5 часа", 120: "каждые два часа" };
+    return even ? `${interval[s.every_min]} с ${ts[0]} до ${ts[ts.length - 1]}` : ts.join(" · ");
   }
   function dayLabel(s) {
     const day = s.slice(0, 10), today = mskNow().slice(0, 10);
@@ -813,21 +840,44 @@
           <div class="price-now" id="dSched"><p class="hint">Пока никто не указал${member ? "" : "."}</p></div>
           ${member ? `<button type="button" class="addbtn" id="shOpen" ${cardOpen.has("sh") ? "hidden" : ""}>+ Указать пары${hoursKnown(id) ? "" : " и часы"}</button>
           <form class="prform" id="shForm" ${cardOpen.has("sh") ? "" : "hidden"}>
-            <span class="hint">Как часто пары?</span>
-            <div class="seg" id="shEvery" role="radiogroup" aria-label="Как часто пары">
-              <button type="button" data-e="60" aria-pressed="false">Каждый час</button>
-              <button type="button" data-e="120" aria-pressed="false">Каждые два часа</button>
-              <button type="button" data-e="other" aria-pressed="false">Другое</button>
+            <div class="sh-presets" id="shDayPreset" aria-label="Дни паров">
+              <button type="button" data-days="1,2,3,4,5,6,7" aria-pressed="true">Все дни</button>
+              <button type="button" data-days="1,2,3,4,5" aria-pressed="false">Будни</button>
+              <button type="button" data-days="6,7" aria-pressed="false">Выходные</button>
             </div>
-            <div class="row sh-row" id="shRange" hidden>
-              <span class="hint sh-q">Со скольки до скольки?</span>
-              <label class="hint sh-t">с <select class="inp" id="shFrom">${timeOpts}</select></label>
-              <label class="hint sh-t">до <select class="inp" id="shTo">${timeOpts}</select></label>
+            <button type="button" class="linkbtn sh-custom" id="shCustomDays">Выбрать дни</button>
+            <div class="sh-weekdays" id="shDays" aria-label="Выбери дни недели" hidden>
+              <button type="button" data-day="1" aria-pressed="true">Пн</button>
+              <button type="button" data-day="2" aria-pressed="true">Вт</button>
+              <button type="button" data-day="3" aria-pressed="true">Ср</button>
+              <button type="button" data-day="4" aria-pressed="true">Чт</button>
+              <button type="button" data-day="5" aria-pressed="true">Пт</button>
+              <button type="button" data-day="6" aria-pressed="true">Сб</button>
+              <button type="button" data-day="7" aria-pressed="true">Вс</button>
             </div>
-            <div class="chips sh-pick" id="shPick" role="group" aria-label="Часы паров" hidden>${Array.from({ length: 24 }, (_, h) => {
-              const t = String(h).padStart(2, "0") + ":00"; return `<button type="button" data-t="${t}" aria-pressed="false">${t}</button>`;
-            }).join("")}</div>
-            <p class="hint" id="shPreview" hidden></p>
+            <div class="seg" id="shMode" role="group" aria-label="Как задать пары">
+              <button type="button" data-mode="interval" aria-pressed="true">По интервалу</button>
+              <button type="button" data-mode="list" aria-pressed="false">По времени</button>
+            </div>
+            <div class="sh-interval" id="shInterval">
+              <div class="seg" id="shEvery" role="group" aria-label="Интервал между парами">
+                <button type="button" data-e="60" aria-pressed="true">Каждый час</button>
+                <button type="button" data-e="90" aria-pressed="false">Раз в 1,5 ч</button>
+                <button type="button" data-e="120" aria-pressed="false">Раз в 2 ч</button>
+              </div>
+              <div class="sh-time-range" id="shRange">
+                <label>Первый пар<input class="inp" id="shFrom" type="time" step="60"></label>
+                <label>Последний пар<input class="inp" id="shTo" type="time" step="60"></label>
+              </div>
+            </div>
+            <div class="sh-exact" id="shExact" hidden>
+              <div class="sh-time-add">
+                <input class="inp" id="shTime" type="time" step="60" aria-label="Время пара">
+                <button type="button" class="btn" id="shAdd">Добавить</button>
+              </div>
+              <div class="chips" id="shPick" aria-label="Время паров"></div>
+            </div>
+            <p class="hint sh-preview" id="shPreview" aria-live="polite" hidden></p>
             <button type="button" class="linkbtn" id="shHoursEdit" style="justify-self:start" hidden>изменить часы работы</button>
             <div class="sh-hours" id="shHours">
               <span class="hint">Часы работы</span>
@@ -849,7 +899,7 @@
       photoCache.get(id).then((ps) => renderPhotos(id, ps));
     }
     if (!schedCache.has(id)) schedCache.set(id, D.bathSchedule(id).catch(() => { schedCache.delete(id); return null; }));
-    schedCache.get(id).then((sc) => { schedNow.set(id, sc); renderSchedule(id); syncToday(id); });
+    schedCache.get(id).then((sc) => { schedNow.set(id, sc); renderSchedule(id); syncToday(id); if (openId === id) $("#shForm", d)?.dispatchEvent(new Event("steam-load")); });
     if (D.live) {
       if (!factCache.has(id)) factCache.set(id, D.bathFacts(id).catch(() => { factCache.delete(id); return null; }));
       factCache.get(id).then((f) => { factNow.set(id, f); renderFacts(id, f); renderSchedule(id); syncToday(id); });
@@ -975,38 +1025,90 @@
     openForm("sh", "#shOpen", "#shForm", "#shEvery button");
     const shForm = $("#shForm", d);
     if (shForm) {
-      let every = null;
-      const picked = () => $$("#shPick [aria-pressed=true]", d).map((x) => x.dataset.t);
-      const times = () => every === "other" ? picked() : steamTimes($("#shFrom", d).value, $("#shTo", d).value, +every);
+      let mode = "interval", every = 60, days = [...STEAM_DAYS], selectedTimes = [], touched = false;
+      const times = () => mode === "list" ? selectedTimes : steamTimes($("#shFrom", d).value, $("#shTo", d).value, every);
       const preview = () => {
-        const p = $("#shPreview", d), ts = every ? times() : [];
-        p.hidden = every === "other" || !ts.length;
-        p.textContent = ts.length ? "Пары: " + ts.join(" · ") : "";
+        const p = $("#shPreview", d), ts = times();
+        p.hidden = !ts.length;
+        p.textContent = ts.length > 48 ? "Слишком много паров — сократи диапазон" : ts.length ? steamDaysLabel(days) + " · " + ts.join(" · ") : "";
       };
-      $$("#shEvery button", d).forEach((x) => x.addEventListener("click", () => {
-        every = x.dataset.e;
-        $$("#shEvery button", d).forEach((y) => y.setAttribute("aria-pressed", String(y === x)));
-        $("#shRange", d).hidden = every === "other"; $("#shPick", d).hidden = every !== "other";
+      const draw = () => {
+        $$("#shDayPreset button", d).forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.days === days.join())));
+        $$("#shDays button", d).forEach((x) => x.setAttribute("aria-pressed", String(days.includes(+x.dataset.day))));
+        $$("#shMode button", d).forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.mode === mode)));
+        $$("#shEvery button", d).forEach((x) => x.setAttribute("aria-pressed", String(+x.dataset.e === every)));
+        $("#shCustomDays", d).textContent = ["1,2,3,4,5,6,7", "1,2,3,4,5", "6,7"].includes(days.join()) ? "Выбрать дни" : steamDaysLabel(days) || "Выбрать дни";
+        $("#shInterval", d).hidden = mode !== "interval"; $("#shExact", d).hidden = mode !== "list";
+        $("#shPick", d).innerHTML = selectedTimes.map((t) => `<button type="button" data-t="${t}" aria-label="Убрать пар в ${t}">${t} ×</button>`).join("");
         preview();
+      };
+      const loadDays = (next) => {
+        days = [...next];
+        const group = steamGroups(schedNow.get(id)).find((g) => days.every((day) => g.days.includes(day)));
+        if (group) {
+          selectedTimes = [...group.times]; every = group.every_min || 60;
+          mode = group.every_min ? "interval" : "list";
+          $("#shFrom", d).value = group.times[0]; $("#shTo", d).value = group.times.at(-1);
+        }
+        draw();
+      };
+      shForm.addEventListener("steam-load", () => {
+        if (touched) return;
+        const groups = steamGroups(schedNow.get(id)), today = mskDate().getUTCDay() || 7;
+        loadDays((groups.find((g) => g.days.includes(today)) || groups[0])?.days || STEAM_DAYS);
+      });
+      shForm.addEventListener("steam-edit", (e) => {
+        touched = true; cardOpen.add("sh"); shForm.hidden = false; $("#shOpen", d).hidden = true;
+        loadDays(e.detail); $(mode === "list" ? "#shTime" : "#shFrom", d).focus();
+      });
+      $$("#shDayPreset button", d).forEach((x) => x.addEventListener("click", () => {
+        touched = true; $("#shDays", d).hidden = true; loadDays(x.dataset.days.split(",").map(Number));
       }));
-      $$("#shPick button", d).forEach((x) => x.addEventListener("click", () => x.setAttribute("aria-pressed", String(x.getAttribute("aria-pressed") !== "true"))));
-      ["#shFrom", "#shTo"].forEach((q) => $(q, d).addEventListener("change", preview));
+      $("#shCustomDays", d).onclick = () => { $("#shDays", d).hidden = !$("#shDays", d).hidden; };
+      $$("#shDays button", d).forEach((x) => x.addEventListener("click", () => {
+        touched = true;
+        days = STEAM_DAYS.filter((day) => day === +x.dataset.day ? !days.includes(day) : days.includes(day));
+        draw();
+      }));
+      $$("#shMode button", d).forEach((x) => x.addEventListener("click", () => {
+        touched = true; if (mode === "interval" && x.dataset.mode === "list") selectedTimes = times().slice(0, 48).sort();
+        mode = x.dataset.mode; draw();
+      }));
+      $$("#shEvery button", d).forEach((x) => x.addEventListener("click", () => { touched = true; every = +x.dataset.e; draw(); }));
+      ["#shFrom", "#shTo"].forEach((q) => $(q, d).addEventListener("input", () => { touched = true; preview(); }));
+      const addTime = () => {
+        const input = $("#shTime", d), t = input.value;
+        if (!t) { input.focus(); return; }
+        touched = true; selectedTimes = [...new Set([...selectedTimes, t])].sort(); input.value = ""; draw(); input.focus();
+      };
+      $("#shAdd", d).onclick = addTime;
+      $("#shTime", d).onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); addTime(); } };
+      $("#shPick", d).onclick = (e) => {
+        const button = e.target.closest("[data-t]"); if (!button) return;
+        touched = true; selectedTimes = selectedTimes.filter((t) => t !== button.dataset.t); draw();
+      };
       $("#shHoursEdit", d).addEventListener("click", () => editHours(id));
-      syncHours(id);
+      syncHours(id); draw();
       shForm.addEventListener("submit", async (e) => {
         e.preventDefault();
+        if (shForm.dataset.busy) return;
         const withHours = !$("#shHours", d).hidden;
-        const ts = every ? times() : [], open = withHours ? $("#shOpenT", d).value : "", close = withHours ? $("#shCloseT", d).value : "";
-        if (every && !ts.length) { toast(every === "other" ? "Отметь часы паров" : "Укажи, со скольки до скольки пары"); return; }
+        const ts = times(), open = withHours ? $("#shOpenT", d).value : "", close = withHours ? $("#shCloseT", d).value : "";
+        if (mode === "interval" && ($("#shFrom", d).value || $("#shTo", d).value) && !ts.length) { toast("Укажи первый и последний пар"); return; }
+        if (ts.length > 48) { toast("За день можно указать до 48 паров"); return; }
+        if (ts.length && !days.length) { toast("Выбери дни паров"); return; }
         if (!!open !== !!close) { toast("Часы работы — и открытие, и закрытие"); return; }
         if (!ts.length && !open) { toast("Укажи пары или часы работы"); return; }
+        const submit = $('button[type="submit"]', shForm);
+        shForm.dataset.busy = "1"; submit.disabled = true;
         try {
-          const a = ts.length ? await D.submitBathSteam(id, ts, every === "other" ? null : +every) : null;
+          const a = ts.length ? await D.submitBathSteam(id, ts, mode === "list" ? null : every, days) : null;
           const b = open ? await D.submitBathHours(id, open, close) : null;
           schedCache.delete(id); schedNow.delete(id);
           if (a || b) { toast("Сохранил — спасибо"); cardOpen.delete("sh"); cardOpen.delete("shh"); openBath(id); }
           else toast("Так уже записано — не дублирую");
         } catch (err) { toast("Не сохранилось: " + err.message); }
+        finally { delete shForm.dataset.busy; submit.disabled = false; }
       });
     }
     $("#geoFixForm", d)?.addEventListener("submit", async (e) => {
@@ -1173,14 +1275,14 @@
   // «Сегодня» в главном блоке: часы работы (участники новее сверки) и ближайший пар; по нажатию — вся неделя
   function syncToday(id) {
     if (openId !== id || !$("#dToday")) return;
-    const sc = schedNow.get(id), f = factNow.get(id), byDay = hoursByDay(f?.hours), wd = (new Date().getDay() + 6) % 7;
+    const sc = schedNow.get(id), f = factNow.get(id), byDay = hoursByDay(f?.hours), wd = (mskDate().getUTCDay() + 6) % 7;
     const h = sc?.hours, today = h ? (h.open === h.close ? "круглосуточно" : `${h.open}–${h.close}`) : byDay ? byDay[wd] || "не работает" : null;
-    const ts = sc?.steam?.times || [], now = mskNow().slice(11, 16), next = ts.find((t) => t > now);
+    const ts = steamToday(sc)?.times || [], now = mskNow().slice(11, 16), next = ts.find((t) => t >= now);
     $("#dTodayV").textContent = today ? today.replace(/(^|[–\s])0(\d:)/g, "$1$2") : "—";
     $("#dTodaySub").textContent = next ? `пар в ${next}` : ts.length ? "пары кончились" : today ? "пары не указали" : "часы не указали";   // мужские и женские дни — в «О бане»
     $("#dTodaySub").classList.toggle("steam", !!next);
     const week = [h ? `${h.open === h.close ? "круглосуточно" : `ежедневно ${h.open}–${h.close}`}` : byDay ? hoursRows(byDay).map(esc).join("<br>") : f?.hours ? esc(f.hours) : "",
-      ts.length ? `пары: ${ts.join(" · ")}` : "", f?.gender_days ? esc(String(f.gender_days).replace(/\s*\([^)]*\)/g, "")) : ""].filter(Boolean);
+      steamGroups(sc).map((g) => esc(steamDaysLabel(g.days) + " · " + steamSummary(g))).join("<br>"), f?.gender_days ? esc(String(f.gender_days).replace(/\s*\([^)]*\)/g, "")) : ""].filter(Boolean);
     $("#dWeek").innerHTML = week.map((x) => `<p>${x}</p>`).join("");
     $("#dToday").classList.toggle("has-more", week.length > 0);
   }
@@ -1189,12 +1291,8 @@
   function renderSchedule(id) {
     const box = $("#dSched");
     if (openId !== id || !box) return;
-    const sc = schedNow.get(id), f = factNow.get(id), st = sc?.steam, h = sc?.hours, ts = st?.times || [];
-    // «каждый час с 14:00 до 22:00», если ровно так и вносили; иначе — все пары списком
-    const even = st?.every_min && ts.length > 1 && steamTimes(ts[0], ts[ts.length - 1], st.every_min).join() === ts.join();
-    const steam = !st ? "" : even
-      ? `${st.every_min === 60 ? "каждый час" : "каждые два часа"} с ${ts[0]} до ${ts[ts.length - 1]}`
-      : ts.join(" · ");
+    const sc = schedNow.get(id), f = factNow.get(id), h = sc?.hours, groups = steamGroups(sc);
+    const steam = groups.map((g) => `<div><b>${esc(steamDaysLabel(g.days))}</b>${member ? `<button type="button" class="linkbtn" data-sedit="${g.days.join()}">изменить</button>` : ""}<span>${esc(steamSummary(g))}</span></div>`).join("");
     const at = (x) => `<small>${dayLabel(mskIso(x.at))}</small>`;
     const byDay = !h && hoursByDay(f?.hours);
     // с сайта: дни — строками, остальное без часов («третий понедельник — санитарный день») — подписью
@@ -1202,11 +1300,14 @@
     const when = /^\d{4}-\d{2}-\d{2}$/.test(f?.run || "") ? new Date(f.run + "T12:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(" г.", "") : "";
     const site = byDay ? `<div class="sh-days">${hoursRows(byDay).map((r) => { const [d, ...t] = r.split(" "); return `<span>${esc(d)}</span><b>${esc(t.join(" ").replace(/(^|[–\s])0(\d:)/g, "$1$2"))}</b>`; }).join("")}</div>`
       : !h && f?.hours ? `<p class="sh-txt">${esc(String(f.hours).replace(/\s*\([^)]*\)/g, ""))}</p>` : "";
-    if (!st && !h && !site) return;   // ничего не знаем — остаётся «Пока никто не указал»
-    box.innerHTML = (st ? `<p><span>♨️ <b>Пары</b> ${esc(steam)}</span>${at(st)}</p>` : "")
+    if (!groups.length && !h && !site) return;   // ничего не знаем — остаётся «Пока никто не указал»
+    box.innerHTML = (groups.length ? `<div class="sh-schedule"><b>Пары</b>${steam}</div>` : "")
       + (h ? `<p><span>${icon("clock")} <b>Работает</b> ${h.open === h.close ? "круглосуточно" : `${esc(h.open)}–${esc(h.close)}`}${member ? ` <button type="button" class="linkbtn" data-hedit>изменить</button>` : ""}</span>${at(h)}</p>` : "")
       + site
-      + (site ? `<p class="sh-src">${notes.map((x) => esc(x) + "<br>").join("")}по сайту бани${when ? `, ${when}` : ""}${st ? "" : " · пары пока никто не указал"}</p>` : "");
+      + (site ? `<p class="sh-src">${notes.map((x) => esc(x) + "<br>").join("")}по сайту бани${when ? `, ${when}` : ""}${groups.length ? "" : " · пары пока никто не указал"}</p>` : "");
+    $$("[data-sedit]", box).forEach((b) => b.addEventListener("click", () => {
+      $("#shForm")?.dispatchEvent(new CustomEvent("steam-edit", { detail: b.dataset.sedit.split(",").map(Number) }));
+    }));
     $("[data-hedit]", box)?.addEventListener("click", () => editHours(id));
     syncHours(id);
   }
@@ -1234,7 +1335,7 @@
   }
   let cardFor = null;
   const cardOpen = new Set();   // раскрытые формы карточки («pr», «rv», «sh», «shh» — поля часов работы) — до перехода к другой бане
-  // время пар и часов работы — только :00 и :30 (28.10): других минут на деле не бывает, а выбрать из списка быстрее
+  // Часы работы — из списка; пары задают отдельными полями с любыми минутами.
   const timeOpts = `<option value="">—</option>` + Array.from({ length: 48 }, (_, i) => {
     const t = String(i >> 1).padStart(2, "0") + (i % 2 ? ":30" : ":00"); return `<option value="${t}">${t}</option>`;
   }).join("");
@@ -2220,7 +2321,8 @@
     const lines = [["поход", 1]];
     if (b.t === "public") lines.push(["общественная", 1]);
     if (!bathIds.has(b.id)) lines.push(["уникальная", 1]);
-    if (!b.n26 && !b.nHist) lines.push(["ультра?", 0]);
+    if (b.id == null) lines.push(["ультра", 1]);
+    else if (!b.n26 && !b.nHist) lines.push(["ультра?", 0]);
     if (b.region && b.country && !regions.has(placeKey(b))) lines.push(["новый регион", 1]);
     if (b.country && !countries.has(regionKey(b.country))) lines.push(["новая страна", 1]);
     if (dur > 150) lines.push(held ? ["долгая — после Комиссии", 0] : ["долгая", 1]);
@@ -2271,12 +2373,11 @@
     .replace("ультрауникальная", "ультра").replace(/^компания.*/, "компания");
   function peopleRows(r) {
     const n = r.comp.length + 1;
-    const rows = [{ who: r.player, mine: true, total: r.total, lines: r.lines.filter((l) => l[1]).map((l) => shortLine(l[0])) }];
-    for (const p of r.comp) {
-      const x = pointsFor(r.bath, p, durOver?.[p] ?? r.dur, n);
-      rows.push({ who: p, total: x.total, lines: x.lines.filter((l) => l[1]).map((l) => shortLine(l[0])) });
-    }
-    return rows;
+    return [r.player, ...r.comp].map((who, i) => {
+      const dur = i ? durOver?.[who] ?? r.dur : r.dur;
+      const x = pointsFor(r.bath, who, dur, n, undefined, longGated(Date.now()));
+      return { who, mine: i === 0, total: x.total, lines: x.lines.filter((l) => l[1]).map((l) => shortLine(l[0])) };
+    });
   }
   const rowHtml = (x, totalId) => `<div class="t-who">${ava(x.who, "sm")}<b>${x.mine && (!D.live || x.who === myNick) ? "Ты" : esc(x.who)}</b>`
     + `<em${totalId ? ` id="${totalId}"` : ""}>+${x.total}</em><span>${esc(x.lines.join(" · "))}</span></div>`;

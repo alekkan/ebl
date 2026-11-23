@@ -287,7 +287,7 @@ s2, r2 = steam(7, ["14:00", "15:00", "16:00"], 60, vitek)
 check("те же пары от другого участника — не дублируем", s2 == 200 and r2 is None, (s2, r2))
 s3, r3 = steam(7, ["14:00", "16:00"], 120, shurik)
 check("пары изменились — новая строка, старая осталась", s3 == 200 and r3 is not None and sql("select count(*) from bath_schedule where bath_id = 7 and kind = 'steam'") == "2", (s3, r3))
-check("пары — только каждый час или каждые два часа (или «другое» без шага)", steam(7, ["14:00"], 30, shurik)[0] >= 400)
+check("неподдерживаемый интервал не принимается", steam(7, ["14:00"], 30, shurik)[0] >= 400)
 check("пустые пары не принимаются", steam(7, [], None, shurik)[0] >= 400)
 s, r = hours(7, "10:00", "23:00", shurik)
 check("часы работы — новая запись", s == 200 and r is not None, (s, r))
@@ -296,6 +296,22 @@ check("без закрытия часы не принимаются", hours(7, "
 sc = sched()
 check("гость видит последние пары и часы", sc.get("steam", {}).get("times") == ["14:00", "16:00"] and sc["steam"]["every_min"] == 120
       and sc.get("hours", {}).get("open") == "10:00" and sc["hours"]["close"] == "23:00", sc)
+steam_days = lambda times, every, days, token: req("POST", "/rest/v1/rpc/submit_bath_steam",
+    {"p_bath_id": 7, "p_times": times, "p_every_min": every, "p_days": days}, token=token)
+check("новый ввод паров тоже закрыт без входа", steam_days(["14:15"], 90, [1, 2, 3, 4, 5], None)[0] in (401, 403))
+check("пары раз в полтора часа с любыми минутами принимаются",
+      steam_days(["14:15", "15:45", "17:15"], 90, [1, 2, 3, 4, 5], shurik)[0] == 200)
+check("выходные принимают своё расписание",
+      steam_days(["12:10", "14:35"], None, [6, 7], shurik)[0] == 200)
+week = sched()["steam_week"]
+check("будни и выходные не перезаписывают друг друга",
+      all(week[str(d)]["times"] == ["14:15", "15:45", "17:15"] and week[str(d)]["every_min"] == 90 for d in range(1, 6))
+      and all(week[str(d)]["times"] == ["12:10", "14:35"] for d in (6, 7)), week)
+check("порядок дней и повтор времени не создают дубликат",
+      steam_days(["17:15", "14:15", "15:45", "14:15"], 90, [5, 4, 3, 2, 1, 1], vitek)[1] is None)
+check("неверные и пустые дни отклоняются", all(steam_days(["14:00"], 60, days, shurik)[0] >= 400 for days in ([], [0], [8], [None])))
+check("прежний вызов обновляет все дни после раздельного расписания", steam(7, ["13:10", "14:40"], 90, shurik)[0] == 200
+      and all(x["times"] == ["13:10", "14:40"] for x in sched()["steam_week"].values()))
 sql("update baths set status = 'rejected' where id = 7")
 check("отклонённой бане пары не добавить", steam(7, ["12:00"], None, shurik)[0] >= 400)
 sql("update baths set status = 'ok' where id = 7")

@@ -346,12 +346,24 @@ window.EBLData = (() => {
 
     // пары и часы работы (27.10): в силе последняя запись своего вида; не изменилось — сервер новую строку не пишет, вернёт null
     async bathSchedule(bathId) {
-      if (!live) return store.get("schedule", {})[bathId] || null;
+      if (!live) {
+        const sc = store.get("schedule", {})[bathId] || null;
+        if (sc?.steam_week) sc.steam = sc.steam_week[new Date(Date.now() + 3 * 3600e3).getUTCDay() || 7] || null;
+        return sc;
+      }
       return check(await sb.rpc("bath_schedule_of", { p_bath: bathId }));
     },
-    async submitBathSteam(bathId, times, everyMin) {
-      if (!live) return localSchedule(bathId, "steam", { times: [...new Set(times)].sort(), every_min: everyMin || null });
-      return check(await sb.rpc("submit_bath_steam", { p_bath_id: bathId, p_times: times, p_every_min: everyMin || null }));
+    async submitBathSteam(bathId, times, everyMin, days = [1, 2, 3, 4, 5, 6, 7]) {
+      if (!live) {
+        const all = store.get("schedule", {}), sc = all[bathId] || {};
+        const week = sc.steam_week || Object.fromEntries(sc.steam ? [1, 2, 3, 4, 5, 6, 7].map((d) => [d, sc.steam]) : []);
+        const record = { times: [...new Set(times)].sort(), every_min: everyMin || null };
+        if (days.every((d) => week[d]?.times.join() === record.times.join() && week[d]?.every_min === record.every_min)) return null;
+        for (const day of days) week[day] = { ...record, at: new Date().toISOString() };
+        all[bathId] = { ...sc, steam_week: week }; store.set("schedule", all);
+        return Date.now();
+      }
+      return check(await sb.rpc("submit_bath_steam", { p_bath_id: bathId, p_times: times, p_every_min: everyMin || null, p_days: days }));
     },
     async submitBathHours(bathId, open, close) {
       if (!live) return localSchedule(bathId, "hours", { open, close });

@@ -762,8 +762,9 @@ with sync_playwright() as pw:
         # 27.10: пары и часы работы — «каждый час» раскладывается из «с — до», «другое» — часы отмечает сам, повтор не дублирует
         sched_rows = f"select count(*) from bath_schedule where bath_id = {bath}"
         s.page.click("#shOpen"); s.page.click('#shEvery button[data-e="60"]')
-        check("время — только :00 и :30 (28.10)", s.js("() => ['shFrom', 'shTo', 'shOpenT', 'shCloseT'].every((x) => { const o = [...document.getElementById(x).options].filter((o) => o.value); return o.length === 48 && o.every((o) => /:(00|30)$/.test(o.value)); })"))
-        s.page.select_option("#shFrom", "14:00"); s.page.select_option("#shTo", "17:00")
+        check("часы работы выбираются из списка, пары допускают любые минуты",
+              s.js("() => ['shFrom', 'shTo'].every((id) => document.getElementById(id).type === 'time' && document.getElementById(id).step === '60') && ['shOpenT', 'shCloseT'].every((id) => document.getElementById(id).options.length === 49)"))
+        s.page.fill("#shFrom", "14:00"); s.page.fill("#shTo", "17:00")
         check("«каждый час с 14 до 17» — сайт сам показывает пары", s.js("() => document.getElementById('shPreview').innerText.includes('14:00 · 15:00 · 16:00 · 17:00')"))
         s.page.select_option("#shOpenT", "10:00"); s.page.select_option("#shCloseT", "23:00")
         s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
@@ -774,15 +775,37 @@ with sync_playwright() as pw:
         s.page.click("#shOpen")
         check("часы работы уже есть — в форме их не спрашиваем, только «изменить»",
               s.js("() => document.getElementById('shHours').hidden && !document.getElementById('shHoursEdit').hidden && document.getElementById('shOpen').textContent === '+ Указать пары'"))
-        s.page.click('#shEvery button[data-e="60"]'); s.page.select_option("#shFrom", "14:00"); s.page.select_option("#shTo", "17:00")
+        s.page.click('#shEvery button[data-e="60"]'); s.page.fill("#shFrom", "14:00"); s.page.fill("#shTo", "17:00")
         s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
         check("те же пары ещё раз — не дублируем", sql(sched_rows) == "2", sql(sched_rows))
-        s.page.click('#shEvery button[data-e="other"]')
-        for t in ("12:00", "15:00", "19:00"): s.page.click(f'#shPick button[data-t="{t}"]')
+        s.page.click('#shMode button[data-mode="list"]')
+        for t in ("14:00", "15:00", "16:00", "17:00"): s.page.click(f'#shPick button[data-t="{t}"]')
+        for t in ("12:00", "15:00", "19:00"):
+            s.page.fill("#shTime", t); s.page.click("#shAdd")
         s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
         check("«другое» — отмеченные часы, новая запись, старая осталась", sql(sched_rows) == "3", sql(sched_rows))
         check("карточка показывает свежие пары", s.js("() => document.getElementById('dSched').innerText.includes('12:00 · 15:00 · 19:00')"),
               s.js("() => document.getElementById('dSched').innerText"))
+        s.page.click("#shOpen")
+        s.page.click('#shDayPreset [data-days="1,2,3,4,5"]')
+        s.page.click('#shMode [data-mode="interval"]'); s.page.click('#shEvery [data-e="90"]')
+        s.page.fill("#shFrom", "12:15"); s.page.fill("#shTo", "18:15")
+        check("полтора часа: предпросмотр показывает и нечётные минуты",
+              s.js("() => document.getElementById('shPreview').innerText.includes('12:15 · 13:45 · 15:15 · 16:45 · 18:15')"))
+        s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1000)
+        s.page.click("#shOpen"); s.page.click('#shDayPreset [data-days="6,7"]')
+        s.page.click('#shMode [data-mode="list"]')
+        while s.page.locator("#shPick button").count():
+            s.page.locator("#shPick button").first.click()
+        for t in ("12:10", "15:45"):
+            s.page.fill("#shTime", t); s.page.press("#shTime", "Enter")
+        check("Enter добавляет время и оставляет форму открытой", s.js("() => !document.getElementById('shForm').hidden && document.querySelectorAll('#shPick button').length === 2"))
+        s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1000)
+        schedule_text = s.js("() => document.getElementById('dSched').innerText")
+        check("карточка показывает будни и выходные раздельно", all(t in schedule_text for t in ("Пн–Пт", "Сб–Вс", "раз в 1,5 часа", "12:10 · 15:45")), schedule_text)
+        s.page.click('#dSched [data-sedit="6,7"]')
+        check("изменить выходные — заполнены их дни и время",
+              s.js("() => document.querySelector('#shDayPreset [data-days=\"6,7\"]').getAttribute('aria-pressed') === 'true' && document.querySelectorAll('#shPick button').length === 2 && document.getElementById('shInterval').hidden"))
         s.page.click("#dSched [data-hedit]")
         check("«изменить» у часов — поля открыты и заполнены нынешними", s.js("() => !document.getElementById('shForm').hidden && !document.getElementById('shHours').hidden && document.getElementById('shOpenT').value === '10:00'"))
         s.page.select_option("#shOpenT", "09:30"); s.page.click('#shForm button[type="submit"]'); s.page.wait_for_timeout(1200)
@@ -1813,6 +1836,43 @@ with sync_playwright() as pw:
         sql("delete from week_posts where chat_id = 1")
         sql(f"delete from visits where id = {cmv}")
         req("POST", "/functions/v1/recompute", {})
+
+        print("Предварительные очки новой бани для всей компании")
+        preview = Site(browser, url, config=SHOWCASE_CONFIG, mobile=True, name="company-preview")
+        preview.page.click("#addVisitBtn")
+        preview.page.fill("#vBathQ", "Тест-Ультра-всей-компании")
+        preview.page.click('#vSuggest [data-new]')
+        preview.page.select_option("#nbType", "public")
+        preview.page.fill("#nbCountry", ""); preview.page.fill("#nbRegion", "")
+        preview.page.click('#vDurChips [data-m="180"]')
+        preview.page.click("#vCompAll")
+        companions = preview.js("() => [...document.querySelectorAll('#vComp button')].slice(0, 7).map(b => b.dataset.p)")
+        for nick in companions:
+            preview.page.click(f'#vComp button[data-p="{nick}"]')
+        preview.page.wait_for_timeout(500)
+        check("новая общественная баня: все восемь сразу получают +7, включая ультру",
+              preview.js("() => { const rows = [...document.querySelectorAll('#calc .t-who')]; return rows.length === 8 && rows.every(r => r.querySelector('em').innerText === '+7' && r.innerText.includes('ультра')); }"))
+        preview.page.click("#vSubmit"); preview.page.wait_for_selector("#vSent:not([hidden])", timeout=10000)
+        check("после отправки у всей компании остаётся +7",
+              preview.js("() => { const rows = [...document.querySelectorAll('#vSent .t-who')]; return rows.length === 8 && rows.every(r => r.querySelector('em').innerText === '+7'); }"))
+        preview.page.click("#vDone")
+        preview.view("map"); preview.page.fill("#q", "Тест-Ультра-всей-компании")
+        preview.page.click('#list .item[data-id="100000"]'); preview.page.click("#shOpen")
+        for width in (320, 412):
+            preview.page.set_viewport_size({"width": width, "height": 915})
+            preview.no_clip(f"ввод паров на {width}px", "#shForm")
+        preview.page.click('#shDayPreset [data-days="1,2,3,4,5"]')
+        preview.page.click('#shEvery [data-e="90"]')
+        preview.page.fill("#shFrom", "12:15"); preview.page.fill("#shTo", "21:15")
+        preview.page.click('#shForm button[type="submit"]'); preview.page.wait_for_timeout(400)
+        check("расписание по будням работает и в витрине",
+              preview.js("() => document.getElementById('dSched').innerText.includes('Пн–Пт') && document.getElementById('dSched').innerText.includes('раз в 1,5 часа')"))
+        preview.page.click('#dSched [data-sedit="1,2,3,4,5"]')
+        preview.page.locator("#shForm").scroll_into_view_if_needed()
+        ART.mkdir(exist_ok=True)
+        preview.page.screenshot(path=str(ART / "steam-editor-mobile.png"))
+        preview.clean("предпросмотр компании и расписание на телефоне")
+        preview.close()
 
         print("Режим витрины (пустой config.js)")
         s = Site(browser, url, config=SHOWCASE_CONFIG, name="showcase")
