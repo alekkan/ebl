@@ -1048,7 +1048,8 @@
         const group = steamGroups(schedNow.get(id)).find((g) => days.every((day) => g.days.includes(day)));
         if (group) {
           selectedTimes = [...group.times]; every = group.every_min || 60;
-          mode = group.every_min ? "interval" : "list";
+          const regular = group.every_min && steamTimes(group.times[0], group.times.at(-1), group.every_min).join() === group.times.join();
+          mode = regular ? "interval" : "list";
           $("#shFrom", d).value = group.times[0]; $("#shTo", d).value = group.times.at(-1);
         }
         draw();
