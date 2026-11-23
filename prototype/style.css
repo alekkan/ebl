@@ -2057,3 +2057,25 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   #ownmap .leaflet-control-attribution { background: none !important; font-size: 4px; line-height: 1.2; opacity: .55; padding: 0 6px; }
   #ownmap .leaflet-bottom.leaflet-right { top: 64px; bottom: auto; }
 }
+
+
+/* Пары: один ряд дней, произвольное время и короткий предпросмотр. */
+.sh-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.sh-presets button, .sh-weekdays button { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink-2); font: inherit; font-size: 13px; min-height: 40px; padding: 6px 4px; }
+.sh-presets [aria-pressed="true"], .sh-weekdays [aria-pressed="true"] { background: var(--oak-soft); border-color: var(--oak); color: var(--oak-deep); }
+.sh-custom { justify-self: start; font-size: 12px; }
+.sh-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.sh-interval, .sh-exact { display: grid; gap: 12px; }
+.sh-time-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sh-time-range label { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); min-width: 0; }
+.sh-time-range .inp, .sh-time-add .inp { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+.sh-time-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+#shPick { gap: 6px; }
+#shPick button { min-height: 40px; padding: 5px 10px; font-size: 14px; }
+.sh-preview { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.sh-schedule { display: grid; gap: 5px; }
+.sh-schedule > div { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
+.sh-schedule b { font-size: 13px; }
+.sh-schedule span { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; }
+
+#shMode button, #shEvery button, .sh-presets button, .sh-weekdays button { min-height: 44px; }
