@@ -1505,7 +1505,7 @@ async function implicitAnswer(msg: Any): Promise<boolean> {
 // Отметить можно в любой момент до 8 часов после захода — хоть сразу («долгая будет»); позже — только Комиссия на сайте.
 const LONG_STRANGER = "Это для тех, кто был в походе";
 // на время кубка долгая идёт в зачёт только после подтверждения Комиссии (settings.long_confirm) — «+1» не обещаем
-const longPts = async () => longGated(await setting("long_confirm"), Date.now()) ? "в зачёт после подтверждения Комиссии: через 2,5 часа ответь в чате на свой пост ещё одним сообщением из бани" : "+1 всей компании";
+const longPts = async () => longGated(await setting("long_confirm"), Date.now()) ? "в зачёт после подтверждения Комиссии. Для подтверждения долгой через 2,5 часа ответь в чате на свой пост ещё одним сообщением из бани (лучше фото)" : "+1 всей компании";
 const LONG_LATE = "Прошло больше 8 часов с захода — долгую теперь отмечает Комиссия на сайте";
 const LONG_MAX = 8 * 3600e3;
 async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late"> {
