@@ -6,12 +6,13 @@ import { msk, dayKey } from "./scoring.js";
  * @param {object} p
  * @param {{n,starts_at,ends_at}[]} p.rounds  тур — по времени поста, [starts_at, ends_at)
  * @param {{id,round,players:string[]}[]} p.teams  составы на каждый тур свои
- * @param {Map<number,{type}>} p.baths
+ * @param {Map<number,{type,cup_ok}>} p.baths  в зачёт кубка — общественные и отмеченные Комиссией (термы, п. 22)
  * @param {{id,bath_id,entered_at,posted_at}[]} p.visits  только status = ok
  * @param {object} p.breakdown  разбивка чемпионата: в кубок идёт только то, что засчитал чемпионат
  * @returns {{round,visit_id,nick,team_id,total,lines}[]}
  */
 export function computeCup({ rounds, teams, baths, visits, breakdown }) {
+  const counts = (id) => { const b = baths.get(id); return b?.type === "public" || !!b?.cup_ok; };
   const roundOf = (t) => rounds.find((r) => t >= new Date(r.starts_at).getTime() && t < new Date(r.ends_at).getTime())?.n ?? null;
   const teamOf = new Map();   // «тур|ник» → команда
   for (const t of teams) for (const nick of t.players) teamOf.set(t.round + "|" + nick, t.id);
@@ -25,25 +26,25 @@ export function computeCup({ rounds, teams, baths, visits, breakdown }) {
   for (const v of sorted) {
     for (const [nick, champ] of Object.entries(breakdown[v.id])) entries.push({ v, nick, champ, team: teamOf.get(v.round + "|" + nick) });
   }
-  // встреча команды: двое и больше из одной команды в одной общественной бане в одни сутки
+  // встреча команды: двое и больше из одной команды в одной зачётной бане в одни сутки
   const met = new Map();
   for (const e of entries) {
-    if (!e.team || baths.get(e.v.bath_id)?.type !== "public") continue;
+    if (!e.team || !counts(e.v.bath_id)) continue;
     const key = e.team + "|" + e.v.bath_id + "|" + e.v.day;
     if (!met.has(key)) met.set(key, new Set());
     met.get(key).add(e.nick);
   }
 
-  const seen = new Map();   // ник → общественные бани с начала кубка: уникальная между турами не обнуляется
+  const seen = new Map();   // ник → зачётные бани с начала кубка: уникальная между турами не обнуляется
   const out = [];
   for (const e of entries) {
-    const isPublic = baths.get(e.v.bath_id)?.type === "public";
+    const isPublic = counts(e.v.bath_id);
     const mine = seen.get(e.nick) ?? seen.set(e.nick, new Set()).get(e.nick);
     const first = isPublic && !mine.has(e.v.bath_id);
     if (isPublic) mine.add(e.v.bath_id);
     if (!e.team) continue;   // в этом туре не играет (вылетел или не участник кубка)
     const lines = [];
-    if (isPublic) {   // хуитнес, частная и баня без типа в кубке — ноль
+    if (isPublic) {   // хуитнес, частная и баня без типа в кубке — ноль, пока Комиссия не отметит «в зачёт кубка»
       const has = (k) => e.champ.lines.some((l) => l[0] === k);
       lines.push(["visit", 1], ["public", 1]);
       if (first) lines.push(["unique", 1]);

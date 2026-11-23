@@ -983,8 +983,12 @@ async function verdictLine(visitId: number): Promise<string | null> {
   if (!v || !["ok", "rejected"].includes(v.status)) return null;
   const judge = (v as Any).judge?.nick ? ` — ${esc((v as Any).judge.nick)}` : "";
   if (v.status !== "ok") return `💩 Не засчитано${judge}${v.reject_reason ? `. Причина: ${esc(v.reject_reason)}` : ""}. Если это ошибка — напишите Комиссии.`;
-  const { data: pts } = await sb.from("visit_points").select("nick, total").eq("visit_id", visitId);
-  return `👍 Засчитано${judge}${pts?.length ? ": " + pts.map((x: Any) => `${esc(x.nick)} +${x.total}`).join(" · ") : ""}`;
+  const [{ data: pts }, { data: cup }] = await Promise.all([sb.from("visit_points").select("nick, total").eq("visit_id", visitId),
+    sb.from("cup_points").select("nick, total").eq("visit_id", visitId)]);
+  const list = (rows: Any[]) => rows.map((x: Any) => `${esc(x.nick)} +${x.total}`).join(" · ");
+  // поход участников кубка в его тур (23.11): очки двумя строками — чемпионат и кубок; остальным — как раньше, одной
+  if (!cup?.length) return `👍 Засчитано${judge}${pts?.length ? ": " + list(pts) : ""}`;
+  return `👍 Засчитано${judge}${pts?.length ? "\n🏅 Чемпионат: " + list(pts) : ""}\n🏆 Кубок: ${cup.some((x: Any) => x.total > 0) ? list(cup) : "баня не в зачёте кубка — 0"}`;
 }
 
 // ---------- поход поправили ----------
@@ -1501,7 +1505,7 @@ async function implicitAnswer(msg: Any): Promise<boolean> {
 // Отметить можно в любой момент до 8 часов после захода — хоть сразу («долгая будет»); позже — только Комиссия на сайте.
 const LONG_STRANGER = "Это для тех, кто был в походе";
 // на время кубка долгая идёт в зачёт только после подтверждения Комиссии (settings.long_confirm) — «+1» не обещаем
-const longPts = async () => longGated(await setting("long_confirm"), Date.now()) ? "в зачёт после подтверждения Комиссии (два фото в чат)" : "+1 всей компании";
+const longPts = async () => longGated(await setting("long_confirm"), Date.now()) ? "в зачёт после подтверждения Комиссии: через 2,5 часа ответь в чате на свой пост ещё одним сообщением из бани" : "+1 всей компании";
 const LONG_LATE = "Прошло больше 8 часов с захода — долгую теперь отмечает Комиссия на сайте";
 const LONG_MAX = 8 * 3600e3;
 async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late"> {

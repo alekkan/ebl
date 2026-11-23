@@ -653,6 +653,8 @@ cv2 = cvisit(cb2, "2 days", ("Шурик",))                     # хуитне�
 cv3 = cvisit(cb1, "2 hours", ("Шурик",))                    # та же баня уже во втором туре
 cv4 = cvisit(cb1, "2 days", ("Ден", "Фил"))                 # Фил в кубке не играет
 cv5 = cvisit(cb3, "2 days", ("Леха", "Арс"))                # двое из разных команд: ни компании, ни встречи
+cb4 = sql("insert into baths (name, status, type, cup_ok) values ('Тест-Кубок-Терма', 'ok', 'spa', true) returning id").splitlines()[0]
+cv6 = cvisit(cb4, "2 days", ("Шурик",))                     # терма с отметкой Комиссии «в зачёт кубка»
 s, r = req("POST", "/functions/v1/recompute", {})
 check("пересчёт считает и кубок", s == 200 and r["ok"] and r["cup"]["ok"], r)
 def cpts():
@@ -663,6 +665,13 @@ check("общественная в туре: поход, общественна�
       keys(c[(cv1, "Шурик")]) == ["company", "public", "team", "ultra", "unique", "visit"] and c[(cv1, "Шурик")]["total"] == 6
       and c[(cv1, "Витёк")]["total"] == 6 and c[(cv1, "Шурик")]["round"] == 1 and c[(cv1, "Шурик")]["team_id"] == ta, c)
 check("хуитнес в кубке — ноль", c[(cv2, "Шурик")]["total"] == 0 and c[(cv2, "Шурик")]["lines"] == [], c.get((cv2, "Шурик")))
+champ6 = [l[0] for p in req("GET", f"/rest/v1/visit_points?visit_id=eq.{cv6}&select=lines", token=shurik)[1] for l in p["lines"]]
+check("терма с отметкой «в зачёт кубка» (п. 22) — в кубке как общественная: поход и общественная — 2 очка, плюс уникальная; в чемпионате она по-прежнему хуитнес",
+      keys(c[(cv6, "Шурик")])[:1] == ["public"] and {"visit", "public", "unique"} <= set(keys(c[(cv6, "Шурик")])) and "public" not in champ6 and "visit" in champ6, (c.get((cv6, "Шурик")), champ6))
+s1, r1 = req("PATCH", f"/rest/v1/baths?id=eq.{cb2}", {"cup_ok": True}, token=shurik, headers={"Prefer": "return=representation"})
+check("отметку «в зачёт кубка» ставит только Комиссия; гостю она видна в справочнике бань",
+      (s1 >= 400 or r1 == []) and sql(f"select cup_ok from baths where id = {cb2}") == "f"
+      and any(b["id"] == int(cb4) and b["cup_ok"] is True for b in req("POST", "/rest/v1/rpc/baths_all", {})[1]))
 check("следующий тур — по времени поста; уникальная считается с начала кубка, между турами не обнуляется",
       c[(cv3, "Шурик")]["round"] == 2 and c[(cv3, "Шурик")]["team_id"] == tc and keys(c[(cv3, "Шурик")]) == ["public", "visit"], c.get((cv3, "Шурик")))
 check("один из команды — компания есть, встречи нет; кто в кубке не играет — без очков кубка, но в компанию считается; регионов и стран в кубке нет",
@@ -690,8 +699,8 @@ cup = req("POST", "/rest/v1/rpc/boot_public", {})[1].get("cup") or {}
 me1 = [p for p in cup.get("points", []) if p["nick"] == "Шурик" and p["round"] == 1]
 check("гостю в boot_public — туры, команды и суммы по турам (без походов)",
       len(cup.get("rounds", [])) == 5 and any(t["num"] == 91 and sorted(t["players"]) == ["Витёк", "Леха", "Шурик"] for t in cup.get("teams", []))
-      and me1 and me1[0]["total"] == 7 and me1[0]["baths"] == 1 and "visit_id" not in json.dumps(cup), cup)
-sql(f"delete from visits where bath_id in ({cb1}, {cb2}, {cb3})"); sql(f"delete from baths where id in ({cb1}, {cb2}, {cb3})"); sql("delete from cup_teams")
+      and me1 and me1[0]["total"] == 7 + c[(cv6, "Шурик")]["total"] and me1[0]["baths"] == 2 and "visit_id" not in json.dumps(cup), cup)
+sql(f"delete from visits where bath_id in ({cb1}, {cb2}, {cb3}, {cb4})"); sql(f"delete from baths where id in ({cb1}, {cb2}, {cb3}, {cb4})"); sql("delete from cup_teams")
 sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{ROUNDS}') x where x.n = r.n")
 print("Кубок: итоги тура считает система, принимает Комиссия; жребий можно перетянуть")
 rpc = lambda fn, body, token=None: req("POST", f"/rest/v1/rpc/{fn}", body, token=token)
@@ -798,6 +807,17 @@ t5 = cup_score(5)
 s, p5 = rpc("cup_propose", {"p_round": 5}, vitek)
 check("финал: победитель — кто набрал больше, следующего тура нет", s == 200 and p5["teams"] == [] and fates(p5, "winner") == sorted(t5[0]["players"])
       and fates(p5, "second") == sorted(t5[1]["players"]), (s, p5))
+# жребий — последний аргумент (23.11): команды равны по очкам, сумме мест в чемпионате и баням — победителя тянет система
+six = [n for t in t5 for n in t["players"]]
+sql("delete from standings where nick in (" + ", ".join(f"'{n}'" for n in six) + ")")   # мест в чемпионате нет ни у кого — суммы равны; таблицу вернёт пересчёт в конце
+cup_score(5, {n: 5 for n in six})
+lots = [rpc("cup_propose", {"p_round": 5, "p_redraw": True}, vitek)[1] for _ in range(12)]
+check("полное равенство команд — места разводит жребий, это помечено; без равенства пометки нет",
+      p5.get("lot") is False and not any(t.get("lot") for t in p5["results"])
+      and all(x.get("lot") is True and all(t.get("lot") for t in x["results"]) and all(pp.get("lot") for t in x["results"] for pp in t["players"]) for x in lots)
+      and len({tuple(fates(x, "winner")) for x in lots}) == 2, [fates(x, "winner") for x in lots])
+check("повторный просмотр жребий не перетягивает — предложение то же, и его можно принять",
+      all(fates(rpc("cup_propose", {"p_round": 5}, vitek)[1], "winner") == fates(lots[-1], "winner") for _ in range(4)))
 check("итоги финала приняты — в истории все пять туров", rpc("cup_accept", {"p_round": 5}, vitek)[0] < 300 and [h["round"] for h in hist()] == [1, 2, 3, 4, 5]
       and cup_teams_of(6) == [])
 sql("delete from cup_transitions"); sql("delete from cup_teams"); sql(f"delete from visits where bath_id = {tb3}"); sql(f"delete from baths where id = {tb3}")
