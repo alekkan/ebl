@@ -467,9 +467,11 @@ async function renderCard(st: Any, lg: Any) {
       + (st.hint ? `\n\n${st.hint}` : "");
     return { text, kb: rows };
   }
+  // на время кубка долгая — только после подтверждения Комиссии: говорим об этом сразу, в черновике (24.11)
+  const gated = st.dur != null && st.dur > LONG && longGated(await setting("long_confirm"), Date.now());
   const lines = [
     `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 новая, кандидат в УУ" : ""}`,
-    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — выйдет дольше 2,5 ч: отметь меня и напиши «долгая»" : ""}`,
+    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — выйдет дольше 2,5 ч: отметь меня и напиши «долгая»" : gated ? " — в зачёт после подтверждения Комиссии" : ""}`,
     `👥 ${nicks.length ? `${esc(nicks.join(", "))} — поход запишется всем, отдельно отмечать не нужно` : "один"}`,
   ];
   if (st.geo) lines.push("📍 точка на карте есть");
@@ -944,8 +946,10 @@ const GEO_RETRY = "📍 Не нашёл, где это. Ответь на кар
 async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> {
   const { data: p } = await sb.from("bot_posts").select("chat_id, card_msg, card_text, geo_msg, ask_msg, long_note, verdict_text, league_chat, league_msg, league_head").eq("visit_id", visitId).maybeSingle();
   if (!p?.card_msg || !p.card_text) return false;
-  if (p.league_msg) await edit(p.league_chat, p.league_msg, leagueText(p));
+  const hint = p.long_note ? null : await longHint(visitId);   // долгую отметили после отправки — про подтверждение сказано в long_note
+  if (p.league_msg) await edit(p.league_chat, p.league_msg, leagueText({ ...p, long_hint: hint && LONG_HINT.copy }));
   const parts = [p.card_text], kb: Any[][] = [];
+  if (hint) parts.push(LONG_HINT[hint]);
   if (p.geo_msg && p.geo_msg === p.card_msg) { parts.push(geoRetry ? GEO_RETRY : GEO_ASK); kb.push([btn("🙅 Без точки", `gx:${visitId}`)]); }
   if (p.ask_msg && p.ask_msg === p.card_msg && !p.long_note) { parts.push("⏳ Прошло 2,5 часа — долгая была, больше 2,5 ч?"); kb.push(LONG_KB(visitId)[0]); }
   if (p.long_note) parts.push(p.long_note);
@@ -956,9 +960,25 @@ async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> 
 // Поход отметили в личке с ботом (25.10): ОУД о нём не узнавал вовсе — в чат лиги кладём копию карточки, как пост похода
 // с сайта. Просьбы о точке и «долгая?» остаются автору в личке, в копии — сводка и решение; правят обе вместе (refreshCard).
 // Зовут отправка похода и ?refresh (так же доставляется копия походу, отправленному раньше, — только пока он ждёт решения).
+// Долгая выбрана ещё в черновике, а поход запощен в срок long_confirm (кубок): в карточке — что она ждёт Комиссию и что для
+// этого сделать (24.11: раньше об этом говорили только тому, кто отметил долгую после отправки). Из лички отвечать надо в чате
+// лиги — личку Комиссия не видит; в копии — та же просьба автору. Пропадает, когда Комиссия подтвердила или отклонила поход.
+const LONG_HINT: Record<string, string> = {
+  dm: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь в чате лиги на копию этой карточки ещё одним сообщением из бани (лучше фото) — не сюда, личку Комиссия не видит.",
+  post: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь в чате на свой пост ещё одним сообщением из бани (лучше фото).",
+  card: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь на это сообщение ещё одним из бани (лучше фото).",
+  copy: "🔥 Долгая — после подтверждения Комиссии: автор через 2,5 часа после захода отвечает на это сообщение ещё одним из бани (лучше фото).",
+};
+async function longHint(visitId: number): Promise<"dm" | "post" | "card" | null> {
+  const { data: v } = await sb.from("visits").select("duration_min, posted_at, created_at, long_ok, status, source").eq("id", visitId).maybeSingle();
+  if (!v || v.duration_min <= LONG || v.long_ok || v.status === "rejected") return null;
+  if (!longGated(await setting("long_confirm"), v.posted_at ?? v.created_at)) return null;
+  const { data: p } = await sb.from("bot_posts").select("chat_id, source_msg").eq("visit_id", visitId).maybeSingle();
+  return !p ? null : p.chat_id > 0 ? "dm" : v.source === "site" || !p.source_msg ? "card" : "post";
+}
 function leagueText(p: Any): string {
   const cut = p.card_text.indexOf("\n\n");
-  return [`${p.league_head}\n\n${cut >= 0 ? p.card_text.slice(cut + 2) : p.card_text}`, p.long_note, p.verdict_text || "Ждёт Комиссию 👀"]
+  return [`${p.league_head}\n\n${cut >= 0 ? p.card_text.slice(cut + 2) : p.card_text}`, p.long_hint, p.long_note, p.verdict_text || "Ждёт Комиссию 👀"]
     .filter(Boolean).join("\n\n");
 }
 async function leagueCopy(visitId: number): Promise<boolean> {
@@ -971,7 +991,7 @@ async function leagueCopy(visitId: number): Promise<boolean> {
   const { data: claim } = await sb.from("bot_posts").update({ league_msg: 0 }).eq("visit_id", visitId).is("league_msg", null).select("visit_id");
   if (!claim?.length) return false;
   const head = `📩 <b>${esc((v as Any).author?.nick)}</b> отметил баню в личке бота`;
-  const r = await send(chat, leagueText({ ...p, league_head: head }));
+  const r = await send(chat, leagueText({ ...p, league_head: head, long_hint: !p.long_note && await longHint(visitId) ? LONG_HINT.copy : null }));
   if (!r.ok) { await sb.from("bot_posts").update({ league_msg: null }).eq("visit_id", visitId); return false; }
   await sb.from("bot_posts").update({ league_chat: chat, league_msg: r.result.message_id, league_head: head }).eq("visit_id", visitId);
   await react(chat, r.result.message_id, "👀");
