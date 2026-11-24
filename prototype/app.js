@@ -2861,6 +2861,8 @@
 
   // ---------- кубок (22.11, docs/cup.md): команды тура по очкам; походы тура — только участникам лиги ----------
   let cupRound = null, cupVisits = {}, cupDraft = null;   // cupDraft — предложение итогов тура, его видит только Комиссия
+  let cupShown = null;   // тур, к которому сетка уже прокручена
+  const CUP_MARK = { champions: "▲", losers: "▼", out: "✕", final: "★", winner: "🏆", second: "🥈" };
   const CUP_TO = { champions: "путь чемпионов", losers: "путь ебланов", out: "выбыл", final: "в финал", winner: "победитель", second: "финалист" };
   const CUP_LINE = { visit: "поход", public: "общественная", unique: "уникальная", ultra: "ультра", long: "долгая", team: "встреча команды", company: "компания" };
   function renderCup() {
@@ -2871,22 +2873,44 @@
     const round = played.find((r) => r.n === cupRound);
     const history = cup.history || [], hist = history.find((h) => h.round === cupRound);
     // куда участник пошёл после тура — из принятых Комиссией итогов
-    const fate = Object.fromEntries((hist?.results || []).flatMap((t) => t.players.map((p) => [p.nick, p.to])));
+    const fateOf = (n) => Object.fromEntries((history.find((h) => h.round === n)?.results || []).flatMap((t) => t.players.map((p) => [p.nick, p.to])));
+    const fate = fateOf(cupRound);
     const day = (iso, shift = 0) => new Date(Date.parse(iso) - shift).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "Europe/Moscow" });
     const left = (ms) => { const d = Math.floor(ms / 864e5), h = Math.floor((ms % 864e5) / 36e5), m = Math.floor((ms % 36e5) / 6e4); return d ? `${d} д ${h} ч` : h ? `${h} ч ${m} мин` : `${m} мин`; };
     $("#cupTitle").innerHTML = `Тур ${round.n} <small class="cup-dates">· ${day(round.starts_at)} – ${day(round.ends_at, 1)}</small>`;
     const start = Date.parse(round.starts_at), end = Date.parse(round.ends_at);
     $("#cupTimer").innerHTML = now < start ? `${icon("clock")}до старта <b>${left(start - now)}</b>` : now < end ? `${icon("clock")}до конца тура <b>${left(end - now)}</b>` : `${icon("check")}тур сыгран${hist ? "" : " · итоги за Комиссией"}`;
-    $("#cupRounds").hidden = played.length < 2;
-    $("#cupRounds").innerHTML = played.map((r) => `<button type="button" data-round="${r.n}" aria-pressed="${r.n === cupRound}">Тур ${r.n}</button>`).join("");
-
-    const pts = Object.fromEntries(cup.points.filter((p) => p.round === cupRound).map((p) => [p.nick, p]));
+    const ptsOf = (n) => Object.fromEntries(cup.points.filter((p) => p.round === n).map((p) => [p.nick, p]));
     const placeOf = (nick) => ranked.find((s) => s.name === nick)?.place ?? 99;
     // места: очки команды, поровну — выше та, у кого меньше сумма мест в чемпионате, потом — у кого больше бань в туре
-    const teams = cup.teams.filter((t) => t.round === cupRound).map((t) => ({ ...t,
-      total: t.players.reduce((a, n) => a + (pts[n]?.total || 0), 0), baths: t.players.reduce((a, n) => a + (pts[n]?.baths || 0), 0),
-      places: t.players.reduce((a, n) => a + placeOf(n), 0) }))
+    const teamsOf = (n, pts = ptsOf(n)) => cup.teams.filter((t) => t.round === n).map((t) => ({ ...t,
+      total: t.players.reduce((a, x) => a + (pts[x]?.total || 0), 0), baths: t.players.reduce((a, x) => a + (pts[x]?.baths || 0), 0),
+      places: t.players.reduce((a, x) => a + placeOf(x), 0) }))
       .sort((a, b) => b.total - a.total || a.places - b.places || b.baths - a.baths || a.num - b.num);
+    const pts = ptsOf(cupRound), teams = teamsOf(cupRound);
+    const PATHS = [["champions", "Путь чемпионов"], ["losers", "Путь ебланов"]];
+    // сетка (24.11): все туры столбцами слева направо, в столбце — команды по местам, на двух путях. У ника — его очки и куда он
+    // пошёл после тура (дальше идут люди, а не команды). Нажал на тур или команду — ниже открылись карточки этого тура
+    $("#cupRounds").innerHTML = `<div class="bracket">${cup.rounds.map((r) => {
+      const rp = ptsOf(r.n), list = teamsOf(r.n, rp), rf = fateOf(r.n), done = history.some((h) => h.round === r.n);
+      const isLive = now >= Date.parse(r.starts_at) && now < Date.parse(r.ends_at);
+      const rest = r.n === 4 && history.find((h) => h.round === 3)?.rest;
+      const team = (t, i) => `<div class="br-match br-t${done && !i ? " win" : ""}${t.players.includes(myNick) ? " mine" : ""}" data-team="${t.num}">
+        <div class="br-thead"><span>${i + 1} · Команда ${t.num}</span><b>${t.total}</b></div>
+        ${[...t.players].sort((a, b) => (rp[b]?.total || 0) - (rp[a]?.total || 0) || a.localeCompare(b)).map((n) => `<div class="br-m"><span>${ava(n, "sm")}${esc(n)}</span>`
+          + `${rf[n] ? `<i class="br-fate" data-to="${rf[n]}" title="${CUP_TO[rf[n]]}">${CUP_MARK[rf[n]]}</i>` : ""}<small>${rp[n]?.total || 0}</small></div>`).join("")}</div>`;
+      const groups = PATHS.map(([k, name]) => [name, list.filter((t) => t.path === k)]).filter(([, l]) => l.length);
+      return `<div class="br-col${r.n === cupRound ? " on" : ""}${list.length ? "" : " wait"}" ${list.length ? `data-round="${r.n}"` : ""}>
+        <div class="br-title">${r.n === cup.rounds.length ? "Финал" : `Тур ${r.n}`}${isLive ? " <em>идёт</em>" : ""}</div>
+        <div class="br-body">${groups.map(([name, l]) => `<div class="br-part">${groups.length > 1 || rest ? `<div class="br-path">${name}</div>` : ""}${l.map(team).join("")}</div>`).join("")
+          || `<div class="br-wait">Составы — после тура ${r.n - 1}</div>`}
+          ${rest ? `<small class="br-note">Победитель пути чемпионов ждёт в финале: ${rest.map(esc).join(", ")}</small>` : ""}</div></div>`; }).join("")}</div>
+      ${history.length ? `<p class="br-legend">${["champions", "losers", "out"].map((k) => `<span><i class="br-fate" data-to="${k}">${CUP_MARK[k]}</i> ${CUP_TO[k]}</span>`).join("")}</p>` : ""}`;
+    if (cupShown !== cupRound) {   // телефон: сетка открыта на выбранном туре
+      const col = $(`#cupRounds .br-col.on`), box = $("#cupRounds");
+      if (col) box.scrollLeft = col.offsetLeft - box.offsetLeft - 12;
+      cupShown = cupRound;
+    }
     const detail = member && D.live ? cupVisits[cupRound] : null;
     if (member && D.live && !detail) {
       const n = cupRound;
@@ -2904,7 +2928,7 @@
         ${mine.length ? `<details class="cup-more"><summary>Походы тура · ${mine.length}</summary>${mine.map(visitRow).join("")}</details>` : ""}
       </article>`;
     };
-    const paths = [["champions", "Путь чемпионов"], ["losers", "Путь ебланов"]].map(([k, name]) => [name, teams.filter((t) => t.path === k)]).filter(([, list]) => list.length);
+    const paths = PATHS.map(([k, name]) => [name, teams.filter((t) => t.path === k)]).filter(([, list]) => list.length);
     const won = hist?.results.find((t) => t.players.some((p) => p.to === "winner"));
     const rest = cupRound === 4 && history.find((h) => h.round === 3)?.rest;
     const banner = won ? `<p class="cup-banner">🏆 Кубок взяла Команда ${won.num}: ${won.players.map((p) => esc(p.nick)).join(", ")}</p>`
@@ -2960,7 +2984,10 @@
   });
   $("#cupRounds").addEventListener("click", (e) => {
     const b = e.target.closest("[data-round]"); if (!b) return;
+    const team = e.target.closest("[data-team]")?.dataset.team;
     cupRound = +b.dataset.round; renderCup();
+    // нажали на команду — к её карточке с походами
+    if (team) $(`#cupTeams [data-team="${team}"]`)?.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
   });
 
   // ---------- правка заявки Комиссией ----------

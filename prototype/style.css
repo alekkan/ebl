@@ -2108,6 +2108,28 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .br-pts small { color: var(--ink-3); font-weight: 400; font-size: 12px; }
 .br-team.win .br-pts b { color: var(--ember); }
 .br-note { display: block; color: var(--ink-3); font-size: 12px; line-height: 1.4; padding: 0 2px; }
+/* сетка кубка текущего сезона: команда — карточка, у ника очки и отметка, куда он пошёл после тура */
+.cup-bracket { margin-bottom: 18px; }
+.cup-bracket .br-col { flex: 1 0 200px; border-radius: 16px; padding: 8px 6px; }
+.cup-bracket .br-col[data-round] { cursor: pointer; }
+.cup-bracket .br-col.on { background: color-mix(in srgb, var(--oak-soft) 22%, transparent); }
+.cup-bracket .br-col.on .br-title { color: var(--ink); }
+.cup-bracket .br-title em { font-style: normal; text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 11px; color: var(--ember); margin-left: 4px; }
+.cup-bracket .br-body { justify-content: flex-start; }
+.cup-bracket .br-part { flex: 0 0 auto; justify-content: flex-start; gap: 8px; }
+.br-t { padding: 8px 12px; }
+.br-t.mine { box-shadow: var(--shadow-s), inset 0 0 0 1.5px var(--oak-soft); }
+.br-thead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--ink-3); padding-bottom: 4px; }
+.br-thead b { font: 800 16px/1 var(--body); color: var(--ink-2); }
+.br-t.win .br-thead b { color: var(--ember); }
+.br-m { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 14px; color: var(--ink); }
+.br-m > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.br-m small { color: var(--ink-2); font-weight: 600; min-width: 16px; text-align: right; }
+.br-fate { font-style: normal; font-size: 11px; line-height: 1; color: var(--ink-3); }
+.br-fate[data-to="champions"], .br-fate[data-to="final"] { color: #2f8f4e; }
+.br-fate[data-to="losers"] { color: var(--ember); }
+.br-wait { color: var(--ink-3); font-size: 13px; padding: 10px 6px; border: 1.5px dashed var(--line); border-radius: 14px; text-align: center; }
+.br-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 2px 0; font-size: 12px; color: var(--ink-3); }
 .ptsgrid.n6 { grid-template-columns: repeat(6, 1fr); }
 .rules-full { margin: 22px 0 0; }
 .rules-full summary { cursor: pointer; font-weight: 600; padding: 10px 0; }

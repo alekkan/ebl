@@ -1827,6 +1827,13 @@ with sync_playwright() as pw:
         check("приняла — на сайте тур 2: три команды пути чемпионов и три пути ебланов",
               "Тур 2" in s.js(cup_title) and s.js("() => document.querySelectorAll('#cupTeams .cup-team').length") == 6
               and s.js("() => document.querySelectorAll('#cupTeams .cup-path').length") == 2, s.js(cup_title))
+        br = s.js("""() => { const c = [...document.querySelectorAll('#cupRounds .br-col')], r = c.map((x) => x.getBoundingClientRect());
+          return { cols: c.length, row: r.every((x, i) => !i || x.left > r[i - 1].left), teams: c.map((x) => x.querySelectorAll('.br-t').length), on: c.findIndex((x) => x.classList.contains('on')) + 1,
+            fate: c[0].querySelectorAll('.br-fate').length, down: c[0].querySelectorAll('.br-fate[data-to="losers"]').length, win: c[0].querySelectorAll('.br-t.win').length,
+            wait: c[2].innerText, last: c[4].querySelector('.br-title').innerText.toLowerCase(), paths: c[1].querySelectorAll('.br-path').length }; }""")
+        check("сетка кубка: пять туров столбцами до финала, в туре 1 у каждого отметка, куда пошёл, тур 2 — на двух путях, дальше — «составы после тура»",
+              br["cols"] == 5 and br["row"] and br["teams"] == [6, 6, 0, 0, 0] and br["on"] == 2 and br["fate"] == 18 and br["down"] == 9 and br["win"] == 1
+              and "после тура 2" in br["wait"] and "финал" in br["last"] and br["paths"] == 2, br)
         s.page.click('#cupRounds [data-round="1"]')
         check("история: в туре 1 у каждого — куда пошёл; принятие можно отменить",
               s.js("() => document.querySelectorAll('#cupTeams .cup-fate').length") == 18
