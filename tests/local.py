@@ -129,7 +129,7 @@ def sweep():
     # тесты кубка заводят свои и убирают за собой, остальным они не должны мешать
     sql("delete from settings where key = 'long_confirm'")
     sql("delete from cup_transitions")
-    sql("delete from cup_teams")
+    sql("delete from cup_teams"); sql("delete from cup_asks")
 
 
 _warm()

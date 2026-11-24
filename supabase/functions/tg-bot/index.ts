@@ -13,6 +13,7 @@
 // Разовая настройка вебхука и команд: GET ?setup=<TELEGRAM_WEBHOOK_SECRET>.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { distKm, hasLocationHint, locate, looksLikeAddress, parseLocation, useDbGeocoder, geoTrail } from "../_shared/geo.ts";
+import { askKb, askText } from "../_shared/cup-text.ts";
 import { placePatch } from "../_shared/place.ts";
 import { requestPoint } from "../_shared/point-request.ts";
 import { greetLine } from "../_shared/greetings.ts";
@@ -1212,6 +1213,40 @@ async function pointRequestNotice(id: number): Promise<boolean> {
   return messages.length > 0;
 }
 
+// Итоги тура кубка (24.11): предложение Комиссии шлёт week-results (cupAsks), здесь — кнопки под ним.
+// «Принять» — заводятся команды следующего тура, пересчёт, итоги уходят в чат лиги; «Другой жребий» — новое предложение
+// в тех же сообщениях у всей Комиссии. Решает тот, кто нажал первым.
+async function decideCup(cq: Any, me: Any, round: number, redraw: boolean) {
+  if (!me?.is_commission) return answer(cq.id, "Это кнопка для Комиссии", true);
+  const { data: ask } = await sb.from("cup_asks").select("text, messages").eq("round", round).maybeSingle();
+  const msgs: Any[] = (ask?.messages as Any[])?.length ? ask!.messages : [{ chat: cq.message.chat.id, msg: cq.message.message_id }];
+  // новое предложение (другой жребий или изменились очки) — в сообщения всей Комиссии
+  const renew = async (again: boolean, note: string) => {
+    const { data: p, error } = await sb.rpc("cup_propose_by", { p_round: round, p_redraw: again, p_by: me.id });
+    if (error) return error.message;
+    const { data: state } = await sb.rpc("cup_state");
+    const text = askText(p, state);
+    await sb.from("cup_asks").update({ text }).eq("round", round);
+    for (const m of msgs) await edit(m.chat, m.msg, `${text}\n\n${note}`, askKb(p));
+    return null;
+  };
+  if (redraw) {
+    const err = await renew(true, `🎲 Жребий перетянул ${esc(me.nick)}`);
+    return answer(cq.id, err ?? "Жребий перетянут", !!err);
+  }
+  const { error } = await sb.rpc("cup_accept_by", { p_round: round, p_by: me.id });
+  if (error) {
+    if (/изменились/.test(error.message)) await renew(false, "♻️ Очки тура изменились — итоги пересчитаны, посмотри ещё раз");
+    return answer(cq.id, error.message, true);
+  }
+  await answer(cq.id, `Итоги тура ${round} приняты`);
+  for (const m of msgs) await edit(m.chat, m.msg, `${ask?.text ?? `🏆 Кубок ЕБЛ · итоги тура ${round}`}\n\n✅ Принято — ${esc(me.nick)}. Итоги уходят в чат лиги.`);
+  await sb.from("cup_asks").delete().eq("round", round);
+  // походы, запощенные уже в новом туре, получают команду; потом — сообщение в чат лиги
+  await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+  await fetch(`${BASE}/functions/v1/week-results?cup=post`).catch(() => null);
+}
+
 // «Перенести» / «Оставить»: решает тот из Комиссии, кто нажал первым; страну и регион не трогаем — точка уточняется
 async function decidePoint(cq: Any, me: Any, id: number, ok: boolean) {
   if (!me?.is_commission) return answer(cq.id, "Это кнопка для Комиссии", true);
@@ -2054,6 +2089,7 @@ async function onCallback(cq: Any) {
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
   if (data.startsWith("cl:") || data.startsWith("cn:")) return decideClaim(cq, me, data.slice(3), data.startsWith("cl:"));
   if (data.startsWith("mv:") || data.startsWith("mk:")) return decidePoint(cq, me, Number(data.slice(3)), data.startsWith("mv:"));
+  if (data.startsWith("cupy:") || data.startsWith("cupr:")) return decideCup(cq, me, Number(data.slice(5)), data.startsWith("cupr:"));
   if (data.startsWith("pa:")) return askButton(cq, me, data);
   if (data.startsWith("gx:")) {
     if (!me) return answer(cq.id, "Кнопка для участников лиги");
