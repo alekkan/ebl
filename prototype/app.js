@@ -1584,15 +1584,38 @@
     ["uu", "Ультра", "Ультрауникальные: в бане никто из лиги не был с 2023 года, +1"], ["long", "Долгие", "Долгие походы, больше 150 минут, +1"],
     ["k", "Компания", "За компанию: от 3 участников в одни сутки, +1…+3"], ["pub", "Общ.", "Общественные бани, +1 за каждую"],
     ["reg", "Регионы", "Новые регионы и страны, +1 за каждый"]];
-  function spark(s) {
-    const weeks = Array.from({ length: 12 }, (_, i) => curWeek - 12 + i).filter((w) => w >= 1);
+  // у прошлого сезона (past) — его последние 12 недель и его шкала очков за места
+  function spark(s, end = curWeek, top = 15) {
+    const weeks = Array.from({ length: 12 }, (_, i) => end - 12 + i).filter((w) => w >= 1);
     const vals = weeks.map((w) => s.weekPts[w] ?? 0);
     const W = 96, H = 24, step = W / (vals.length - 1 || 1);
-    const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(H - 3 - (v / 15) * (H - 6)).toFixed(1)}`);
+    const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(H - 3 - (v / top) * (H - 6)).toFixed(1)}`);
     const [lx, ly] = pts[pts.length - 1].split(",");
     return `<svg class="spark" width="${W}" height="${H}" viewBox="-3 0 ${W + 6} ${H}" aria-label="очки за места, последние 12 недель"><polygon points="0,${H} ${pts.join(" ")} ${W},${H}" fill="var(--oak-soft)"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--oak)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${lx}" cy="${ly}" r="3" fill="var(--ember)"/></svg>`;
   }
   const ranked = [];
+  // прошлый сезон из архива (24.11): { season, rows, cup, rules, lastWeek, top } — пока выбран в «Таблице», иначе null
+  let past = null;
+  const archive = {};   // сезон → архив, чтобы не ходить за ним дважды
+  async function loadSeason(y) {
+    const a = (archive[y] ||= await D.seasonArchive(y));
+    if (a && !a.rows) {
+      const weeks = [...new Set(a.standings.flatMap((s) => Object.keys(s.weekPts).map(Number)))];
+      const best = Object.fromEntries(weeks.map((w) => [w, Math.max(...a.standings.map((s) => s.weekPts[w] || 0))]));
+      a.lastWeek = Math.max(0, ...weeks); a.top = Math.max(1, ...Object.values(best));
+      // корона — у кого очки за место в неделе наибольшие (ничья за первое — каждому)
+      a.rows = [...a.standings].sort((x, y) => y.total - x.total || y.baths - x.baths)
+        .map((s, i) => ({ ...s, place: i + 1, move: 0, crowns: weeks.filter((w) => best[w] > 0 && s.weekPts[w] === best[w]).length }));
+    }
+    return a;
+  }
+  const podiumHtml = (rows) => [rows[1], rows[0], rows[2]].filter(Boolean).map((s) => `
+      <button class="pod p${s.place}" data-player="${esc(s.name)}">
+        ${ava(s.name, "xl")}
+        <span class="pod-name">${esc(s.name)}</span>
+        <span class="pod-pts"><b>${fmt(s.total)}</b> <small>${plural(s.total, "очко", "очка", "очков")}</small></span>
+        <span class="pod-step">${s.place}</span>
+      </button>`).join("");
   // места, короны (победы в закрытых неделях; ничья за первое — корона каждому), шапка и пьедестал — из standings
   function rankTable() {
     ranked.splice(0, ranked.length, ...[...standings].sort((a, b) => b.total - a.total || b.baths - a.baths).map((s, i) => ({ ...s, place: i + 1 })));
@@ -1603,18 +1626,13 @@
     const was = [...ranked].sort((a, b) => b.total - (b.weekGain || 0) - (a.total - (a.weekGain || 0)) || a.place - b.place);
     const moved = ranked.some((s) => s.weekGain);
     was.forEach((s, i) => (s.move = moved ? i + 1 - s.place : 0));
+    if (past) return;   // шапка и пьедестал сейчас показывают прошлый сезон
     const playedWeeks = Math.max(0, ...standings.flatMap((s) => Object.keys(s.weekPts || {}).map(Number)));
     // на телефоне вместо «разыграно…» — сколько до конца недели: отдельной плашки таймера там нет
     $("#tableEyebrow").innerHTML = `<span>Сезон 2026<span class="eb-played"> · разыграно <b>${playedWeeks}</b> ${plural(playedWeeks, "неделя", "недели", "недель")}</span>`
       + `<span class="eb-left"> · W${curWeek} · ещё <b>${timeLeft()}</b></span></span>`;
     // в начале сезона (или на пустой базе) участников может быть меньше трёх — пьедестал без пустых ступеней
-    $("#podium").innerHTML = [ranked[1], ranked[0], ranked[2]].filter(Boolean).map((s) => `
-      <button class="pod p${s.place}" data-player="${esc(s.name)}">
-        ${ava(s.name, "xl")}
-        <span class="pod-name">${esc(s.name)}</span>
-        <span class="pod-pts"><b>${fmt(s.total)}</b> <small>${plural(s.total, "очко", "очка", "очков")}</small></span>
-        <span class="pod-step">${s.place}</span>
-      </button>`).join("");
+    $("#podium").innerHTML = podiumHtml(ranked);
   }
   rankTable();
   const renderTimer = () => {
@@ -1626,18 +1644,20 @@
   const moveMark = (m) => (m > 0 ? `<small class="up" title="За неделю поднялся на ${m}">▲${m}</small>` : m < 0 ? `<small class="down" title="За неделю опустился на ${-m}">▼${-m}</small>` : "");
   const NCOLS = COLS.length + 5;
   function renderTable() {
-    const rows = [...ranked].sort((a, b) => sortDir * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0)) || a.place - b.place);
-    const byTotal = sortKey === "total" && sortDir < 0, mine = D.live ? me?.nick : null;
+    const rows = [...(past ? past.rows : ranked)].sort((a, b) => sortDir * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0)) || a.place - b.place);
+    // прошлый сезон: без линии Кубка и без столбцов, которых в его таблице не было
+    const byTotal = !past && sortKey === "total" && sortDir < 0, mine = D.live ? me?.nick : null;
+    const cols = past ? COLS.filter(([k]) => k in past.rows[0]) : COLS;
     const th = (k, l, cls = "", tip = "") => `<th data-k="${k}" class="${cls} ${k === sortKey ? "on" : ""}"${tip ? ` data-tip="${esc(tip)}"` : ""}><span>${l}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</span></th>`;
     $("#standings").innerHTML = `
-      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col", "Победы в неделях")}${th("total", "Очки")}${COLS.map(([k, l, t]) => th(k, l, "st", t)).join("")}<th class="l st">12 недель</th></tr></thead>
+      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col", "Победы в неделях")}${th("total", "Очки")}${cols.map(([k, l, t]) => th(k, l, "st", t)).join("")}<th class="l st">12 недель</th></tr></thead>
       <tbody>${rows.map((s, i) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""}${byTotal && s.place > 16 ? " below" : ""}${s.name === mine ? " me" : ""}">
         <td class="pos">${s.place}${moveMark(s.move)}</td>
         <td class="l who-cell"><span>${ava(s.name, "sm")}<span class="who-t"><b>${esc(s.name)}</b>${s.name === mine ? '<i class="me-tag">это ты</i>' : ""}</span></span></td>
-        <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : "Пока без побед в неделях"}">${s.crowns ? `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg><b>${s.crowns}</b>` : ""}</td>
+        <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : past ? "Без побед в неделях" : "Пока без побед в неделях"}">${s.crowns ? `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg><b>${s.crowns}</b>` : ""}</td>
         <td class="pts">${fmt(s.total)}</td>
-        ${COLS.map(([k]) => `<td class="st">${s[k] ?? 0}</td>`).join("")}
-        <td class="l st">${spark(s)}</td></tr>`
+        ${cols.map(([k]) => `<td class="st">${s[k] ?? 0}</td>`).join("")}
+        <td class="l st">${past ? spark(s, past.lastWeek + 1, past.top) : spark(s)}</td></tr>`
         + (byTotal && s.place === 16 && rows.length > 16 ? `<tr class="cupline" aria-hidden="true"><td colspan="${NCOLS}"><span>Кубок ЕБЛ · первые 16</span></td></tr>` : "")).join("")}
 </tbody>`;
   }
@@ -1715,10 +1735,55 @@
   }
   function setTableMode(m) {
     $$("#tMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
-    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week"; $("#tChamps").hidden = m !== "champs";
+    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week"; $("#tChamps").hidden = m !== "champs"; $("#tPastCup").hidden = m !== "cup";
     $("#podium").hidden = m !== "season";
     if (m === "week") renderWeek();
+    if (m === "cup") renderPastCup();
     if (m === "champs") renderChamps();
+  }
+  // кубок прошлого сезона: туры по порядку, в группе — пары с очками, дальше прошла пара с наибольшей суммой
+  function renderPastCup() {
+    const c = past?.cup, sum = (t) => t.s.reduce((a, b) => a + b, 0);
+    $("#tPastCup").innerHTML = !c ? `<p class="note">Кубок в сезоне ${past?.season ?? ""} не разыгрывали.</p>`
+      : `<div class="cup-banner">🏆 Кубок ${past.season} — ${c.winners.map(esc).join(" и ")}</div>`
+      + c.rounds.map((r) => `<h2 class="h2">${esc(r.title)}</h2>${r.note ? `<p class="note">${esc(r.note)}</p>` : ""}
+        <div class="pc-groups">${r.groups.map((g) => { const best = Math.max(...g.map(sum)); return `<div class="pc-group">${g.map((t) => `
+          <div class="pc-pair${sum(t) === best ? " win" : ""}"><span class="pc-who">${t.p.map((n) => `<button type="button" data-player="${esc(n)}">${ava(n, "sm")}${esc(n)}</button>`).join("")}</span>
+            <span class="pc-pts"><small>${t.s.join(" + ")}</small><b>${fmt(sum(t))}</b></span></div>`).join("")}</div>`; }).join("")}</div>`).join("");
+  }
+  $("#tPastCup").addEventListener("click", (e) => { const b = e.target.closest("[data-player]"); if (b) openPlayer(b.dataset.player, past?.season); });
+  // выбор сезона (24.11): у прошлого — только общий зачёт, кубок и чемпионы; недельного зачёта, таймера и линии Кубка нет
+  const seasonOpts = [2026, ...(data.seasons || [])].map((y) => `<option value="${y}">Сезон ${y}</option>`).join("");
+  async function setSeason(y) {
+    let a = null;
+    if (y !== 2026) try { a = await loadSeason(y); } catch (err) { toast("Не получилось: " + err.message); }
+    past = a ? { season: y, ...a } : null;
+    $("#tSeasonPick").value = past ? y : 2026;
+    $('#tMode [data-m="week"]').hidden = !!past; $('#tMode [data-m="cup"]').hidden = !past;
+    $("#tableTimer").hidden = !!past; $("#tSeason .cupnote").hidden = !!past;
+    sortKey = "total"; sortDir = -1;
+    if (past) {
+      $("#tableEyebrow").innerHTML = `<span>Сезон ${y} · итоги</span>`;
+      $("#podium").innerHTML = podiumHtml(past.rows);
+    } else rankTable();
+    renderTable();
+    const m = $('#tMode [aria-pressed="true"]').dataset.m;
+    setTableMode(m === "champs" || (m === "cup" && past) ? m : "season");
+  }
+  if (data.seasons?.length) {
+    for (const id of ["#tSeasonPick", "#rSeasonPick"]) { $(id).innerHTML = seasonOpts; $(id).hidden = false; }
+    $("#tSeasonPick").onchange = (e) => setSeason(+e.target.value);
+    // правила прошлого сезона — положение текстом; вкладки «Чемпионат / Кубок» только у текущего
+    $("#rSeasonPick").onchange = async (e) => {
+      const y = +e.target.value;
+      let r = null;
+      if (y !== 2026) try { r = (await loadSeason(y))?.rules; } catch (err) { toast("Не получилось: " + err.message); }
+      if (!r) e.target.value = 2026;
+      const cupTab = $('#rulesTabs [data-rules="cup"]').getAttribute("aria-pressed") === "true";
+      $("#rulesTabs").hidden = !!r; $("#rulesChamp").hidden = !!r || cupTab; $("#rulesCup").hidden = !!r || !cupTab; $("#rulesPast").hidden = !r;
+      $("#rulesEyebrow").textContent = r ? r.title : "Положение о четвёртом чемпионате";
+      $("#rulesPast").innerHTML = r ? r.items.map((t) => `<li>${esc(t)}</li>`).join("") : "";
+    };
   }
   $("#tMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) setTableMode(b.dataset.m); });
   $("#wPrev").onclick = () => { viewWeek = Math.max(1, viewWeek - 1); renderWeek(); };
@@ -1729,14 +1794,14 @@
   });
   $("#weekTable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player); });
   $("#weekPodium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player); });
-  window.openWeekly = () => { show("table"); setTableMode("week"); };
+  window.openWeekly = async () => { show("table"); if (past) await setSeason(2026); setTableMode("week"); };
 
   $("#standings").addEventListener("click", (e) => {
     const th = e.target.closest("th[data-k]");
     if (th) { const k = th.dataset.k; sortDir = k === sortKey ? -sortDir : k === "place" ? 1 : -1; sortKey = k; renderTable(); return; }
-    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player);
+    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player, past?.season);
   });
-  $("#podium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player); });
+  $("#podium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player, past?.season); });
   renderTable();
 
   // ---------- хозяева бань ----------
