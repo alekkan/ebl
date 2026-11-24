@@ -1689,30 +1689,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .cup-rounds { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
 .cup-rounds button { border: 0; border-radius: 999px; padding: 7px 14px; background: var(--panel); color: var(--ink-2); font: inherit; font-size: 14px; cursor: pointer; box-shadow: var(--shadow-s); }
 .cup-rounds button[aria-pressed="true"] { background: var(--oak); color: var(--oak-ink); }
-.cup-path { margin: 22px 0 10px; font-family: var(--display); font-size: 15px; }
-.cup-team { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-s); padding: 14px 16px; margin-bottom: 12px; }
-.cup-team.mine { box-shadow: var(--shadow-s), inset 0 0 0 2px var(--oak-lite); }
-.cup-head { display: flex; align-items: center; gap: 10px; }
-.cup-pos { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--panel-2); font-weight: 700; font-size: 14px; }
-.cup-pos.lead { background: var(--gold); }
 .cup-dates { font-family: var(--body); font-size: .5em; font-weight: 400; color: var(--ink-3); white-space: nowrap; }
-.cup-name { flex: 1 1 auto; min-width: 0; font-weight: 700; }
-.cup-total { flex: none; color: var(--ink-2); font-size: 14px; }
-.cup-total b { font-family: var(--display); font-size: 20px; color: var(--ember); }
-.cup-players { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; }
-.cup-pl { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
-.cup-pl .ava { --s: 26px; }
-.cup-pl b { color: var(--ember); }
-.cup-pl small { color: var(--ink-3); }
-.cup-more { margin-top: 10px; font-size: 13.5px; color: var(--ink-2); }
-.cup-more summary { cursor: pointer; color: var(--oak); }
-.cup-visit { padding: 6px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
-.cup-visit:first-of-type { margin-top: 6px; }
-.cup-visit b { color: var(--ember); }
-.cup-visit small { color: var(--ink-3); }
-.cup-fate { border-radius: 999px; padding: 1px 8px; background: var(--panel-2); color: var(--ink-2) !important; white-space: nowrap; }
-.cup-fate[data-to="out"] { opacity: .7; }
-.cup-fate[data-to="champions"], .cup-fate[data-to="final"], .cup-fate[data-to="winner"] { background: var(--gold); color: var(--ink) !important; }
 .cup-banner { margin: 0 0 14px; padding: 12px 16px; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-s); font-weight: 600; overflow-wrap: anywhere; }
 .cup-next { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-s), inset 0 0 0 2px var(--oak-lite); padding: 14px 16px; margin-bottom: 16px; font-size: 14px; }
 .cup-next h3 { margin: 10px 0 8px; font-family: var(--display); font-size: 16px; }
@@ -2128,6 +2105,16 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .br-fate { font-style: normal; font-size: 11px; line-height: 1; color: var(--ink-3); }
 .br-fate[data-to="champions"], .br-fate[data-to="final"] { color: #2f8f4e; }
 .br-fate[data-to="losers"] { color: var(--ember); }
+/* походы тура в сетке (24.11): выбранный тур шире, команда раскрывается — под ником его походы */
+.cup-bracket .br-col.on { flex-basis: 280px; }
+.br-b { font-style: normal; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.br-vis { margin: 0 0 4px 12px; padding-left: 10px; border-left: 2px solid var(--line); cursor: default; }
+.br-v { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; padding: 3px 0; font-size: 13px; color: var(--ink-2); }
+.br-v > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.br-v small { color: var(--ink-3); }
+.br-v b { color: var(--ember); }
+.br-vl { flex-basis: 100%; font-size: 11.5px; line-height: 1.35; }
+.br-more { display: block; width: 100%; margin-top: 4px; padding: 6px 0 2px; border: 0; border-top: 1px solid var(--line); background: none; font: inherit; font-size: 12.5px; color: var(--oak); text-align: left; cursor: pointer; }
 .br-wait { color: var(--ink-3); font-size: 13px; padding: 10px 6px; border: 1.5px dashed var(--line); border-radius: 14px; text-align: center; }
 .br-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 2px 0; font-size: 12px; color: var(--ink-3); }
 .ptsgrid.n6 { grid-template-columns: repeat(6, 1fr); }
