@@ -1467,6 +1467,20 @@ vid, draft, mine_txt, copy_txt = dm_visit("Василевские 3ч", 1310)
 check("кубок, долгая из черновика в личке: в черновике — «после подтверждения Комиссии», в карточке — ответить на копию в чате лиги, в копии — просьба автору",
       "в зачёт после подтверждения Комиссии" in draft and "на копию этой карточки" in mine_txt and "автор через 2,5 часа" in copy_txt
       and "на копию этой карточки" not in copy_txt, (draft, mine_txt, copy_txt))
+# 24.11: Комиссия подтвердила долгую — в карточке и её копии в чате лиги очки пересчитаны (+1 за долгую), пометка «подтверждена»
+sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
+wait(f"select left(coalesce(verdict_text, ''), 11) from bot_posts where visit_id = {vid}", "👍 Засчитано")
+before_v = sql(f"select verdict_text from bot_posts where visit_id = {vid}")
+seen = len(TELEGRAM.calls)
+sql(f"update visits set long_ok = true where id = {vid}")
+ok_v = wait_long(f"select verdict_text <> $q${before_v}$q$ from bot_posts where visit_id = {vid}", "t")
+after_v = sql(f"select verdict_text from bot_posts where visit_id = {vid}")
+pts = lambda t: sum(int(x) for x in re.findall(r"\+(\d+)", t.split("\n")[0] if "Чемпионат" not in t else t.split("\n")[1]))
+edits = [(int(p.get("chat_id") or 0), p.get("text") or "") for m, p in TELEGRAM.calls[seen:] if m == "editMessageText"]
+check("Комиссия подтвердила долгую — в карточке и копии в чате лиги очки на 1 больше и «Долгая подтверждена Комиссией», просьбы ответить больше нет",
+      ok_v and pts(after_v) == pts(before_v) + 1
+      and any(c == league and after_v in t and "Долгая подтверждена Комиссией" in t and "автор через 2,5 часа" not in t for c, t in edits)
+      and any(c == ME and after_v in t and "Долгая подтверждена Комиссией" in t and "на копию этой карточки" not in t for c, t in edits), (before_v, after_v, edits[-2:]))
 sql(f"delete from visits where id = {vid}")
 vid, draft, mine_txt, copy_txt = dm_visit("Василевские 2ч", 1320)
 check("…экспрессу про подтверждение не пишем", "подтверждения Комиссии" not in draft + mine_txt + copy_txt and "Ушло в Комиссию" in mine_txt, (draft, mine_txt, copy_txt))

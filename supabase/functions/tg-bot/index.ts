@@ -946,8 +946,9 @@ const GEO_RETRY = "📍 Не нашёл, где это. Ответь на кар
 async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> {
   const { data: p } = await sb.from("bot_posts").select("chat_id, card_msg, card_text, geo_msg, ask_msg, long_note, verdict_text, league_chat, league_msg, league_head").eq("visit_id", visitId).maybeSingle();
   if (!p?.card_msg || !p.card_text) return false;
-  const hint = p.long_note ? null : await longHint(visitId);   // долгую отметили после отправки — про подтверждение сказано в long_note
-  if (p.league_msg) await edit(p.league_chat, p.league_msg, leagueText({ ...p, long_hint: hint && LONG_HINT.copy }));
+  // долгую отметили после отправки — про подтверждение сказано в long_note; «подтверждена» пишем в любом случае
+  const state = await longHint(visitId), hint = state === "ok" || !p.long_note ? state : null;
+  if (p.league_msg) await edit(p.league_chat, p.league_msg, leagueText({ ...p, long_hint: hint && (hint === "ok" ? LONG_HINT.ok : LONG_HINT.copy) }));
   const parts = [p.card_text], kb: Any[][] = [];
   if (hint) parts.push(LONG_HINT[hint]);
   if (p.geo_msg && p.geo_msg === p.card_msg) { parts.push(geoRetry ? GEO_RETRY : GEO_ASK); kb.push([btn("🙅 Без точки", `gx:${visitId}`)]); }
@@ -968,11 +969,13 @@ const LONG_HINT: Record<string, string> = {
   post: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь в чате на свой пост ещё одним сообщением из бани (лучше фото).",
   card: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь на это сообщение ещё одним из бани (лучше фото).",
   copy: "🔥 Долгая — после подтверждения Комиссии: автор через 2,5 часа после захода отвечает на это сообщение ещё одним из бани (лучше фото).",
+  ok: "🔥 Долгая подтверждена Комиссией",
 };
-async function longHint(visitId: number): Promise<"dm" | "post" | "card" | null> {
+async function longHint(visitId: number): Promise<"dm" | "post" | "card" | "ok" | null> {
   const { data: v } = await sb.from("visits").select("duration_min, posted_at, created_at, long_ok, status, source").eq("id", visitId).maybeSingle();
-  if (!v || v.duration_min <= LONG || v.long_ok || v.status === "rejected") return null;
+  if (!v || v.duration_min <= LONG || v.status === "rejected") return null;
   if (!longGated(await setting("long_confirm"), v.posted_at ?? v.created_at)) return null;
+  if (v.long_ok) return "ok";
   const { data: p } = await sb.from("bot_posts").select("chat_id, source_msg").eq("visit_id", visitId).maybeSingle();
   return !p ? null : p.chat_id > 0 ? "dm" : v.source === "site" || !p.source_msg ? "card" : "post";
 }
@@ -991,7 +994,7 @@ async function leagueCopy(visitId: number): Promise<boolean> {
   const { data: claim } = await sb.from("bot_posts").update({ league_msg: 0 }).eq("visit_id", visitId).is("league_msg", null).select("visit_id");
   if (!claim?.length) return false;
   const head = `📩 <b>${esc((v as Any).author?.nick)}</b> отметил баню в личке бота`;
-  const r = await send(chat, leagueText({ ...p, league_head: head, long_hint: !p.long_note && await longHint(visitId) ? LONG_HINT.copy : null }));
+  const r = await send(chat, leagueText({ ...p, league_head: head, long_hint: !p.long_note && await longHint(visitId) ? LONG_HINT.copy : null }));   // копию шлём походу, который ждёт решения: подтверждённой долгой тут ещё нет
   if (!r.ok) { await sb.from("bot_posts").update({ league_msg: null }).eq("visit_id", visitId); return false; }
   await sb.from("bot_posts").update({ league_chat: chat, league_msg: r.result.message_id, league_head: head }).eq("visit_id", visitId);
   await react(chat, r.result.message_id, "👀");
@@ -2257,6 +2260,14 @@ Deno.serve(async (req) => {
   }
   // у бани поменяли название, тип, регион или страну (триггер baths_notify_changed): пересчитать таблицу и обновить
   // сообщения бота о свежих походах в неё — сводку (тип) и строку решения (очки)
+  // Комиссия подтвердила долгую или сняла подтверждение (триггер visits_long_ok_changed): таблицу пересчитываем, в карточке
+  // похода — свежие очки в строке «Засчитано» и пометка про долгую
+  if (url.searchParams.get("long")) {
+    const id = Number(url.searchParams.get("long"));
+    await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+    if (!(await refreshVisit(id))) await refreshCard(id);
+    return new Response(JSON.stringify({ refreshed: id }), { headers: { "Content-Type": "application/json" } });
+  }
   if (url.searchParams.get("bath")) {
     const bathId = Number(url.searchParams.get("bath"));
     await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
