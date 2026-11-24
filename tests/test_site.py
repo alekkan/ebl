@@ -358,6 +358,25 @@ def all_views(s, label, mobile=False):
         check(f"{label}: профиль участника с меньше чем 20 банями — типа участника нет",
               s.js("(n) => document.querySelector('#playerBody h2').innerText.includes(n) && !document.querySelector('#playerBody .ptype')", few), few)
         s.js("() => document.querySelector('#standings tbody tr').click()"); s.page.wait_for_timeout(300)
+    # 24.11: вторая и третья оси почти вровень с первой (разница до 0,1) — тип двойной или тройной («Общественник-компанеец»), иначе одиночный
+    if not mobile:
+        seen_types = s.js("""async () => { const out = [], titles = ['Общественник', 'Коллекционер', 'Ультрас', 'Долгожитель', 'Душа компании', 'Компанеец', 'Частник', 'Хуитнесмен'];
+            for (const r of [...document.querySelectorAll('#standings tbody tr[data-player]')].map((x) => x.dataset.player)) {
+              [...document.querySelectorAll('#standings tbody tr[data-player]')].find((x) => x.dataset.player === r).click();
+              await new Promise((ok) => setTimeout(ok, 60));
+              const e = document.querySelector('#playerBody .ptype'); if (!e) continue;
+              const v = e.querySelector('polygon.shape').getAttribute('points').split(' ').map((q) => q.split(',').map(Number)).map(([x, y]) => Math.hypot(x - 180, y - 125) / 78).sort((a, b) => b - a);
+              const parts = e.querySelector('.ptype-name').textContent.replace(/-пиздабол$/, '').split('-');
+              out.push({ who: r, name: e.querySelector('.ptype-name').textContent, g1: v[0] - v[1], g2: v[0] - v[2], n: parts.length,
+                         known: parts.length === 1 ? titles.includes(parts[0]) && parts[0] !== 'Компанеец'
+                           : parts.every((x, i) => x.toLowerCase() !== 'душа компании' && titles.some((t) => (i ? t.toLowerCase() : t) === x)) });
+            }
+            document.querySelector('#standings tbody tr').click(); await new Promise((ok) => setTimeout(ok, 200)); return out; }""")
+        edge = lambda g: abs(g - 0.1) < 0.01   # у самой границы округление координат решает — такие не судим
+        want = lambda t: 1 + (t["g1"] <= 0.1) + (t["g1"] <= 0.1 and t["g2"] <= 0.1)
+        bad = [t for t in seen_types if not (t["known"] and (edge(t["g1"]) or edge(t["g2"]) or t["n"] == want(t)))]
+        check(f"{label}: тип участника — двойной или тройной, когда следующие оси вровень с первой (до 0,1), иначе одиночный; названия — из известных",
+              bool(seen_types) and not bad, bad or seen_types[:3])
     # 24.11: чемпионат по годам — место, очки и бани в каждом сезоне (прошлые — из архива, подгружается); нажал строку — тот год,
     # и диаграмма типа — за него, с осями, которые тогда считали
     archived = s.js("() => document.querySelectorAll('#tSeasonPick option').length > 1")   # на витрине архива сезонов нет — и блока нет
