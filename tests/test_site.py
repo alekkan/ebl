@@ -1680,6 +1680,10 @@ with sync_playwright() as pw:
         check("Комиссия подтвердила долгую: отметка на походе, очки кубка пересчитаны (6 + 6)",
               sql(f"select long_ok from visits where id = {cupv}") == "t" and sql(f"select coalesce(sum(total), 0) from cup_points where visit_id = {cupv}") == "12")
         s.page.wait_for_timeout(1500)   # сайт перечитывает данные после пересчёта
+        cup_feed = lambda v: s.js(f"() => document.querySelector('[data-long=\"{v}\"]')?.closest('.frow')?.querySelector('.f-cup')?.innerText || ''")
+        try: s.page.wait_for_selector("#feed .f-cup", timeout=8000)
+        except Exception: pass
+        check("лента: у похода участников кубка — строка «Кубок» с очками каждого", "Кубок" in cup_feed(cupv) and "Шурик +6" in cup_feed(cupv) and "Витёк +6" in cup_feed(cupv), cup_feed(cupv))
         s.view("cup")
         try: s.page.wait_for_selector("#cupTeams .cup-more", timeout=8000)
         except Exception: pass
