@@ -70,8 +70,8 @@ check("всё общее для первого экрана — одним за�
       and len(bp["baths"]) > 100 and len(bp["counts"]) > 100 and len(bp["standings"]) > 0 and len(bp["players"]) > 0, (s, list(bp) if isinstance(bp, dict) else bp))
 # архив сезонов (24.11): список сезонов — в первом запросе, сам сезон гость читает по запросу, писать в архив не может
 sa = req("GET", "/rest/v1/season_archive?season=eq.2025&select=season,standings,cup,rules")[1]
-check("архив: сезон 2025 в списке; гостю виден снимок — 33 участника, первый Ден с 662,6, обладатели кубка, 17 пунктов положения",
-      bp["seasons"] == [2025] and len(sa) == 1 and len(sa[0]["standings"]) == 33 and sa[0]["standings"][0]["nick"] == "Ден" and sa[0]["standings"][0]["total"] == 662.6
+check("архив: сезоны 2025–2023 в списке; гостю виден снимок — 33 участника, первый Ден с 662,6, обладатели кубка, 17 пунктов положения",
+      bp["seasons"] == [2025, 2024, 2023] and len(sa) == 1 and len(sa[0]["standings"]) == 33 and sa[0]["standings"][0]["nick"] == "Ден" and sa[0]["standings"][0]["total"] == 662.6
       and sa[0]["cup"]["winners"] == ["Хвост", "Денис"] and len(sa[0]["rules"]["items"]) == 17, bp["seasons"])
 check("архив: гость не может его править", req("PATCH", "/rest/v1/season_archive?season=eq.2025", {"cup": None})[0] in (401, 403))
 check("…отклонённые бани в нём гостю не видны, как и в обычном запросе", all(b["status"] != "rejected" for b in bp["baths"]))
