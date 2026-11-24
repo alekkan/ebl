@@ -1482,6 +1482,49 @@ check("Комиссия подтвердила долгую — в карточ�
       and any(c == league and after_v in t and "Долгая подтверждена Комиссией" in t and "автор через 2,5 часа" not in t for c, t in edits)
       and any(c == ME and after_v in t and "Долгая подтверждена Комиссией" in t and "на копию этой карточки" not in t for c, t in edits), (before_v, after_v, edits[-2:]))
 sql(f"delete from visits where id = {vid}")
+# 24.11: Комиссии — кнопка «Подтвердить долгую» прямо под уведомлением о походе (раньше — только на сайте)
+was_comm = sql("select is_commission from players where nick = 'Леха'")
+sql("update players set is_commission = true where nick = 'Леха'")
+seen = len(TELEGRAM.calls)
+vid, draft, mine_txt, copy_txt = dm_visit("Василевские 3ч", 1350)
+notes = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and "🔔 Поход от" in (p.get("text") or "")]
+note_mid = int(sql(f"select message_id from bot_notifications where visit_id = {vid} and chat_id = {ME}") or 0)
+check("кубок, долгая: в уведомлении Комиссии — «Засчитать», «Отклонить» и «Подтвердить долгую»",
+      bool(notes) and all(f"{k}:{vid}" in str(notes[0]) for k in ("ok", "no", "lk")) and "Подтвердить долгую" in str(notes[0]), notes[:1])
+def note_edits(seen, want):   # уведомление правит и кнопка, и триггер базы — кто успеет первым; ждём правку с нужным текстом
+    for _ in range(40):
+        got = [p for m, p in TELEGRAM.calls[seen:] if m == "editMessageText" and "🔔 Поход от" in (p.get("text") or "") and want in (p.get("text") or "")]
+        if got: return got
+        time.sleep(0.5)
+    return []
+seen = len(TELEGRAM.calls)
+press_dm(f"ok:{vid}", ME, note_mid)
+wait(f"select status from visits where id = {vid}", "ok")
+after_ok = note_edits(seen, "Засчитано")
+check("…поход засчитали — кнопка долгой остаётся, кнопок решения нет",
+      bool(after_ok) and f"lk:{vid}" in str(after_ok[-1]) and f"ok:{vid}" not in str(after_ok[-1]) and "Засчитано" in str(after_ok[-1]), after_ok[-1:])
+seen = len(TELEGRAM.calls)
+press_dm(f"lk:{vid}", NEWBIE, note_mid)
+check("…не Комиссия нажать не может", sql(f"select long_ok from visits where id = {vid}") == "f"
+      and any(m == "answerCallbackQuery" and "для Комиссии" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]), TELEGRAM.calls[seen:])
+seen = len(TELEGRAM.calls)
+press_dm(f"lk:{vid}", ME, note_mid)
+after_lk = note_edits(seen, "Долгая подтверждена Комиссией")
+check("…Комиссия нажала — долгая подтверждена, в уведомлении «Долгая подтверждена Комиссией» и кнопки больше нет, решение на месте",
+      sql(f"select long_ok from visits where id = {vid}") == "t" and bool(after_lk) and "Долгая подтверждена Комиссией" in str(after_lk[-1])
+      and "lk:" not in str(after_lk[-1]) and "Засчитано" in str(after_lk[-1]), after_lk[-1:])
+check("…и в копии карточки в чате лиги — тоже «подтверждена»",
+      any(m == "editMessageText" and int(p.get("chat_id") or 0) == league and "Долгая подтверждена Комиссией" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]))
+seen = len(TELEGRAM.calls)
+press_dm(f"lk:{vid}", ME, note_mid)
+check("…повторное нажатие — «уже подтверждена»", any(m == "answerCallbackQuery" and "уже подтверждена" in (p.get("text") or "") for m, p in TELEGRAM.calls[seen:]))
+sql(f"delete from visits where id = {vid}")
+seen = len(TELEGRAM.calls)
+vid, draft, mine_txt, copy_txt = dm_visit("Василевские 2ч", 1360)
+notes = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and "🔔 Поход от" in (p.get("text") or "")]
+check("…экспрессу кнопки долгой нет", bool(notes) and f"ok:{vid}" in str(notes[0]) and "lk:" not in str(notes[0]), notes[:1])
+sql(f"delete from visits where id = {vid}")
+sql(f"update players set is_commission = {'true' if was_comm == 't' else 'false'} where nick = 'Леха'")
 vid, draft, mine_txt, copy_txt = dm_visit("Василевские 2ч", 1320)
 check("…экспрессу про подтверждение не пишем", "подтверждения Комиссии" not in draft + mine_txt + copy_txt and "Ушло в Комиссию" in mine_txt, (draft, mine_txt, copy_txt))
 sql(f"delete from visits where id = {vid}"); sql("delete from settings where key = 'long_confirm'")

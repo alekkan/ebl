@@ -891,8 +891,9 @@ async function submit(st: Any, lg: Any, tgId: number) {
 
   const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
   const note = `🔔 Поход от <b>${esc(st.authorNick)}</b>${link ? ` · <a href="${link}">пост</a>` : ""}\n\n${summary}` + await placeNote(bathId);
+  const kb = await noteKb(visit.id, true);
   for (const c of commission) {
-    const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visit.id}`), btn("❌ Отклонить", `no:${visit.id}`)]]);
+    const r = await send(c.tg_id, note, kb);
     if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visit.id, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
   }
 }
@@ -908,6 +909,27 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
   if (!done?.length) return answer(cq.id, "Уже решено");
   await answer(cq.id, ok ? "Засчитано" : "Отклонено");
   await announce(visitId);   // триггер в базе тоже позовёт — второй вызов ничего не сделает
+}
+
+// Комиссия подтвердила долгую (или сняла подтверждение на сайте): таблицу пересчитываем, в уведомлениях Комиссии уходит
+// кнопка, в карточке похода — свежие очки в строке «Засчитано» и пометка про долгую
+async function longChanged(visitId: number) {
+  await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
+  await refreshVisit(visitId);
+  await refreshCard(visitId);
+}
+// кнопка «Подтвердить долгую» под уведомлением Комиссии — то же, что кнопка в ленте на сайте
+async function confirmLong(cq: Any, me: Any, visitId: number) {
+  if (!me?.is_commission) return answer(cq.id, "Это кнопка для Комиссии", true);
+  const st = await longState(visitId);
+  if (st?.state !== "wait") {
+    await answer(cq.id, st ? "Долгая уже подтверждена" : "Подтверждать нечего: поход не долгий, отклонён или удалён");
+    return void await refreshVisit(visitId);   // кнопка устарела — уберём
+  }
+  const { data: done } = await sb.from("visits").update({ long_ok: true }).eq("id", visitId).eq("long_ok", false).select("id");
+  if (!done?.length) return answer(cq.id, "Долгая уже подтверждена");
+  await answer(cq.id, "Долгая подтверждена");
+  await longChanged(visitId);   // триггер в базе тоже позовёт — второй вызов ничего не изменит
 }
 
 const setting = async (key: string) => (await sb.from("settings").select("value").eq("key", key).maybeSingle()).data?.value ?? null;
@@ -971,11 +993,24 @@ const LONG_HINT: Record<string, string> = {
   copy: "🔥 Долгая — после подтверждения Комиссии: автор через 2,5 часа после захода отвечает на это сообщение ещё одним из бани (лучше фото).",
   ok: "🔥 Долгая подтверждена Комиссией",
 };
-async function longHint(visitId: number): Promise<"dm" | "post" | "card" | "ok" | null> {
+// долгая на время кубка: "wait" — ждёт подтверждения Комиссии, "ok" — подтверждена, null — поход не долгий, отклонён или вне кубка
+async function longState(visitId: number): Promise<{ state: "wait" | "ok"; source: string } | null> {
   const { data: v } = await sb.from("visits").select("duration_min, posted_at, created_at, long_ok, status, source").eq("id", visitId).maybeSingle();
   if (!v || v.duration_min <= LONG || v.status === "rejected") return null;
   if (!longGated(await setting("long_confirm"), v.posted_at ?? v.created_at)) return null;
-  if (v.long_ok) return "ok";
+  return { state: v.long_ok ? "ok" : "wait", source: v.source };
+}
+// кнопки под уведомлением Комиссии: решение по походу, пока он ждёт, и «Подтвердить долгую», пока долгая не подтверждена
+// (эта остаётся и после «Засчитать»: вторая отметка приходит через 2,5 часа, поход к тому времени обычно уже засчитан)
+async function noteKb(visitId: number, pending: boolean): Promise<Any[][] | undefined> {
+  const rows: Any[][] = pending ? [[btn("✅ Засчитать", `ok:${visitId}`), btn("❌ Отклонить", `no:${visitId}`)]] : [];
+  if ((await longState(visitId))?.state === "wait") rows.push([btn("🔥 Подтвердить долгую", `lk:${visitId}`)]);
+  return rows.length ? rows : undefined;
+}
+async function longHint(visitId: number): Promise<"dm" | "post" | "card" | "ok" | null> {
+  const v = await longState(visitId);
+  if (!v) return null;
+  if (v.state === "ok") return "ok";
   const { data: p } = await sb.from("bot_posts").select("chat_id, source_msg").eq("visit_id", visitId).maybeSingle();
   return !p ? null : p.chat_id > 0 ? "dm" : v.source === "site" || !p.source_msg ? "card" : "post";
 }
@@ -1046,15 +1081,17 @@ async function refreshVisit(visitId: number): Promise<boolean> {
   if (!v || !summary) return false;
   const vv = v as Any, author = esc(vv.author?.nick);
   const note = (v.source === "site" ? `🔔 Поход с сайта от <b>${author}</b>` : `🔔 Поход от <b>${author}</b>${v.tg_link ? ` · <a href="${v.tg_link}">пост</a>` : ""}`)
-    + `\n\n${summary}` + await placeNote(vv.bath_id);
+    + `\n\n${summary}` + await placeNote(vv.bath_id)
+    + ((await longState(visitId))?.state === "ok" ? `\n\n${LONG_HINT.ok}` : "");   // подтвердили — текст другой, кнопка уйдёт у всей Комиссии
   const decided = v.status === "ok" || v.status === "rejected";
   const verdict = decided ? `\n\n${v.status === "ok" ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
     + (v.status !== "ok" && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "") : "";
   let changed = false;
+  const kb = await noteKb(visitId, !decided);
   const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id, text").eq("visit_id", visitId);
   for (const n of notes ?? []) {
     if (n.text === note) continue;   // уже свежее
-    await edit(n.chat_id, n.message_id, `${note}${verdict}`, decided ? undefined : [[btn("✅ Засчитать", `ok:${visitId}`), btn("❌ Отклонить", `no:${visitId}`)]]);
+    await edit(n.chat_id, n.message_id, `${note}${verdict}`, kb);
     await sb.from("bot_notifications").update({ text: note }).eq("visit_id", visitId).eq("chat_id", n.chat_id);
     changed = true;
   }
@@ -1115,8 +1152,9 @@ async function siteVisit(visitId: number): Promise<boolean> {
     const note = `🔔 Поход с сайта от <b>${esc(author)}</b>${by ? ` · внёс ${esc(by)}` : ""}\n\n${summary}` + await placeNote(v.bath_id);
     const lg = await league();
     const commission = lg.accounts.filter((a: Any) => a.tg_id && lg.players.find((p: Any) => p.id === a.player_id)?.is_commission);
+    const kb = await noteKb(visitId, true);
     await Promise.all(commission.map(async (c: Any) => {
-      const r = await send(c.tg_id, note, [[btn("✅ Засчитать", `ok:${visitId}`), btn("❌ Отклонить", `no:${visitId}`)]]);
+      const r = await send(c.tg_id, note, kb);
       if (r.ok) await sb.from("bot_notifications").upsert({ visit_id: visitId, chat_id: c.tg_id, message_id: r.result.message_id, text: note });
     }));
   };
@@ -1153,10 +1191,11 @@ async function announce(visitId: number): Promise<boolean> {
   const line = await verdictLine(visitId);
   const verdict = `${ok ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
     + (!ok && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "");
+  const kb = await noteKb(visitId, false);   // долгая ещё ждёт подтверждения — её кнопка остаётся
   const { data: notes } = await sb.from("bot_notifications").select("chat_id, message_id, text").eq("visit_id", visitId);
   for (const n of notes ?? []) {
-    if (n.text) await edit(n.chat_id, n.message_id, `${n.text}\n\n${verdict}`);
-    else await tg("editMessageReplyMarkup", { chat_id: n.chat_id, message_id: n.message_id, reply_markup: { inline_keyboard: [] } });
+    if (n.text) await edit(n.chat_id, n.message_id, `${n.text}\n\n${verdict}`, kb);
+    else await tg("editMessageReplyMarkup", { chat_id: n.chat_id, message_id: n.message_id, reply_markup: { inline_keyboard: kb ?? [] } });
   }
 
   // живая карточка: 👍/💩 на пост и карточку, решение с очками — правкой карточки, новых сообщений в чате нет
@@ -2109,6 +2148,7 @@ async function onCallback(cq: Any) {
   if (data.startsWith("lg:") || data.startsWith("lx:")) return decideLogin(cq, data.slice(3), data.startsWith("lg:"));
   const acc = await whoIs(tgId);
   const me = acc?.players as Any;
+  if (data.startsWith("lk:")) return confirmLong(cq, me, Number(data.slice(3)));
   if (data.startsWith("ok:") || data.startsWith("no:")) return moderate(cq, me, Number(data.slice(3)), data.startsWith("ok:"));
   if (data.startsWith("cl:") || data.startsWith("cn:")) return decideClaim(cq, me, data.slice(3), data.startsWith("cl:"));
   if (data.startsWith("mv:") || data.startsWith("mk:")) return decidePoint(cq, me, Number(data.slice(3)), data.startsWith("mv:"));
@@ -2264,8 +2304,7 @@ Deno.serve(async (req) => {
   // похода — свежие очки в строке «Засчитано» и пометка про долгую
   if (url.searchParams.get("long")) {
     const id = Number(url.searchParams.get("long"));
-    await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
-    if (!(await refreshVisit(id))) await refreshCard(id);
+    await longChanged(id);
     return new Response(JSON.stringify({ refreshed: id }), { headers: { "Content-Type": "application/json" } });
   }
   if (url.searchParams.get("bath")) {
