@@ -1389,7 +1389,53 @@ cup_call("post")
 said = cup_said(seen)
 check("финал: кто выиграл кубок и кто второй, следующего тура нет",
       len(said) == 1 and "Кубок выиграли Ден, Арс, Alex B" in said[0] and "Второе место: Витёк, Женёк В, Миша П" in said[0] and "Тур 6" not in said[0], said)
-sql("delete from cup_posts"); sql("delete from cup_transitions"); sql("delete from cup_teams")
+# итоги тура — Комиссии в личку (24.11): предложение с кнопками, «Другой жребий» и «Принять» под сообщением
+sql("delete from cup_posts"); sql("delete from cup_transitions"); sql("delete from cup_teams"); sql("delete from cup_asks")
+sql("update cup_rounds set starts_at = now() - interval '8 days', ends_at = now() - interval '1 hour' where n = 1")
+sql("update cup_rounds set starts_at = now() - interval '1 hour', ends_at = now() + interval '7 days' where n = 2")
+nicks18 = sql("select nick from players order by (nick = 'Леха') desc, nick limit 18").splitlines()
+for num in range(6):
+    t = sql(f"insert into cup_teams (round, num) values (1, {num + 1}) returning id").splitlines()[0]
+    for nk in nicks18[num * 3:num * 3 + 3]: sql(f"insert into cup_team_players (team_id, player_id) select {t}, id from players where nick = '{nk}'")
+ask_call = lambda mode="post": (req("GET", f"/functions/v1/week-results?cupask={mode}")[1] or {}).get("asks")
+to_me = lambda seen, method: [p for m, p in TELEGRAM.calls[seen:] if m == method and int(p.get("chat_id") or 0) == ME]
+kb_data = lambda p: [b["callback_data"] for row in (p.get("reply_markup") or {}).get("inline_keyboard", []) for b in row]
+seen = len(TELEGRAM.calls)
+r = ask_call()
+asked = to_me(seen, "sendMessage")
+check("тур сыгран — Комиссии в личку предложение итогов: места, составы тура 2 со жребием пути ебланов, кнопки «Принять» и «Другой жребий»",
+      len(asked) == 1 and "тур 1 сыгран" in asked[0]["text"] and "Путь ебланов</i> — по жребию" in asked[0]["text"] and "Тур 2" in asked[0]["text"]
+      and kb_data(asked[0]) == ["cupy:1", "cupr:1"] and cup_said(seen) == [] and sql("select count(*) from cup_teams where round = 2") == "0", (r, asked))
+seen = len(TELEGRAM.calls)
+r = ask_call()
+check("…второй раз не пишет и ничего не правит, пока очки те же", to_me(seen, "sendMessage") == [] and to_me(seen, "editMessageText") == [], (r, TELEGRAM.calls[seen:]))
+seen = len(TELEGRAM.calls)
+press_dm("cupy:1", 901, 7301)
+check("кнопку нажал не участник Комиссии — итоги не приняты", sql("select count(*) from cup_teams where round = 2") == "0" and sql("select count(*) from cup_transitions where accepted_at is not null") == "0")
+was = sql("select proposal->'teams' from cup_transitions where round = 1")
+for i in range(6):   # жребий может и совпасть — тянем, пока не выйдет другой
+    seen = len(TELEGRAM.calls)
+    press_dm("cupr:1", ME, 7302 + i)
+    if sql("select proposal->'teams' from cup_transitions where round = 1") != was: break
+ed = to_me(seen, "editMessageText")
+check("«Другой жребий» — в том же сообщении новые составы пути ебланов, кнопки на месте",
+      sql("select proposal->'teams' from cup_transitions where round = 1") != was and len(ed) == 1 and "Жребий перетянул Леха" in ed[0]["text"] and kb_data(ed[0]) == ["cupy:1", "cupr:1"], ed)
+seen = len(TELEGRAM.calls)
+press_dm("cupy:1", ME, 7310)
+ed = to_me(seen, "editMessageText")
+said = []
+for _ in range(40):
+    said = cup_said(seen)
+    if said: break
+    time.sleep(0.5)
+check("«Принять» — команды тура 2 заведены, принял Леха, кнопки сняты, итоги ушли в чат лиги",
+      sql("select count(*) from cup_teams where round = 2") == "6" and sql("select p.nick from cup_transitions t join players p on p.id = t.accepted_by where t.round = 1") == "Леха"
+      and len(ed) == 1 and "Принято — Леха" in ed[0]["text"] and kb_data(ed[0]) == [] and sql("select count(*) from cup_asks") == "0"
+      and len(said) == 1 and "итоги тура 1" in said[0], (ed, said))
+seen = len(TELEGRAM.calls)
+r = ask_call()
+check("итоги приняты, тур 2 идёт — Комиссию больше не спрашиваем", to_me(seen, "sendMessage") == [] and r == [], r)
+sql("delete from cup_posts"); sql("delete from cup_transitions"); sql("delete from cup_teams"); sql("delete from cup_asks")
 sql(f"update cup_rounds r set starts_at = x.starts_at, ends_at = x.ends_at from json_populate_recordset(null::cup_rounds, '{rounds0}') x where x.n = r.n")
 # долгая на время кубка: бот «+1» не обещает
 vid = visit_ago(4)

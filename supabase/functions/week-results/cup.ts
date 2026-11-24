@@ -2,50 +2,11 @@
 // (cup_accept на сайте). Источник — cup_state(): туры, команды, история принятых итогов. Что уже объявлено — cup_posts.
 // Итоги отменили и приняли заново (другой жребий, поправили очки) — выходит «Уточнение», а не тишина со старым составом.
 import { TELEGRAM_API } from "../_shared/hosts.ts";
+import { askKb, askText, roundText } from "../_shared/cup-text.ts";
+export { roundText };
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
-const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-const PATH: Record<string, string> = { champions: "Путь чемпионов", losers: "Путь ебланов" };
-const names = (a: string[]) => a.map(esc).join(", ");
-
-// срок тура по-московски: тур начинается в воскресенье в 23:00 — показываем с понедельника
-function dates(r: Any) {
-  const day = (t: number, month: boolean) => new Date(t).toLocaleDateString("ru-RU", { day: "numeric", ...(month ? { month: "long" } : {}), timeZone: "Europe/Moscow" });
-  const from = new Date(r.starts_at).getTime() + 3600e3, to = new Date(r.ends_at).getTime();
-  const sameMonth = day(from, true).split(" ")[1] === day(to, true).split(" ")[1];
-  const till = new Date(to).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow" });
-  return `${day(from, !sameMonth)}–${day(to, true)}, посты до ${till} МСК`;
-}
-
-export function roundText(h: Any, state: Any, site: string, fix = false) {
-  const out: string[] = [`🏆 <b>Кубок ЕБЛ · итоги тура ${h.round}</b>${fix ? " — уточнение" : ""}`];
-  let path = "";
-  for (const t of h.results ?? []) {
-    if (t.path !== path) { path = t.path; out.push("", `<i>${PATH[path] ?? path}</i>`); }
-    out.push(`${t.place}. ${(t.players ?? []).map((p: Any) => `${esc(p.nick)} ${p.total}`).join(" · ")} — <b>${t.total}</b>${t.lot ? " · место по жребию" : ""}`);
-  }
-  const fate = (to: string) => (h.results ?? []).flatMap((t: Any) => (t.players ?? []).filter((p: Any) => p.to === to).map((p: Any) => p.nick));
-  if (!(h.teams ?? []).length) {   // финал: дальше туров нет
-    out.push("", `👑 <b>Кубок выиграли ${names(fate("winner"))}!</b>`);
-    if (fate("second").length) out.push(`🥈 Второе место: ${names(fate("second"))}`);
-  } else {
-    const next = (state.rounds ?? []).find((r: Any) => r.n === h.round + 1);
-    out.push("", `<b>${h.round + 1 === 5 ? "Финал" : `Тур ${h.round + 1}`}</b>${next ? ` · ${dates(next)}` : ""}`);
-    path = "";
-    // кто сошёл с пути чемпионов — представляем перед командами пути ебланов
-    const fresh = (h.results ?? []).filter((t: Any) => t.path === "champions").flatMap((t: Any) => (t.players ?? []).filter((p: Any) => p.to === "losers").map((p: Any) => p.nick));
-    for (const t of h.teams) {
-      if (t.path !== path && t.path === "losers" && fresh.length && h.round + 1 < 5) out.push("", `👋 Поприветствуем новых ебланов: ${names(fresh)}`);
-      if (t.path !== path && h.round + 1 < 5) { path = t.path; out.push(`<i>${PATH[path] ?? path}</i>${path === "losers" && h.draw ? " — по жребию" : ""}`); }
-      out.push(`• ${names(t.players)}`);
-    }
-    if ((h.rest ?? []).length) out.push("", `Сразу в финал, тур ${h.round + 1} пропускают: ${names(h.rest)}`);
-    if (fate("out").length) out.push("", `Покидают кубок: ${names(fate("out"))}`);
-  }
-  out.push("", `Кубок: ${site}#cup`);
-  return out.join("\n").slice(0, 4096);
-}
 
 // что объявить сейчас: принятые итоги, о которых чат ещё не знает. Старт кубка объявлен 22.11 (в cup_posts — тур 0)
 export function cupDue(state: Any, posts: Any[]) {
@@ -84,4 +45,43 @@ export async function cupPosts(sb: any, chat: number, token: string, site: strin
     done.push({ round: d.round, posted: true, fix: d.fix });
   }
   return done;
+}
+
+// Тур сыгран, итоги не приняты (24.11) — предложение каждому участнику Комиссии в личку, с кнопками (их разбирает tg-bot).
+// Одно сообщение на человека: очки изменились — правим его, а не шлём новое. Приняли на сайте — снимаем кнопки.
+// deno-lint-ignore no-explicit-any
+export async function cupAsks(sb: any, token: string, dry = false) {
+  const tg = (method: string, body: Any) => fetch(`${TELEGRAM_API}/bot${token}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parse_mode: "HTML", disable_web_page_preview: true, ...body }) }).then((x) => x.json()).catch(() => ({ ok: false }));
+  const [{ data: state }, { data: asks }] = await Promise.all([sb.rpc("cup_state"), sb.from("cup_asks").select("round, text, messages")]);
+  const accepted = new Set((state?.history ?? []).map((h: Any) => h.round)), out: Any[] = [];
+  if (!dry) for (const a of (asks ?? []).filter((x: Any) => accepted.has(x.round))) {
+    for (const m of a.messages ?? []) await tg("editMessageText", { chat_id: m.chat, message_id: m.msg, text: `${a.text}\n\n✅ Итоги тура ${a.round} приняты.`, reply_markup: { inline_keyboard: [] } });
+    await sb.from("cup_asks").delete().eq("round", a.round);
+  }
+  // первый непринятый тур: сыгран и с командами — значит, ждёт Комиссию
+  const r = (state?.rounds ?? []).find((x: Any) => !accepted.has(x.n));
+  if (!r || Date.parse(r.ends_at) > Date.now() || !(state.teams ?? []).some((t: Any) => t.round === r.n)) return out;
+  const { data: p, error } = await sb.rpc("cup_propose_by", { p_round: r.n, p_redraw: false, p_by: null });
+  if (error) return [{ round: r.n, error: error.message }];
+  const text = askText(p, state), old = (asks ?? []).find((a: Any) => a.round === r.n);
+  if (dry) return [{ round: r.n, text, fresh: !old }];
+  if (old) {
+    if (old.text === text) return out;
+    await sb.from("cup_asks").update({ text }).eq("round", r.n);
+    for (const m of old.messages ?? []) await tg("editMessageText", { chat_id: m.chat, message_id: m.msg, text, reply_markup: { inline_keyboard: askKb(p) } });
+    return [{ round: r.n, updated: true }];
+  }
+  // вставкой забираем рассылку себе — параллельный вызов второй раз не напишет
+  const claim = await sb.from("cup_asks").insert({ round: r.n, text }).select("round").maybeSingle();
+  if (!claim.data) return out;
+  const { data: who } = await sb.from("player_accounts").select("tg_id, players!inner(is_commission)").eq("players.is_commission", true).not("tg_id", "is", null);
+  const messages: Any[] = [];
+  for (const chat of [...new Set((who ?? []).map((a: Any) => a.tg_id))]) {
+    const m = await tg("sendMessage", { chat_id: chat, text, reply_markup: { inline_keyboard: askKb(p) } });
+    if (m.ok) messages.push({ chat, msg: m.result?.message_id });
+  }
+  if (!messages.length) { await sb.from("cup_asks").delete().eq("round", r.n); return [{ round: r.n, error: "не отправилось" }]; }
+  await sb.from("cup_asks").update({ messages }).eq("round", r.n);
+  return [{ round: r.n, asked: messages.length }];
 }
