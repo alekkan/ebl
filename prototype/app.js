@@ -335,9 +335,11 @@
     if (!closed && to > 0) history.back();   // шаг уже закрыли крестиком — проскакиваем к следующему
   });
   function show(view, fromBack) {
+    // кубок (24.11) — режим «Таблицы», а не раздел: старые ссылки «#cup» и «итоги тура» в ленте ведут туда
+    if (view === "cup") { show("table", fromBack); return openCupTab(); }
     if (!fromBack && document.body.dataset.view !== view) pushStep({ type: "view", from: document.body.dataset.view, to: view });
     $$(".nav button[data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
-    $("#moreBtn").setAttribute("aria-selected", String(["owners", "rules", "dir", "cup"].includes(view)));
+    $("#moreBtn").setAttribute("aria-selected", String(["owners", "rules", "dir", "champs"].includes(view)));
     document.body.dataset.view = view;   // на телефоне поиск и типы поверх карты — только на вкладке «Карта»
     // телефон (03.11): на страницах аватарка — в строке заголовка раздела, а не отдельной полосой над ним
     const head = phone.matches && $(`#view-${view} .page-head`);
@@ -346,7 +348,7 @@
     if (view === "map") setTimeout(() => map.invalidateSize(), 0);
     if (view === "owners") { initOwners(); setTimeout(() => setOwnSheet(ownSheet), 0); }
     if (view === "feed") renderFeed();
-    if (view === "cup") renderCup();
+    if (view === "champs") renderChamps();
     if (view === "dir") renderDir();
     history.replaceState(history.state, "", "#" + (view === "dir" && radarMode !== "dir" ? radarMode : view));
   }
@@ -355,7 +357,6 @@
   // «Ещё» (02.11): на телефоне в нижнем меню — Карта, Таблица, веник «+ Баня», Лента; остальное — здесь
   $("#moreBtn").addEventListener("click", () => {
     $('#moreModal [data-go="dir"]').hidden = $('.nav [data-view="dir"]').hidden;
-    $('#moreModal [data-go="cup"]').hidden = !cup;
     $("#moreModal").hidden = false;
   });
   $("#moreModal").addEventListener("click", (e) => {
@@ -1584,7 +1585,6 @@
     ["uu", "Ультра", "Ультрауникальные: в бане никто из лиги не был с 2023 года, +1"], ["long", "Долгие", "Долгие походы, больше 150 минут, +1"],
     ["k", "Компания", "За компанию: от 3 участников в одни сутки, +1…+3"], ["pub", "Общ.", "Общественные бани, +1 за каждую"],
     ["reg", "Регионы", "Новые регионы и страны, +1 за каждый"]];
-  // у прошлого сезона (past) — его последние 12 недель и его шкала очков за места
   function spark(s, end = curWeek, top = 15) {
     const weeks = Array.from({ length: 12 }, (_, i) => end - 12 + i).filter((w) => w >= 1);
     const vals = weeks.map((w) => s.weekPts[w] ?? 0);
@@ -1594,15 +1594,15 @@
     return `<svg class="spark" width="${W}" height="${H}" viewBox="-3 0 ${W + 6} ${H}" aria-label="очки за места, последние 12 недель"><polygon points="0,${H} ${pts.join(" ")} ${W},${H}" fill="var(--oak-soft)"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--oak)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${lx}" cy="${ly}" r="3" fill="var(--ember)"/></svg>`;
   }
   const ranked = [];
-  // прошлый сезон из архива (24.11): { season, rows, cup, rules, lastWeek, top } — пока выбран в «Таблице», иначе null
+  // прошлый сезон из архива (24.11): { season, rows, cup, rules, lastWeek } — пока выбран в «Таблице», иначе null
   let past = null;
   const archive = {};   // сезон → архив, чтобы не ходить за ним дважды
   async function loadSeason(y) {
     const a = (archive[y] ||= await D.seasonArchive(y));
     if (a && !a.rows) {
-      const weeks = [...new Set(a.standings.flatMap((s) => Object.keys(s.weekPts).map(Number)))];
+      const weeks = [...new Set(a.standings.flatMap((s) => [...Object.keys(s.weekPts), ...Object.keys(s.weekBaths)].map(Number)))];
       const best = Object.fromEntries(weeks.map((w) => [w, Math.max(...a.standings.map((s) => s.weekPts[w] || 0))]));
-      a.lastWeek = Math.max(0, ...weeks); a.top = Math.max(1, ...Object.values(best));
+      a.lastWeek = Math.max(0, ...weeks);
       // корона — у кого очки за место в неделе наибольшие (ничья за первое — каждому)
       a.rows = [...a.standings].sort((x, y) => y.total - x.total || y.baths - x.baths)
         .map((s, i) => ({ ...s, place: i + 1, move: 0, crowns: weeks.filter((w) => best[w] > 0 && s.weekPts[w] === best[w]).length }));
@@ -1645,48 +1645,52 @@
   const NCOLS = COLS.length + 5;
   function renderTable() {
     const rows = [...(past ? past.rows : ranked)].sort((a, b) => sortDir * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0)) || a.place - b.place);
-    // прошлый сезон: без линии Кубка и без столбцов, которых в его таблице не было
+    // прошлый сезон: без линии Кубка, без графика 12 недель (вместо него — «Все недели» ниже) и без столбцов, которых в его таблице не было
     const byTotal = !past && sortKey === "total" && sortDir < 0, mine = D.live ? me?.nick : null;
     const cols = past ? COLS.filter(([k]) => k in past.rows[0]) : COLS;
     const th = (k, l, cls = "", tip = "") => `<th data-k="${k}" class="${cls} ${k === sortKey ? "on" : ""}"${tip ? ` data-tip="${esc(tip)}"` : ""}><span>${l}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</span></th>`;
     $("#standings").innerHTML = `
-      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col", "Победы в неделях")}${th("total", "Очки")}${cols.map(([k, l, t]) => th(k, l, "st", t)).join("")}<th class="l st">12 недель</th></tr></thead>
+      <thead><tr>${th("place", "#")}<th class="l">Участник</th>${th("crowns", `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg>`, "crown-col", "Победы в неделях")}${th("total", "Очки")}${cols.map(([k, l, t]) => th(k, l, "st", t)).join("")}${past ? "" : '<th class="l st">12 недель</th>'}</tr></thead>
       <tbody>${rows.map((s, i) => `<tr data-player="${esc(s.name)}" class="${s.place <= 3 ? "top3" : ""}${byTotal && s.place > 16 ? " below" : ""}${s.name === mine ? " me" : ""}">
         <td class="pos">${s.place}${moveMark(s.move)}</td>
         <td class="l who-cell"><span>${ava(s.name, "sm")}<span class="who-t"><b>${esc(s.name)}</b>${s.name === mine ? '<i class="me-tag">это ты</i>' : ""}</span></span></td>
         <td class="crowns" title="${s.crowns ? `Выиграл ${s.crowns} ${plural(s.crowns, "неделю", "недели", "недель")}` : past ? "Без побед в неделях" : "Пока без побед в неделях"}">${s.crowns ? `<svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg><b>${s.crowns}</b>` : ""}</td>
         <td class="pts">${fmt(s.total)}</td>
         ${cols.map(([k]) => `<td class="st">${s[k] ?? 0}</td>`).join("")}
-        <td class="l st">${past ? spark(s, past.lastWeek + 1, past.top) : spark(s)}</td></tr>`
+        ${past ? "" : `<td class="l st">${spark(s)}</td>`}</tr>`
         + (byTotal && s.place === 16 && rows.length > 16 ? `<tr class="cupline" aria-hidden="true"><td colspan="${NCOLS}"><span>Кубок ЕБЛ · первые 16</span></td></tr>` : "")).join("")}
 </tbody>`;
   }
   // ---------- недельный зачёт: как лист «недельный зачёт» у Комиссии ----------
   // W1 — с 1 января до первого воскресенья, дальше пн–вс (п. 6)
-  function weekRange(w) {
-    const jan1 = new Date(Date.UTC(2026, 0, 1)), firstMon = new Date(jan1);
-    firstMon.setUTCDate(1 + ((8 - jan1.getUTCDay()) % 7));
+  function weekRange(w, year = 2026) {
+    const jan1 = new Date(Date.UTC(year, 0, 1)), firstMon = new Date(jan1), dec31 = Date.UTC(year, 11, 31);
+    // первый понедельник после 1 января; 2023 начался с воскресенья — Комиссия отнесла его к первой неделе (в году 52 недели)
+    firstMon.setUTCDate(1 + (((8 - jan1.getUTCDay()) % 7) || 7) + (jan1.getUTCDay() === 0 ? 7 : 0));
     const start = w === 1 ? jan1 : new Date(firstMon.getTime() + (w - 2) * 7 * 864e5);
-    const end = w === 1 ? new Date(firstMon.getTime() - 864e5) : new Date(start.getTime() + 6 * 864e5);
+    const end = new Date(Math.min(dec31, w === 1 ? firstMon.getTime() - 864e5 : start.getTime() + 6 * 864e5));
     const d = (x, m) => x.toLocaleDateString("ru-RU", { day: "numeric", ...(m ? { month: "long" } : {}), timeZone: "UTC" });
     return start.getUTCMonth() === end.getUTCMonth() ? `${d(start)}–${d(end, true)}` : `${d(start, true)} — ${d(end, true)}`;
   }
   // места недели: у закрытой — из таблицы, у идущей — «если закончится сейчас»
-  function weekRows(w) {
-    const rows = standings.map((s) => [s.name, s.weekBaths[w] ?? 0]).filter((r) => r[1] > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"));
-    const live = w >= curWeek, proj = live ? placePoints(rows) : {};
+  // src и end — чей сезон: текущий (standings, идущая неделя) или прошлый из архива (его строки, неделя после последней)
+  function weekRows(w, src = standings, end = curWeek) {
+    const rows = src.map((s) => [s.name, s.weekBaths[w] ?? 0]).filter((r) => r[1] > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"));
+    const live = w >= end, proj = live ? placePoints(rows) : {};
     let place = 0, prev = null;
     return rows.map(([n, c], i) => {
       if (c !== prev) { place = i + 1; prev = c; }
-      const s = standings.find((x) => x.name === n);
+      const s = src.find((x) => x.name === n);
       return { name: n, baths: c, place, pts: live ? proj[n] : s.weekPts[w] ?? 0 };
     });
   }
   let viewWeek = curWeek;
+  // недели сезона, который сейчас в «Таблице»: строки, первая незакрытая неделя, последняя неделя
+  const wkOf = () => (past ? [past.rows, past.lastWeek + 1, past.lastWeek] : [standings, curWeek, curWeek]);
   function renderWeek() {
-    const live = viewWeek >= curWeek, rows = weekRows(viewWeek);
-    $("#wTitle").innerHTML = `<b>W${viewWeek}</b><span>${weekRange(viewWeek)}${live ? ` · идёт, до конца ${timeLeft()}` : " · итоги"}</span>`;
-    $("#wPrev").disabled = viewWeek <= 1; $("#wNext").disabled = viewWeek >= curWeek;
+    const [src, end, last] = wkOf(), live = viewWeek >= end, rows = weekRows(viewWeek, src, end);
+    $("#wTitle").innerHTML = `<b>W${viewWeek}</b><span>${weekRange(viewWeek, past?.season)}${live ? ` · идёт, до конца ${timeLeft()}` : " · итоги"}</span>`;
+    $("#wPrev").disabled = viewWeek <= 1; $("#wNext").disabled = viewWeek >= last;
     // пьедестал недели: ступени по порядку мест, на ступени — настоящее место (при ничьей у двоих может быть «1»)
     const podRow = (r, pos) => {
       if (!r) return `<div class="pod p${pos} vacant" aria-hidden="true"><span class="pod-step">${pos}</span></div>`;   // не .empty — это заглушка «пусто» с фоном и тенью
@@ -1713,18 +1717,21 @@
       : `Всего за неделю: ${rows.reduce((a, r) => a + r.baths, 0)} ${plural(rows.reduce((a, r) => a + r.baths, 0), "баня", "бани", "бань")}.`;
     renderWeekGrid();
   }
-  function renderWeekGrid() {
-    const weeks = Array.from({ length: curWeek }, (_, i) => curWeek - i);   // свежие недели слева
+  // «Все недели»: в недельном зачёте (on — открытая неделя) и под общим зачётом прошлого сезона
+  function weekGridHtml(on) {
+    const [src, end, last] = wkOf();
+    const weeks = Array.from({ length: last }, (_, i) => last - i);   // свежие недели слева
     const placeOf = {};
-    for (const w of weeks) for (const r of weekRows(w)) (placeOf[w] ||= {})[r.name] = r.place;
-    const wins = (n) => weeks.filter((w) => w < curWeek && placeOf[w]?.[n] === 1).length;
-    const rows = [...ranked].filter((s) => weeks.some((w) => s.weekBaths[w])).sort((a, b) => wins(b.name) - wins(a.name) || a.place - b.place);
-    $("#weekGrid").innerHTML = `
-      <thead><tr><th class="l">Участник</th><th title="Побед в неделях"><svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg></th>${weeks.map((w) => `<th data-w="${w}" class="${w === viewWeek ? "on" : ""}">W${w}</th>`).join("")}</tr></thead>
+    for (const w of weeks) for (const r of weekRows(w, src, end)) (placeOf[w] ||= {})[r.name] = r.place;
+    const wins = (n) => weeks.filter((w) => w < end && placeOf[w]?.[n] === 1).length;
+    const rows = [...(past ? past.rows : ranked)].filter((s) => weeks.some((w) => s.weekBaths[w])).sort((a, b) => wins(b.name) - wins(a.name) || a.place - b.place);
+    return `
+      <thead><tr><th class="l">Участник</th><th title="Побед в неделях"><svg class="hat-ic" aria-hidden="true"><use href="#i-banhat"/></svg></th>${weeks.map((w) => `<th data-w="${w}" class="${w === on ? "on" : ""}">W${w}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((s) => `<tr data-player="${esc(s.name)}"><td class="l who-cell"><span>${ava(s.name, "sm")}${esc(s.name)}</span></td><td class="wins">${wins(s.name) || ""}</td>
         ${weeks.map((w) => { const b = s.weekBaths[w] ?? 0, p = placeOf[w]?.[s.name];
-          return `<td class="${b ? (p <= 3 ? "c p" + p : "c") : "z"} ${w === viewWeek ? "on" : ""}" title="W${w}: ${b} ${plural(b, "баня", "бани", "бань")}${p ? `, ${p} место` : ""}">${b || ""}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
+          return `<td class="${b ? (p <= 3 ? "c p" + p : "c") : "z"} ${w === on ? "on" : ""}" title="W${w}: ${b} ${plural(b, "баня", "бани", "бань")}${p ? `, ${p} место` : ""}">${b || ""}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
   }
+  function renderWeekGrid() { $("#weekGrid").innerHTML = weekGridHtml(viewWeek); }
   // чемпионы прошлых лет (23.11, со слов лиги): год, чемпионат, кубок. Новый сезон — строкой сверху после финала
   const CHAMPS = [[2025, ["Ден"], ["Хвост", "Денис"]], [2024, ["Диман"], ["Диман"]], [2023, ["Фил"], ["Ахмед"]]];
   function renderChamps() {
@@ -1735,45 +1742,53 @@
   }
   function setTableMode(m) {
     $$("#tMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
-    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week"; $("#tChamps").hidden = m !== "champs"; $("#tPastCup").hidden = m !== "cup";
+    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week";
+    $("#tPastCup").hidden = !(m === "cup" && past); $("#view-cup").hidden = !(m === "cup" && !past);
     $("#podium").hidden = m !== "season";
     if (m === "week") renderWeek();
-    if (m === "cup") renderPastCup();
-    if (m === "champs") renderChamps();
+    if (m === "cup") past ? renderPastCup() : renderCup();
   }
-  // кубок прошлого сезона: туры по порядку, в группе — пары с очками, дальше прошла пара с наибольшей суммой
+  async function openCupTab() { if (past) await setSeason(2026); setTableMode("cup"); }
+  // кубок прошлого сезона — сеткой, как плей-офф: туры столбцами слева направо, встречи в столбик; в столбце могут быть
+  // два пути (чемпионов и ебланов). Кто прошёл дальше — w в архиве; x — уточнение при равенстве (уникальные, бани)
   function renderPastCup() {
     const c = past?.cup, sum = (t) => t.s.reduce((a, b) => a + b, 0);
+    const team = (t) => `<div class="br-team${t.w ? " win" : ""}"><span class="br-who">${t.p.map((n) => `<button type="button" data-player="${esc(n)}">${ava(n, "sm")}${esc(n)}</button>`).join("")}</span>
+      <span class="br-pts">${t.s.length > 1 ? `<small>${t.s.join(" + ")}</small>` : t.x ? `<small>${esc(t.x)}</small>` : ""}<b>${fmt(sum(t))}</b></span></div>`;
     $("#tPastCup").innerHTML = !c ? `<p class="note">Кубок в сезоне ${past?.season ?? ""} не разыгрывали.</p>`
-      : `<div class="cup-banner">🏆 Кубок ${past.season} — ${c.winners.map(esc).join(" и ")}</div>`
-      + c.rounds.map((r) => `<h2 class="h2">${esc(r.title)}</h2>${r.note ? `<p class="note">${esc(r.note)}</p>` : ""}
-        <div class="pc-groups">${r.groups.map((g) => { const best = Math.max(...g.map(sum)); return `<div class="pc-group">${g.map((t) => `
-          <div class="pc-pair${sum(t) === best ? " win" : ""}"><span class="pc-who">${t.p.map((n) => `<button type="button" data-player="${esc(n)}">${ava(n, "sm")}${esc(n)}</button>`).join("")}</span>
-            <span class="pc-pts"><small>${t.s.join(" + ")}</small><b>${fmt(sum(t))}</b></span></div>`).join("")}</div>`; }).join("")}</div>`).join("");
+      : `<div class="cup-banner">🏆 Кубок ${past.season} — ${c.winners.map(esc).join(" и ")}</div>
+        <div class="bracket-wrap"><div class="bracket">${c.cols.map((col) => `<div class="br-col"><div class="br-title">${esc(col.title)}</div>
+          <div class="br-body">${col.parts.map((p) => `<div class="br-part">${p.title ? `<div class="br-path">${esc(p.title)}</div>` : ""}
+            ${p.groups.map((g) => `<div class="br-match">${g.map(team).join("")}</div>`).join("")}
+            ${p.note ? `<small class="br-note">${esc(p.note)}</small>` : ""}</div>`).join("")}</div></div>`).join("")}</div></div>
+        <p class="note">Очки за тур; у команды — сумма. Выделены те, кто прошёл дальше.</p>`;
   }
   $("#tPastCup").addEventListener("click", (e) => { const b = e.target.closest("[data-player]"); if (b) openPlayer(b.dataset.player, past?.season); });
-  // выбор сезона (24.11): у прошлого — только общий зачёт, кубок и чемпионы; недельного зачёта, таймера и линии Кубка нет
+  // выбор сезона (24.11): у прошлого — общий зачёт со «Всеми неделями», недельный зачёт и сетка кубка; таймера и линии Кубка нет
   const seasonOpts = [2026, ...(data.seasons || [])].map((y) => `<option value="${y}">Сезон ${y}</option>`).join("");
   async function setSeason(y) {
     let a = null;
     if (y !== 2026) try { a = await loadSeason(y); } catch (err) { toast("Не получилось: " + err.message); }
     past = a ? { season: y, ...a } : null;
     $("#tSeasonPick").value = past ? y : 2026;
-    $('#tMode [data-m="week"]').hidden = !!past; $('#tMode [data-m="cup"]').hidden = !past;
-    $("#tableTimer").hidden = !!past; $("#tSeason .cupnote").hidden = !!past;
+    $('#tMode [data-m="cup"]').hidden = !past && !cup;
+    $("#tableTimer").hidden = !!past; $("#tSeason .cupnote").hidden = !!past; $("#pastWeeks").hidden = !past;
+    viewWeek = past ? past.lastWeek : curWeek;
     sortKey = "total"; sortDir = -1;
     if (past) {
       $("#tableEyebrow").innerHTML = `<span>Сезон ${y} · итоги</span>`;
       $("#podium").innerHTML = podiumHtml(past.rows);
+      $("#pastGrid").innerHTML = weekGridHtml(0);
     } else rankTable();
     renderTable();
     const m = $('#tMode [aria-pressed="true"]').dataset.m;
-    setTableMode(m === "champs" || (m === "cup" && past) ? m : "season");
+    setTableMode(m === "cup" && !past && !cup ? "season" : m);
   }
   if (data.seasons?.length) {
     for (const id of ["#tSeasonPick", "#rSeasonPick"]) { $(id).innerHTML = seasonOpts; $(id).hidden = false; }
     $("#tSeasonPick").onchange = (e) => setSeason(+e.target.value);
-    // правила прошлого сезона — положение текстом; вкладки «Чемпионат / Кубок» только у текущего
+    // правила прошлого сезона — в том же виде, что нынешние: прейскурант, очки за места, мелкий шрифт; положение целиком — под спойлером.
+    // Вкладки «Чемпионат / Кубок» только у текущего
     $("#rSeasonPick").onchange = async (e) => {
       const y = +e.target.value;
       let r = null;
@@ -1782,7 +1797,14 @@
       const cupTab = $('#rulesTabs [data-rules="cup"]').getAttribute("aria-pressed") === "true";
       $("#rulesTabs").hidden = !!r; $("#rulesChamp").hidden = !!r || cupTab; $("#rulesCup").hidden = !!r || !cupTab; $("#rulesPast").hidden = !r;
       $("#rulesEyebrow").textContent = r ? r.title : "Положение о четвёртом чемпионате";
-      $("#rulesPast").innerHTML = r ? r.items.map((t) => `<li>${esc(t)}</li>`).join("") : "";
+      $("#rulesPast").innerHTML = !r ? "" : `<div class="pricelist"><div class="pl-title">Прейскурант</div>
+        ${r.price.map((p) => `<div class="pl-row"><span>${esc(p.t)}${p.s ? `<small>${esc(p.s)}</small>` : ""}</span><i></i><b>${esc(p.v)}</b></div>`).join("")}</div>
+        <h2 class="h2">Места по итогам недели</h2>
+        <div class="ptsgrid n${r.places.length}">${r.places.map((v, i) => `<div class="${["g", "s", "b"][i] || ""}"><b>${v}</b><span>${i ? i + 1 : "1 место"}</span></div>`).join("")}</div>
+        <p class="note">${esc(r.places_note)}</p>
+        <h2 class="h2">Мелкий шрифт</h2>
+        <div class="fine">${r.fine.map((f) => `<p><b>${esc(f.b)}</b> ${esc(f.t)}</p>`).join("")}</div>
+        <details class="rules-full"><summary>Положение целиком</summary><ol class="fine rules-past">${r.items.map((t) => `<li>${esc(t)}</li>`).join("")}</ol></details>`;
     };
   }
   $("#tMode").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) setTableMode(b.dataset.m); });
@@ -1790,10 +1812,15 @@
   $("#wNext").onclick = () => { viewWeek = Math.min(curWeek, viewWeek + 1); renderWeek(); };
   $("#weekGrid").addEventListener("click", (e) => {
     const th = e.target.closest("th[data-w]"); if (th) { viewWeek = +th.dataset.w; renderWeek(); $("#tWeek").scrollIntoView({ behavior: calm ? "auto" : "smooth" }); return; }
-    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player);
+    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player, past?.season);
   });
-  $("#weekTable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player); });
-  $("#weekPodium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player); });
+  // «Все недели» под общим зачётом прошлого сезона: неделя открывается в недельном зачёте
+  $("#pastGrid").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-w]"); if (th) { viewWeek = +th.dataset.w; setTableMode("week"); $("#tMode").scrollIntoView({ behavior: calm ? "auto" : "smooth" }); return; }
+    const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player, past?.season);
+  });
+  $("#weekTable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player, past?.season); });
+  $("#weekPodium").addEventListener("click", (e) => { const n = e.target.closest("[data-player]"); if (n) openPlayer(n.dataset.player, past?.season); });
   window.openWeekly = async () => { show("table"); if (past) await setSeason(2026); setTableMode("week"); };
 
   $("#standings").addEventListener("click", (e) => {
@@ -2742,7 +2769,7 @@
       return `<div class="frow${rejected ? " rejected" : ""}">${stack(who)}<div class="f-main">
           <a class="f-title" href="#map" data-bath="${v.bathId}">${esc(b?.name || v.bathName || "баня")}</a>
           <small>${time(v.date)} · ${durLabel(v)}${v.companions.length ? ` · компания` : ""}${rejected ? ` · <span class="f-no">отклонён${v.reason ? `: ${esc(v.reason)}` : ""}</span>` : ""}</small>
-          <div class="f-split">${split}</div>
+          <div class="f-split">${cup && who.some((n) => v.pts?.[n] != null) ? "<span>Чемпионат:</span>" : ""}${split}</div>
           ${rejected ? "" : cupLine(v, who)}
           ${rejected ? "" : longLine(v, "small")}
           ${(feedPhotos[v.id] || []).length ? `<div class="f-photos">${feedPhotos[v.id].slice(0, 6).map((ph, i) => `<button type="button" class="f-ph" data-fph="${v.id}:${i}" aria-label="Фото ${i + 1}"><img src="${esc(ph.thumb)}" alt="" loading="lazy" onerror="this.remove()"></button>`).join("")}${feedPhotos[v.id].length > 6 ? `<button type="button" class="f-ph more" data-fph="${v.id}:6">+${feedPhotos[v.id].length - 6}</button>` : ""}</div>` : ""}
@@ -4136,8 +4163,8 @@
   loadRatings();
   const linked = h.match(/^bath=(\d+)$/);   // ссылка на баню — сразу её карточка на карте
   if (linked && byId.has(+linked[1])) { show("map"); openBath(+linked[1], true); }
-  $('.nav [data-view="cup"]').hidden = !cup;
-  if (["owners", "table", "feed", "rules"].includes(h) || (h === "cup" && cup) || (h === "dir" && canModerate && D.live)) {
+  $('#tMode [data-m="cup"]').hidden = !cup;
+  if (["owners", "table", "feed", "rules", "champs"].includes(h) || (h === "cup" && cup) || (h === "dir" && canModerate && D.live)) {
     show(h);
     setTimeout(() => $(`#view-${h}`)?.scrollTo(0, 0), 0);   // «#feed» — ещё и id списка: браузер прокручивал к нему, заголовок уезжал
   }

@@ -1092,6 +1092,7 @@ tr.below { color: var(--ink-2); }
   .pod-step { font-size: 26px; }
   td.who-cell { position: sticky; left: 0; background: var(--panel); z-index: 1; }
   .ptsgrid { grid-template-columns: repeat(4, 1fr); }
+  .ptsgrid.n6 { grid-template-columns: repeat(3, 1fr); }
   .modal { padding: 0; place-items: end stretch; }
   .sheet, .sheet-wide { width: 100%; max-height: 94%; border-radius: 24px 24px 0 0; }
   .visit { grid-template-columns: 1fr; }
@@ -1116,6 +1117,12 @@ tr.below { color: var(--ink-2); }
   .me-btn.guest { padding: 7px 14px 7px 10px; } .me-btn .ic { margin: 0; }
   .cta#addVisitBtn .cta-long { display: none; }
   .cta#addVisitBtn .cta-short { display: inline-block; }
+}
+/* с «Чемпионами» в меню (24.11) на 1280 стало тесно: убираем подпись у логотипа, а у Комиссии (у неё ещё «Бани») — и длинную подпись кнопки */
+@media (min-width: 1061px) and (max-width: 1340px) {
+  .brand .claim { display: none; }
+  body:has(.nav [data-view="dir"]:not([hidden])) .cta#addVisitBtn .cta-long { display: none; }
+  body:has(.nav [data-view="dir"]:not([hidden])) .cta#addVisitBtn .cta-short { display: inline-block; }
 }
 @media (max-width: 900px) { .brand .word { display: none; } }
 /* «Войти» с подписью — шапке нужно место; на телефоне у меню свои отступы (раньше это правило перебивало их, и меню было выше отступа под него) */
@@ -1439,7 +1446,7 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
   /* шторка фильтров — отдельным блоком ниже */
 
   /* нижнее меню: Карта, Таблица, веник «+ Баня», Лента, Ещё */
-  .nav [data-view="owners"], .nav [data-view="rules"], .nav [data-view="dir"], .nav [data-view="cup"] { display: none !important; }
+  .nav [data-view="owners"], .nav [data-view="rules"], .nav [data-view="dir"], .nav [data-view="champs"] { display: none !important; }
   .nav [data-view="map"] { order: 1; } .nav [data-view="table"] { order: 2; } .nav-gap { display: block; order: 3; flex: 1 1 0; }
   .nav [data-view="feed"] { order: 4; } .nav .nav-more { display: flex; order: 5; }
   /* «+ Баня» (03.11, макет «Г»): светлый дубовый кружок 42 px с белой обводкой чуть над меню, цветной веник,
@@ -2082,17 +2089,31 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 
 /* ---------- архив сезонов (24.11): выбор сезона в «Таблице» и «Правилах», кубок прошлого сезона ---------- */
 .season-pick { width: auto; min-width: 150px; height: 38px; margin: 0 0 14px; font-weight: 600; display: block; }
-.past-cup .h2 { margin: 26px 0 10px; font-size: 19px; }
-.past-cup .note { margin: -4px 0 10px; }
-.pc-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
-.pc-group { background: var(--panel); border-radius: 16px; box-shadow: var(--shadow-s); padding: 6px 14px; }
-.pc-pair { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; color: var(--ink-2); }
-.pc-pair + .pc-pair { border-top: 1px solid var(--line); }
-.pc-pair.win { color: var(--ink); font-weight: 600; }
-.pc-who { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
-.pc-who button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
-.pc-pts { display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
-.pc-pts small { color: var(--ink-3); font-weight: 400; }
-.pc-pair.win .pc-pts b { color: var(--ember); }
+.past-cup .note { margin: 12px 2px 0; }
+/* сетка плей-офф: туры — столбцы слева направо, встречи — в столбик; на узком экране листается вбок */
+.bracket-wrap { overflow-x: auto; margin: 0 -4px; padding: 2px 4px 10px; -webkit-overflow-scrolling: touch; }
+.bracket { display: flex; gap: 14px; min-width: min-content; }
+.br-col { flex: 1 0 236px; display: flex; flex-direction: column; min-width: 0; }
+.br-title { font: 700 13px var(--display); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); padding: 0 2px 8px; }
+.br-body { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 14px; }
+.br-part { display: flex; flex-direction: column; justify-content: space-around; gap: 10px; flex: 1; }
+.br-path { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 0 2px; }
+.br-match { background: var(--panel); border-radius: 14px; box-shadow: var(--shadow-s); padding: 2px 12px; }
+.br-team { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 0; color: var(--ink-2); font-size: 14px; }
+.br-team + .br-team { border-top: 1px solid var(--line); }
+.br-team.win { color: var(--ink); font-weight: 600; }
+.br-who { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.br-who button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.br-pts { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.br-pts small { color: var(--ink-3); font-weight: 400; font-size: 12px; }
+.br-team.win .br-pts b { color: var(--ember); }
+.br-note { display: block; color: var(--ink-3); font-size: 12px; line-height: 1.4; padding: 0 2px; }
+.ptsgrid.n6 { grid-template-columns: repeat(6, 1fr); }
+.rules-full { margin: 22px 0 0; }
+.rules-full summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
+/* кубок текущего сезона — режим «Таблицы» */
+.cup-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+.cup-head .h2 { margin: 2px 0 0; }
+.f-split > span:first-child:not([class]) { color: var(--ink-3); }
 .rules-past { margin: 0; padding-left: 22px; }
 .rules-past li { padding-left: 4px; overflow-wrap: anywhere; }

@@ -446,7 +446,8 @@ window.EBLData = (() => {
       if (!live) return null;
       const r = check(await pub.from("season_archive").select("season, standings, cup, rules").eq("season", season).maybeSingle());
       return r && { season: r.season, cup: r.cup, rules: r.rules,
-        standings: r.standings.map((s) => ({ name: s.nick, total: +s.total, baths: s.baths, u: s.u, uu: s.uu, long: s.long, k: s.k, weekPts: s.week_pts || {} })) };
+        // столбцов, которых в сезоне не было (долгие — до 2025, ультра и компания — в 2023), в строке нет — таблица их не рисует
+        standings: r.standings.map(({ nick, total, week_pts, week_baths, ...st }) => ({ name: nick, total: +total, ...st, weekPts: week_pts || {}, weekBaths: week_baths || {} })) };
     },
     // очки кубка по походам за тур — только участникам лиги, по запросу (гостю хватает сумм из boot_public)
     async cupVisits(round) {
