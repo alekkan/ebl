@@ -341,6 +341,24 @@ def all_views(s, label, mobile=False):
                " return !!c && c.querySelectorAll('text').length === 7 && c.querySelectorAll('text.lead').length === 1 && !!c.querySelector('polygon.shape')"
                " && document.querySelector('#playerBody .ptype-name').textContent.trim().length > 3"
                " && [...c.querySelectorAll('text')].every((t) => { const r = t.getBoundingClientRect(); return r.left >= box.left && r.right <= box.right; }); }"))
+    # 24.11: чемпионат по годам — место, очки и бани в каждом сезоне (прошлые — из архива, подгружается); нажал строку — тот год,
+    # и диаграмма типа — за него, с осями, которые тогда считали
+    archived = s.js("() => document.querySelectorAll('#tSeasonPick option').length > 1")   # на витрине архива сезонов нет — и блока нет
+    if archived:
+        try: s.page.wait_for_selector("#playerBody .pchamp button:not(.on)", timeout=8000)
+        except Exception: pass
+    check(f"{label}: профиль — чемпионат по годам: строки сезонов с местом, очками и банями, текущий выделен" if archived
+          else f"{label}: профиль — архива сезонов нет, «Чемпионата по годам» тоже", not s.js("() => !!document.querySelector('#playerBody .pchamp')") if not archived else
+          s.js("() => { const r = [...document.querySelectorAll('#playerBody .pchamp button')]; return r.length >= 2 && r.every((x) => /\\d+ место/.test(x.innerText) && /очк/.test(x.innerText) && /бан/.test(x.innerText))"
+               " && document.querySelector('#playerBody .pchamp button.on')?.dataset.year === '2026'; }"),
+          s.js("() => document.querySelector('#playerBody .pchamp')?.innerText || ''"))
+    py = s.js("() => document.querySelector('#playerBody .pchamp button:not(.on)')?.dataset.year || ''")
+    if py:
+        s.page.click(f'#playerBody .pchamp [data-year="{py}"]'); s.page.wait_for_timeout(200)
+        check(f"{label}: …нажал {py} — открыт этот год, диаграмма типа за него (осей 4–7)",
+              s.js(f"() => {{ const n = document.querySelectorAll('#playerBody .ptype-chart text').length; return document.querySelector('#playerBody .pchamp button.on')?.dataset.year === '{py}'"
+                   f" && n >= 4 && n <= 7 && /{py}/.test(document.querySelector('#playerBody .ptype .hint').innerText); }}"))
+        s.page.click('#playerBody .pchamp [data-year="2026"]'); s.page.wait_for_timeout(200)
     # профиль (05.11): у бани — значок типа; на телефоне география выше списка, а в списке первые 8 и «Показать все»
     check(f"{label}: профиль — у бань в списке значок типа", s.js("() => !!document.querySelector('#playerBody .blist button .dot')"))
     # 05.11: годы в профиле — нажал прошлый год, ниже его бани; «Показать на карте» — бани участника за этот год
@@ -1746,6 +1764,12 @@ with sync_playwright() as pw:
               s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-t').length") == 2 and s.js(cup_top) == "91:10", s.js(cup_top))
         check("гость: тур и срок в заголовке, походы тура ему не показаны",
               "Тур 1" in s.js("() => document.getElementById('cupTitle').innerText") and not s.js("() => !!document.querySelector('#cupRounds .br-more, #cupRounds .br-vis')"))
+        # 24.11: ник в сетке открывает профиль участника (раньше нажатие только выбирало тур)
+        who = s.js("() => document.querySelector('#cupRounds .br-nick').dataset.player")
+        s.page.click("#cupRounds .br-nick")
+        check("гость: ник в сетке кубка — открывается профиль участника",
+              s.js("() => !document.getElementById('playerModal').hidden && document.querySelector('#playerBody h2').innerText") == who, who)
+        s.js("() => (document.getElementById('playerModal').hidden = true)")
         s.clean("Кубок у гостя"); s.close()
         s = Site(browser, url, mobile=True, name="cup-phone")
         s.view("cup")

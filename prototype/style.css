@@ -983,6 +983,13 @@ tr.below { color: var(--ink-2); }
 .bars-max { position: absolute; left: 0; right: 0; top: 0; border-top: 1px dashed var(--line); pointer-events: none; }
 .bars-max span { position: absolute; right: 0; top: -6px; font: 600 11px/1 var(--display); color: var(--ink-3); }
 .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; padding-right: 22px; }
+/* чемпионат по годам в профиле (24.11): строка — сезон, нажал — его бани ниже */
+.pchamp { display: grid; gap: 4px; }
+.pchamp button { display: grid; grid-template-columns: 52px 1fr 1fr 1fr; gap: 8px; align-items: baseline; border: 0; background: var(--panel-2); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 14px; color: var(--ink-2); text-align: left; cursor: pointer; font-variant-numeric: tabular-nums; }
+.pchamp button b { font: 700 14px/1 var(--display); color: var(--ink); }
+.pchamp button.on { box-shadow: inset 0 0 0 1.5px var(--oak); }
+.pchamp .pc-place { color: var(--ink); font-weight: 600; }
+.pchamp .pc-place.p1 { color: var(--ember); }
 /* тип участника — лепестковая диаграмма в профиле (24.11) */
 .ptype-name { font: 700 14px/1.2 var(--display); color: var(--ember); letter-spacing: -.01em; }
 .ptype-chart { display: block; width: 100%; max-width: 380px; margin: 10px auto 0; overflow: visible; }
@@ -2111,6 +2118,8 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .br-t.win .br-thead b { color: var(--ember); }
 .br-m { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 14px; color: var(--ink); }
 .br-m > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.br-nick { display: inline-flex; align-items: center; gap: 6px; min-width: 0; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.br-nick:hover { color: var(--oak); }
 .br-m small { color: var(--ink-2); font-weight: 600; min-width: 16px; text-align: right; }
 .br-fate { font-style: normal; font-size: 11px; line-height: 1; color: var(--ink-3); }
 .br-fate[data-to="champions"], .br-fate[data-to="final"] { color: #2f8f4e; }
