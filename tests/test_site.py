@@ -341,6 +341,23 @@ def all_views(s, label, mobile=False):
                " return !!c && c.querySelectorAll('text').length === 7 && c.querySelectorAll('text.lead').length === 1 && !!c.querySelector('polygon.shape')"
                " && document.querySelector('#playerBody .ptype-name').textContent.trim().length > 3"
                " && [...c.querySelectorAll('text')].every((t) => { const r = t.getBoundingClientRect(); return r.left >= box.left && r.right <= box.right; }); }"))
+    # 24.11: именная приписка к типу — у Арса «…-пиздабол», у остальных её нет (на телефоне строка не открывает профиль — там не проверяем)
+    row = "() => [...document.querySelectorAll('#standings tbody tr')].find((r) => r.querySelector('.who-cell')?.innerText.trim().split('\\n').pop().trim() === 'Арс')"
+    if not mobile and s.js("() => !!(" + row + ")()") and s.js("() => !/Арс/.test(document.querySelector('#standings tbody tr .who-cell').innerText)"):
+        first_name = s.js("() => document.querySelector('#playerBody .ptype-name').textContent")
+        s.js("() => (" + row + ")().click()"); s.page.wait_for_timeout(300)
+        ars = s.js("() => document.querySelector('#playerBody .ptype-name')?.textContent || ''")
+        check(f"{label}: профиль Арса — тип с припиской «-пиздабол», у другого участника её нет", ars.endswith("-пиздабол") and "пиздабол" not in first_name, (ars, first_name))
+        s.js("() => document.querySelector('#standings tbody tr').click()"); s.page.wait_for_timeout(300)
+    # 24.11: меньше 20 бань за сезон — типа участника в профиле нет
+    few = s.js("() => { const i = [...document.querySelectorAll('#standings thead th')].findIndex((h) => h.dataset.k === 'baths');"
+               " const r = [...document.querySelectorAll('#standings tbody tr[data-player]')].find((x) => { const n = +x.children[i].textContent; return n > 0 && n < 20; });"
+               " return r ? r.dataset.player : ''; }")
+    if not mobile and few:
+        s.js("(n) => [...document.querySelectorAll('#standings tbody tr[data-player]')].find((x) => x.dataset.player === n).click()", few); s.page.wait_for_timeout(300)
+        check(f"{label}: профиль участника с меньше чем 20 банями — типа участника нет",
+              s.js("(n) => document.querySelector('#playerBody h2').innerText.includes(n) && !document.querySelector('#playerBody .ptype')", few), few)
+        s.js("() => document.querySelector('#standings tbody tr').click()"); s.page.wait_for_timeout(300)
     # 24.11: чемпионат по годам — место, очки и бани в каждом сезоне (прошлые — из архива, подгружается); нажал строку — тот год,
     # и диаграмма типа — за него, с осями, которые тогда считали
     archived = s.js("() => document.querySelectorAll('#tSeasonPick option').length > 1")   # на витрине архива сезонов нет — и блока нет
