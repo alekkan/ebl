@@ -802,7 +802,7 @@ tr.below { color: var(--ink-2); }
 }
 .week-grid th, .week-grid td { padding: 8px 6px; text-align: center; min-width: 38px; }
 .week-grid th.l, .week-grid td.l { text-align: left; }
-.week-grid th[data-w] { cursor: pointer; }
+.week-grid th[data-w] { cursor: pointer; } #pastGrid th[data-w] { cursor: default; }
 .week-grid th.on { color: var(--oak); }
 .week-grid td.on { box-shadow: inset 2px 0 0 var(--oak-soft), inset -2px 0 0 var(--oak-soft); }
 .week-grid td.c { font-weight: 700; }

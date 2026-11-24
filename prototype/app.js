@@ -1742,10 +1742,11 @@
   }
   function setTableMode(m) {
     $$("#tMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
-    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = m !== "week";
+    // у прошлого сезона вторая вкладка — «Все недели» (одна сетка), недельного зачёта по отдельной неделе нет
+    $("#tSeason").hidden = m !== "season"; $("#tWeek").hidden = !(m === "week" && !past); $("#pastWeeks").hidden = !(m === "week" && past);
     $("#tPastCup").hidden = !(m === "cup" && past); $("#view-cup").hidden = !(m === "cup" && !past);
     $("#podium").hidden = m !== "season";
-    if (m === "week") renderWeek();
+    if (m === "week" && !past) renderWeek();
     if (m === "cup") past ? renderPastCup() : renderCup();
   }
   async function openCupTab() { if (past) await setSeason(2026); setTableMode("cup"); }
@@ -1764,7 +1765,7 @@
         <p class="note">Очки за тур; у команды — сумма. Выделены те, кто прошёл дальше.</p>`;
   }
   $("#tPastCup").addEventListener("click", (e) => { const b = e.target.closest("[data-player]"); if (b) openPlayer(b.dataset.player, past?.season); });
-  // выбор сезона (24.11): у прошлого — общий зачёт со «Всеми неделями», недельный зачёт и сетка кубка; таймера и линии Кубка нет
+  // выбор сезона (24.11): у прошлого — три вкладки: общий зачёт, «Все недели» и сетка кубка; таймера и линии Кубка нет
   const seasonOpts = [2026, ...(data.seasons || [])].map((y) => `<option value="${y}">Сезон ${y}</option>`).join("");
   async function setSeason(y) {
     let a = null;
@@ -1772,7 +1773,8 @@
     past = a ? { season: y, ...a } : null;
     $("#tSeasonPick").value = past ? y : 2026;
     $('#tMode [data-m="cup"]').hidden = !past && !cup;
-    $("#tableTimer").hidden = !!past; $("#tSeason .cupnote").hidden = !!past; $("#pastWeeks").hidden = !past;
+    $('#tMode [data-m="week"]').textContent = past ? "Все недели" : "Недельный зачёт";
+    $("#tableTimer").hidden = !!past; $("#tSeason .cupnote").hidden = !!past;
     viewWeek = past ? past.lastWeek : curWeek;
     sortKey = "total"; sortDir = -1;
     if (past) {
@@ -1814,9 +1816,8 @@
     const th = e.target.closest("th[data-w]"); if (th) { viewWeek = +th.dataset.w; renderWeek(); $("#tWeek").scrollIntoView({ behavior: calm ? "auto" : "smooth" }); return; }
     const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player, past?.season);
   });
-  // «Все недели» под общим зачётом прошлого сезона: неделя открывается в недельном зачёте
+  // «Все недели» прошлого сезона: открывается только карточка участника
   $("#pastGrid").addEventListener("click", (e) => {
-    const th = e.target.closest("th[data-w]"); if (th) { viewWeek = +th.dataset.w; setTableMode("week"); $("#tMode").scrollIntoView({ behavior: calm ? "auto" : "smooth" }); return; }
     const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player, past?.season);
   });
   $("#weekTable").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-player]"); if (tr) openPlayer(tr.dataset.player, past?.season); });

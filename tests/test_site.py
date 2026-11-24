@@ -253,7 +253,7 @@ def all_views(s, label, mobile=False):
     if s.js("() => !document.getElementById('tSeasonPick').hidden"):
         def pick(y):
             s.page.select_option("#tSeasonPick", str(y))
-            s.page.wait_for_function("(y) => document.getElementById('tableEyebrow').innerText.includes(y) && document.getElementById('pastWeeks').hidden === (y === 2026)", arg=y, timeout=8000)
+            s.page.wait_for_function("(y) => document.getElementById('tableEyebrow').innerText.includes(y) ", arg=y, timeout=8000)
         pick(2025)
         past = s.js("""() => { const r = [...document.querySelectorAll('#standings tbody tr[data-player]')]; const q = (x) => document.querySelector(x);
           return { n: r.length, first: r[0].innerText.replace(/\\s+/g, ' ').trim(), crown: r[0].querySelector('.crowns b')?.innerText, spark: !!q('#standings svg.spark'),
@@ -263,19 +263,21 @@ def all_views(s, label, mobile=False):
         check(f"{label}: сезон 2025 — 33 участника, первый Ден с 662,6, победы в неделях; графика 12 недель, столбцов «Общ.» и «Регионы» нет",
               past["n"] == 33 and past["first"].startswith("1 ") and "Ден" in past["first"] and "662,6" in past["first"] and int(past["crown"] or 0) > 0 and not past["spark"]
               and "12 недель" not in past["head"] and "общ." not in past["head"] and "регионы" not in past["head"] and "компания" in past["head"] and "Ден" in past["pod"], past)
-        check(f"{label}: сезон 2025 — таймера и линии Кубка нет, есть недельный зачёт и «Кубок», в шапке «Сезон 2025 · итоги»",
+        check(f"{label}: сезон 2025 — таймера и линии Кубка нет, есть «Все недели» и «Кубок», в шапке «Сезон 2025 · итоги»",
               not past["week"] and not past["cup"] and past["timer"] and not past["line"] and "сезон 2025" in past["eb"], past)
-        check(f"{label}: сезон 2025 — под общим зачётом «Все недели»: 53 недели, участники, победители недель подсвечены",
+        check(f"{label}: сезон 2025 — «Все недели»: 53 недели, участники, победители недель подсвечены",
               past["gw"] == 53 and past["gr"] >= 30 and past["gp"] >= 52, past)
         if mobile:
             s.no_clip(f"{label}: сезон 2025 на телефоне", "#view-table")
-        # неделя из «Всех недель» открывается в недельном зачёте прошлого сезона
+        # вторая вкладка прошлого сезона — «Все недели»: одна сетка, недельного зачёта по отдельной неделе нет
+        s.page.click('#tMode [data-m="week"]')
+        wk = s.js("""() => { const q = (x) => document.querySelector(x); return { tab: q('#tMode [data-m="week"]').innerText, grid: !q('#pastWeeks').hidden,
+          week: q('#tWeek').hidden, season: q('#tSeason').hidden, pod: q('#podium').hidden }; }""")
         s.page.click('#pastGrid th[data-w="10"]')
-        s.page.wait_for_selector("#tWeek:not([hidden])", timeout=8000)
-        wk = s.js("""() => ({ t: document.getElementById('wTitle').innerText.replace(/\\s+/g, ' '), n: document.querySelectorAll('#weekTable tbody tr').length,
-          next: document.getElementById('wNext').disabled, on: document.querySelector('#weekGrid th.on')?.innerText })""")
-        check(f"{label}: сезон 2025 — неделя W10 в недельном зачёте: даты марта 2025, участники, это не идущая неделя",
-              wk["t"].startswith("W10") and "мар" in wk["t"].lower() and "идёт" not in wk["t"].lower() and wk["n"] > 0 and not wk["next"] and wk["on"] == "W10", wk)
+        check(f"{label}: сезон 2025 — вкладка «Все недели»: только сетка, неделя не открывается",
+              wk["tab"] == "Все недели" and wk["grid"] and wk["week"] and wk["season"] and wk["pod"] and s.js("() => document.getElementById('tWeek').hidden"), wk)
+        if mobile:
+            s.no_clip(f"{label}: все недели 2025 на телефоне", "#view-table")
         s.page.click('#tMode [data-m="cup"]')
         pc = s.js("() => document.getElementById('tPastCup').innerText.replace(/\\s+/g, ' ')")
         br = s.js("""() => { const c = [...document.querySelectorAll('#tPastCup .br-col')].map((x) => x.getBoundingClientRect());
@@ -297,8 +299,8 @@ def all_views(s, label, mobile=False):
                   n1 in st["first"] and not any(x in st["head"] for x in no) and st["gw"] >= 52 and f"Кубок {y} — {who}" in pc and "финал" in pc.lower(), [st, pc[:200]])
             s.page.click('#tMode [data-m="season"]')
         pick(2026)
-        check(f"{label}: обратно в сезон 2026 — недельный зачёт, таймер и график 12 недель на месте, «Все недели» и «Кубок» убраны",
-              s.js("""() => { const q = (x) => document.querySelector(x); return !q('#tMode [data-m="week"]').hidden && q('#tMode [data-m="cup"]').hidden && q('#pastWeeks').hidden
+        check(f"{label}: обратно в сезон 2026 — недельный зачёт, таймер и график 12 недель на месте, «Всех недель» и «Кубка» нет",
+              s.js("""() => { const q = (x) => document.querySelector(x); return !q('#tMode [data-m="week"]').hidden && q('#tMode [data-m="cup"]').hidden && q('#pastWeeks').hidden && q('#tMode [data-m="week"]').innerText === 'Недельный зачёт'
                 && !q('#tableTimer').hidden && q('#standings thead').innerText.toLowerCase().includes('регионы') && !!q('#standings svg.spark'); }"""))
         # правила прошлого сезона — как нынешние: прейскурант, очки за места, мелкий шрифт; положение целиком — под спойлером
         s.view("rules")
