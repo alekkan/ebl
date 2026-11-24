@@ -2112,8 +2112,8 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .rules-full { margin: 22px 0 0; }
 .rules-full summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
 /* кубок текущего сезона — режим «Таблицы» */
-.cup-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
-.cup-head .h2 { margin: 2px 0 0; }
+.tcup-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+.tcup-head .h2 { margin: 2px 0 0; }
 .f-split > span:first-child:not([class]) { color: var(--ink-3); }
 .rules-past { margin: 0; padding-left: 22px; }
 .rules-past li { padding-left: 4px; overflow-wrap: anywhere; }
