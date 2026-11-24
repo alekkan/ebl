@@ -2079,3 +2079,20 @@ path.rd-link { stroke: var(--t-spa); fill: none; opacity: .8; }
 .sh-schedule span { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; }
 
 #shMode button, #shEvery button, .sh-presets button, .sh-weekdays button { min-height: 44px; }
+
+/* ---------- архив сезонов (24.11): выбор сезона в «Таблице» и «Правилах», кубок прошлого сезона ---------- */
+.season-pick { width: auto; min-width: 150px; height: 38px; margin: 0 0 14px; font-weight: 600; display: block; }
+.past-cup .h2 { margin: 26px 0 10px; font-size: 19px; }
+.past-cup .note { margin: -4px 0 10px; }
+.pc-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.pc-group { background: var(--panel); border-radius: 16px; box-shadow: var(--shadow-s); padding: 6px 14px; }
+.pc-pair { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; color: var(--ink-2); }
+.pc-pair + .pc-pair { border-top: 1px solid var(--line); }
+.pc-pair.win { color: var(--ink); font-weight: 600; }
+.pc-who { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.pc-who button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.pc-pts { display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.pc-pts small { color: var(--ink-3); font-weight: 400; }
+.pc-pair.win .pc-pts b { color: var(--ember); }
+.rules-past { margin: 0; padding-left: 22px; }
+.rules-past li { padding-left: 4px; overflow-wrap: anywhere; }

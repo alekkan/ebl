@@ -204,6 +204,7 @@ window.EBLData = (() => {
       commission: players.filter((p) => p.is_commission).map((p) => p.nick),
       cup: common.cup ? { ...common.cup, gate: common.cup.long_gate || null } : null,
       weekPosts: (common.week_posts || []).map((w) => ({ week: w.week, at: w.posted_at })),   // итоги недель, которые бот запостил в чат — в ленту
+      seasons: common.seasons || [],   // прошлые сезоны в архиве (24.11) — сам архив по выбору сезона, seasonArchive
       photos: Object.fromEntries(players.filter((p) => p.photo_url).map((p) => [p.nick, avaCopy[p.photo_url] || viaApi(p.photo_url)])),
     };
   }
@@ -439,6 +440,13 @@ window.EBLData = (() => {
     async confirmLong(visitId, ok) {
       if (!live) return;
       check(await sb.from("visits").update({ long_ok: ok }).eq("id", visitId));
+    },
+    // итоги прошлого сезона (24.11): общий зачёт, сетка кубка, положение — по запросу, когда сезон выбрали в «Таблице» или «Правилах»
+    async seasonArchive(season) {
+      if (!live) return null;
+      const r = check(await pub.from("season_archive").select("season, standings, cup, rules").eq("season", season).maybeSingle());
+      return r && { season: r.season, cup: r.cup, rules: r.rules,
+        standings: r.standings.map((s) => ({ name: s.nick, total: +s.total, baths: s.baths, u: s.u, uu: s.uu, long: s.long, k: s.k, weekPts: s.week_pts || {} })) };
     },
     // очки кубка по походам за тур — только участникам лиги, по запросу (гостю хватает сумм из boot_public)
     async cupVisits(round) {

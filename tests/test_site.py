@@ -242,6 +242,49 @@ def all_views(s, label, mobile=False):
     if mobile:
         s.no_clip(f"{label}: «Чемпионы» на телефоне", "#view-table")
     s.page.click('#tMode [data-m="season"]')
+    # архив сезонов (24.11): прошлый сезон — общий зачёт с неделями, кубок и чемпионы; недельного зачёта нет
+    if s.js("() => !document.getElementById('tSeasonPick').hidden"):
+        s.page.select_option("#tSeasonPick", "2025")
+        s.page.wait_for_function("() => document.getElementById('tableEyebrow').innerText.toLowerCase().includes('2025')", timeout=8000)
+        past = s.js("""() => { const r = [...document.querySelectorAll('#standings tbody tr[data-player]')]; const q = (x) => document.querySelector(x);
+          return { n: r.length, first: r[0].innerText.replace(/\\s+/g, ' ').trim(), crown: r[0].querySelector('.crowns b')?.innerText, spark: !!r[0].querySelector('svg.spark'),
+            head: q('#standings thead').innerText.toLowerCase(), week: q('#tMode [data-m="week"]').hidden, cup: q('#tMode [data-m="cup"]').hidden,
+            timer: q('#tableTimer').hidden, line: !!q('#standings .cupline'), pod: q('#podium .p1').innerText }; }""")
+        check(f"{label}: сезон 2025 — 33 участника, первый Ден с 662,6, победы в неделях и график 12 недель, столбцов «Общ.» и «Регионы» нет",
+              past["n"] == 33 and past["first"].startswith("1 ") and "Ден" in past["first"] and "662,6" in past["first"] and int(past["crown"] or 0) > 0 and past["spark"]
+              and "общ." not in past["head"] and "регионы" not in past["head"] and "компания" in past["head"] and "Ден" in past["pod"], past)
+        check(f"{label}: сезон 2025 — недельного зачёта, таймера и линии Кубка нет, есть «Кубок»",
+              past["week"] and not past["cup"] and past["timer"] and not past["line"], past)
+        s.page.click('#tMode [data-m="cup"]')
+        pc = s.js("() => document.getElementById('tPastCup').innerText.replace(/\\s+/g, ' ')")
+        check(f"{label}: кубок 2025 — обладатели Хвост и Денис, туры до финала, таблица сезона скрыта",
+              "Кубок 2025 — Хвост и Денис" in pc and "Раунд 1" in pc and "Финал" in pc and "16 + 18 34" in pc
+              and s.js("() => document.getElementById('tSeason').hidden && document.getElementById('podium').hidden"), pc[:300])
+        if mobile:
+            s.no_clip(f"{label}: кубок 2025 на телефоне", "#view-table")
+        s.page.click('#tMode [data-m="champs"]')
+        check(f"{label}: «Чемпионы» открываются и из прошлого сезона", s.js("() => !document.getElementById('tChamps').hidden && document.getElementById('tPastCup').hidden"))
+        s.page.click('#tMode [data-m="season"]')
+        if mobile:
+            s.no_clip(f"{label}: сезон 2025 на телефоне", "#view-table")
+        s.page.select_option("#tSeasonPick", "2026")
+        s.page.wait_for_function("() => document.getElementById('tableEyebrow').innerText.includes('2026')", timeout=8000)
+        check(f"{label}: обратно в сезон 2026 — недельный зачёт и таймер на месте, «Кубок» убран",
+              s.js("""() => { const q = (x) => document.querySelector(x); return !q('#tMode [data-m="week"]').hidden && q('#tMode [data-m="cup"]').hidden
+                && !q('#tableTimer').hidden && q('#standings thead').innerText.toLowerCase().includes('регионы'); }"""))
+        # правила прошлого сезона — положение текстом
+        s.view("rules")
+        s.page.select_option("#rSeasonPick", "2025")
+        s.page.wait_for_selector("#rulesPast:not([hidden])", timeout=8000)
+        rp = s.js("""() => ({ n: document.querySelectorAll('#rulesPast li').length, t: document.getElementById('rulesPast').innerText,
+          eb: document.getElementById('rulesEyebrow').innerText.toLowerCase(), hid: ['rulesTabs', 'rulesChamp', 'rulesCup'].every((i) => document.getElementById(i).hidden) })""")
+        check(f"{label}: правила 2025 — положение о третьем чемпионате, 17 пунктов, правила 2026 скрыты",
+              rp["n"] == 17 and "третьем" in rp["eb"] and rp["hid"] and "31 декабря 2025" in rp["t"], {**rp, "t": rp["t"][:120]})
+        if mobile:
+            s.no_clip(f"{label}: правила 2025 на телефоне", "#view-rules")
+        s.page.select_option("#rSeasonPick", "2026")
+        check(f"{label}: правила — обратно на 2026", s.js("() => !document.getElementById('rulesChamp').hidden && document.getElementById('rulesPast').hidden && !document.getElementById('rulesTabs').hidden"))
+        s.view("table")
     # таблица по макету (04.11): линия Кубка с подписью, движение за неделю, столбцы словами с расшифровкой
     check(f"{label}: таблица — линия Кубка после 16-го, расшифровки у столбцов",
           s.js("() => !!document.querySelector('#standings tr.cupline')"

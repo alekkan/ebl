@@ -289,9 +289,12 @@
         </div>
         <div class="timer" id="tableTimer"></div>
       </div>
+      <!-- сезон (24.11): прошлые — из архива season_archive; без архива (витрина) выбора нет -->
+      <select class="sel season-pick" id="tSeasonPick" aria-label="Сезон" hidden></select>
       <div class="seg tmode" id="tMode" role="tablist" aria-label="Зачёт">
         <button type="button" data-m="season" aria-pressed="true">Общий зачёт</button>
         <button type="button" data-m="week" aria-pressed="false">Недельный зачёт</button>
+        <button type="button" data-m="cup" aria-pressed="false" hidden>Кубок</button>
         <button type="button" data-m="champs" aria-pressed="false">Чемпионы</button>
       </div>
       <div id="tSeason">
@@ -312,6 +315,8 @@
         <p class="note">В клетке — сколько бань за неделю. Подсвечены три первых места недели. Нажми на неделю, чтобы открыть её.</p>
         <div class="tablecard"><div class="tablewrap"><table id="weekGrid" class="week-grid"></table></div></div>
       </div>
+      <!-- кубок прошлого сезона (24.11): туры и пары из архива -->
+      <div id="tPastCup" class="past-cup" hidden></div>
       <!-- чемпионы прошлых лет (23.11): список — CHAMPS в app.js -->
       <div id="tChamps" hidden>
         <div class="tablecard"><div class="tablewrap"><table id="champs" class="champs"></table></div></div>
@@ -444,10 +449,13 @@
     <div class="wrap narrow">
       <div class="page-head">
         <div>
-          <div class="eyebrow">Положение о четвёртом чемпионате</div>
+          <div class="eyebrow" id="rulesEyebrow">Положение о четвёртом чемпионате</div>
           <h1>Как набрать очки</h1>
         </div>
       </div>
+      <select class="sel season-pick" id="rSeasonPick" aria-label="Сезон" hidden></select>
+      <!-- положение прошлого сезона (24.11) — текстом из архива -->
+      <ol class="fine rules-past" id="rulesPast" hidden></ol>
       <div class="cup-rounds" id="rulesTabs"><button type="button" data-rules="champ" aria-pressed="true">Чемпионат</button><button type="button" data-rules="cup" aria-pressed="false">Кубок</button></div>
 
       <div id="rulesChamp">
