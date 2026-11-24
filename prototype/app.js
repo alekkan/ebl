@@ -2052,7 +2052,7 @@
     </section>`;
   }
   // результаты прошлых сезонов (24.11) — из архива; его подгружаем при первом открытии профиля и перерисовываем карточку
-  let playerShown = null, playerYear, seasonsAsked = false;
+  let playerShown = null, playerYear, seasonsAsked = false, champMetric = "place";
   function openPlayer(name, year) {
     playerShown = name;
     if (!seasonsAsked && data.seasons?.length) {
@@ -2072,12 +2072,26 @@
     const inYear = (b, y) => (y === 2026 ? b.v26?.[name] : b.histBy?.[y]?.[name]) || 0;
     const cnt = (b) => (year === "all" ? YEARS.reduce((a, y) => a + inYear(b, y), 0) : inYear(b, year));
     playerYear = year;
-    // чемпионат по годам: место, очки и бани в каждом сезоне, где участник был в таблице; нажал строку — тот год
+    // чемпионат по годам: место, очки и бани в каждом сезоне, где участник был в таблице
     const champ = [...(data.seasons || []).map((y) => [y, archive[y]?.rows?.find((r) => r.name === name)]), [2026, s.baths ? s : null]]
       .filter(([, r]) => r).sort((a, b) => a[0] - b[0]);
-    const champHtml = champ.length > 1 || (champ.length && champ[0][0] !== 2026) ? `<section><h3>Чемпионат по годам</h3><div class="pchamp">${champ.map(([y, r]) =>
-      `<button type="button" data-year="${y}" class="${y === year ? "on" : ""}"><b>${y}</b><span class="pc-place${r.place <= 3 ? " p" + r.place : ""}">${r.place} место</span>`
-      + `<span>${fmt(r.total)} ${plural(r.total, "очко", "очка", "очков")}</span><span>${r.baths} ${plural(r.baths, "баня", "бани", "бань")}</span></button>`).join("")}</div></section>` : "";
+    // 24.11: вместо строк — график по годам с выбором, что смотреть: место (первое — наверху), очки или бани; точка — тот год
+    const champSvg = (m) => {
+      const W = 360, H = 150, X0 = 34, T = 30, B = 30, val = (r) => (m === "place" ? r.place : m === "total" ? r.total : r.baths);
+      const vs = champ.map(([, r]) => val(r)), lo = Math.min(...vs), hi = Math.max(...vs);
+      const pts = champ.map(([y, r], i) => {
+        const t = hi === lo ? .5 : (val(r) - lo) / (hi - lo);
+        return { y, r, x: champ.length === 1 ? W / 2 : X0 + (i * (W - 2 * X0)) / (champ.length - 1), py: T + (m === "place" ? t : 1 - t) * (H - T - B) };
+      });
+      const tip = (y, r) => `${y}: ${r.place} место, ${fmt(r.total)} ${plural(r.total, "очко", "очка", "очков")}, ${r.baths} ${plural(r.baths, "баня", "бани", "бань")}`;
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Чемпионат по годам"><polyline class="pc-line" points="${pts.map((p) => `${p.x.toFixed(1)},${p.py.toFixed(1)}`).join(" ")}"/>${pts.map((p) =>
+        `<g class="pc-pt${p.y === year ? " on" : ""}${m === "place" && p.r.place <= 3 ? " top" : ""}" data-year="${p.y}" role="button" tabindex="0" aria-label="${tip(p.y, p.r)}"><title>${tip(p.y, p.r)}</title>`
+        + `<rect x="${(p.x - 30).toFixed(1)}" y="0" width="60" height="${H}"/><circle cx="${p.x.toFixed(1)}" cy="${p.py.toFixed(1)}" r="4.5"/>`
+        + `<text class="pc-val" x="${p.x.toFixed(1)}" y="${(p.py - 11).toFixed(1)}">${m === "total" ? fmt(val(p.r)) : val(p.r)}</text><text class="pc-year" x="${p.x.toFixed(1)}" y="${H - 8}">${p.y}</text></g>`).join("")}</svg>`;
+    };
+    const champHtml = champ.length > 1 || (champ.length && champ[0][0] !== 2026) ? `<section><h3>Чемпионат по годам</h3><div class="pchamp"><div class="seg">${
+      [["place", "Место"], ["total", "Очки"], ["baths", "Бани"]].map(([k, l]) => `<button type="button" data-champ="${k}" aria-pressed="${k === champMetric}">${l}</button>`).join("")
+    }</div><div class="pc-chart">${champSvg(champMetric)}</div></div></section>` : "";
     const pastRow = typeof year === "number" && year !== 2026 ? archive[year]?.rows : null;
     const pastType = pastRow?.find((r) => r.name === name) ? playerType(pastRow.find((r) => r.name === name), year, pastRow) : "";
     const mine = baths.filter((b) => cnt(b)).sort((a, b) => cnt(b) - cnt(a));
@@ -2170,7 +2184,14 @@
     $("#playerModal").hidden = false;
     $$("#playerBody [data-bath]").forEach((x) => (x.onclick = () => { $("#playerModal").hidden = true; show("map"); openBath(+x.dataset.bath, true); }));
     if ($("#pOnMap")) $("#pOnMap").onclick = () => { $("#playerModal").hidden = true; playerOnMap(name, year); };
-    $$("#playerBody [data-year]").forEach((x) => (x.onclick = () => openPlayer(name, x.dataset.year === "all" ? "all" : +x.dataset.year)));
+    const bindYears = () => $$("#playerBody [data-year]").forEach((x) => (x.onclick = () => openPlayer(name, x.dataset.year === "all" ? "all" : +x.dataset.year)));
+    bindYears();
+    $$("#playerBody [data-champ]").forEach((x) => (x.onclick = () => {
+      champMetric = x.dataset.champ;
+      $$("#playerBody [data-champ]").forEach((b) => b.setAttribute("aria-pressed", String(b === x)));
+      $("#playerBody .pc-chart").innerHTML = champSvg(champMetric);
+      bindYears();
+    }));
     const bars = $("#pBars");
     if (bars) {
       const read = $("#pBarsRead");
