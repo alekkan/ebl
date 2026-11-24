@@ -1451,7 +1451,29 @@ post("долгая", 1302, chat=ME, chat_type="private")
 gated = " ".join(p.get("text") or "" for p in dm_sent(seen))
 check("долгая вне кубка — «+1 всей компании»; на время кубка — «после подтверждения Комиссии»",
       "+1 всей компании" in plain and "после подтверждения Комиссии" in gated and "+1 всей компании" not in gated, (plain, gated))
+sql(f"delete from visits where id = {vid}")
+# 24.11: долгую выбрали ещё в черновике — про подтверждение карточка молчала; из лички отвечать надо на копию в чате лиги
+def dm_visit(text, mid):
+    sql("delete from bot_sessions")
+    seen = len(TELEGRAM.calls)
+    post(text, mid, chat=ME, chat_type="private"); post("один", mid + 1, chat=ME, chat_type="private")
+    draft = " ".join(p.get("text") or "" for m, p in TELEGRAM.calls[seen:])
+    seen = len(TELEGRAM.calls)
+    post("да", mid + 2, chat=ME, chat_type="private")
+    v = sql("select max(v.id) from visits v join players p on p.id = v.created_by where p.nick = 'Леха' and v.source = 'bot'")
+    out = [(int(p.get("chat_id") or 0), p.get("text") or "") for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
+    return v, draft, " ".join(t for c, t in out if c == ME), " ".join(t for c, t in out if c == league)
+vid, draft, mine_txt, copy_txt = dm_visit("Василевские 3ч", 1310)
+check("кубок, долгая из черновика в личке: в черновике — «после подтверждения Комиссии», в карточке — ответить на копию в чате лиги, в копии — просьба автору",
+      "в зачёт после подтверждения Комиссии" in draft and "на копию этой карточки" in mine_txt and "автор через 2,5 часа" in copy_txt
+      and "на копию этой карточки" not in copy_txt, (draft, mine_txt, copy_txt))
+sql(f"delete from visits where id = {vid}")
+vid, draft, mine_txt, copy_txt = dm_visit("Василевские 2ч", 1320)
+check("…экспрессу про подтверждение не пишем", "подтверждения Комиссии" not in draft + mine_txt + copy_txt and "Ушло в Комиссию" in mine_txt, (draft, mine_txt, copy_txt))
 sql(f"delete from visits where id = {vid}"); sql("delete from settings where key = 'long_confirm'")
+vid, draft, mine_txt, copy_txt = dm_visit("Василевские 3ч", 1330)
+check("…вне кубка долгой — тоже", "подтверждения Комиссии" not in draft + mine_txt + copy_txt and "долгая, больше 2,5 ч" in mine_txt, (draft, mine_txt, copy_txt))
+sql(f"delete from visits where id = {vid}"); sql("delete from bot_sessions")
 
 print("Диагностика")
 diag = req("GET", "/functions/v1/tg-bot?diag=1")[1]
