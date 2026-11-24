@@ -346,6 +346,8 @@
     if (head) head.append($("#meBtn")); else if ($("#meBtn").parentElement !== $(".top")) $(".top .map-chips").before($("#meBtn"));
     $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + view));
     if (view === "map") setTimeout(() => map.invalidateSize(), 0);
+    // пока идёт кубок, «Таблица» в первый раз открывается на нём (24.11); дальше — тот режим, что выбрал сам
+    if (view === "table" && !tableSeen) { tableSeen = true; if (cup && !past && !cupOver()) setTableMode("cup"); }
     if (view === "owners") { initOwners(); setTimeout(() => setOwnSheet(ownSheet), 0); }
     if (view === "feed") renderFeed();
     if (view === "champs") renderChamps();
@@ -1740,6 +1742,8 @@
       <tbody>${CHAMPS.map(([y, champ, cup]) => `<tr><td class="l yr">${y}</td>${who(champ)}${who(cup)}</tr>`).join("")}</tbody>`;
     $$("#champs [data-player]").forEach((b) => (b.onclick = () => openPlayer(b.dataset.player)));
   }
+  let tableSeen = false;   // «Таблицу» уже открывали
+  const cupOver = () => (cup?.history || []).some((h) => h.results.some((t) => t.players.some((p) => p.to === "winner")));
   function setTableMode(m) {
     $$("#tMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
     // у прошлого сезона вторая вкладка — «Все недели» (одна сетка), недельного зачёта по отдельной неделе нет

@@ -1729,10 +1729,15 @@ with sync_playwright() as pw:
         req("POST", "/functions/v1/recompute", {})
         cup_top = "() => { const t = document.querySelector('#cupRounds .br-col.on .br-t'); return t ? t.dataset.team + ':' + t.querySelector('.br-thead b').innerText : ''; }"
         s = Site(browser, url, name="cup-guest")
+        s.view("table")
+        check("идёт кубок — «Таблица» открывается сразу на нём; «Кубок» — третья закладка",
+              s.js("() => !document.getElementById('view-cup').hidden && document.getElementById('tSeason').hidden")
+              and s.js("() => [...document.querySelectorAll('#tMode button')].map((b) => b.dataset.m).join()") == "season,week,cup")
+        s.page.click('#tMode [data-m="season"]'); s.view("feed"); s.view("table")
+        check("выбрал общий зачёт, ушёл и вернулся — общий зачёт остался", s.js("() => document.getElementById('view-cup').hidden && !document.getElementById('tSeason').hidden"))
         s.view("cup")
         check("гость: вкладка «Кубок» — две команды тура, первая — у кого больше очков (без долгой: 5 + 5)",
               s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-t').length") == 2 and s.js(cup_top) == "91:10", s.js(cup_top))
-        check("«Кубок» — первая закладка «Таблицы»", s.js("() => [...document.querySelectorAll('#tMode button')].filter((b) => !b.hidden)[0].dataset.m") == "cup")
         check("гость: тур и срок в заголовке, походы тура ему не показаны",
               "Тур 1" in s.js("() => document.getElementById('cupTitle').innerText") and not s.js("() => !!document.querySelector('#cupRounds .br-more, #cupRounds .br-vis')"))
         s.clean("Кубок у гостя"); s.close()
