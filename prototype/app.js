@@ -2016,9 +2016,9 @@
   // как у половины лиги. От лучшей доли откладывать пробовали — один «частник на 100%» прижимал остальных к центру.
   // Ось, где участник выше всего в лиге, даёт название типа. В подписи — сами числа: походов в бани этого типа или отметок в таблице
   const PTYPE = [["public", "Общественные", "Общественник"], ["u", "Уникальные", "Коллекционер"], ["uu", "Ультра", "Ультрас"], ["long", "Долгие", "Долгожитель"],
-    ["k", "Компания", "Душа компании"], ["private", "Частные", "Частник"], ["spa", "Хуитнес", "Хуитнесмен"]];
+    ["k", "Компания", "Душа компании", "Компанеец"], ["private", "Частные", "Частник"], ["spa", "Хуитнес", "Хуитнесмен"]];
   // именная приписка к типу (24.11, просьба владельца): у Арса любой тип, в любом сезоне — «…-пиздабол»
-  const PTYPE_MIN = 20;
+  const PTYPE_MIN = 20, PTYPE_NEAR = 0.1;
   const PTYPE_TAIL = { "Арс": "пиздабол" };
   // Прошлые сезоны (24.11) — из архива: оси посещений только те, что тогда считали (долгие — с 2025, ультра и компания — с 2024)
   function playerType(s, year = 2026, rows = ranked) {
@@ -2027,14 +2027,18 @@
     const raw = (r, key) => (key in TYPE_LABEL ? byType[r.name]?.[key] || 0 : r[key] || 0);
     const share = (r, key) => { const d = key in TYPE_LABEL ? Object.values(byType[r.name] || {}).reduce((a, x) => a + x, 0) : r.baths; return d ? raw(r, key) / d : 0; };
     const league = rows.filter((r) => r.baths >= 5);
-    const axes = PTYPE.filter(([key]) => key in TYPE_LABEL || rows.some((r) => r[key] != null)).map(([key, label, title]) => {
+    const axes = PTYPE.filter(([key]) => key in TYPE_LABEL || rows.some((r) => r[key] != null)).map(([key, label, title, short]) => {
       const mine = share(s, key), all = (league.length ? league : rows).filter((r) => r.name !== s.name).map((r) => share(r, key));
       const below = all.filter((x) => x < mine).length + all.filter((x) => x === mine).length / 2;
-      return { key, label, title, n: raw(s, key), v: mine && all.length ? below / all.length : mine ? 1 : 0 };
+      return { key, label, title, short: short || title, n: raw(s, key), v: mine && all.length ? below / all.length : mine ? 1 : 0 };
     });
     // 24.11: меньше 20 бань за сезон — типа нет: по десятку походов диаграмма случайная
     if (s.baths < PTYPE_MIN || !axes.some((a) => a.v)) return "";
     const lead = axes.reduce((a, x) => (x.v > a.v ? x : a));
+    // 24.11: вторая (и третья) ось почти вровень с первой (PTYPE_NEAR) — тип двойной или тройной, «Общественник-компанеец»:
+    // одиночные выходили у всех одни и те же
+    const near = [...axes].sort((a, b) => b.v - a.v).filter((a) => a.v && lead.v - a.v <= PTYPE_NEAR).slice(0, 3);
+    const typeName = (near.length > 1 ? near.map((a, i) => (i ? a.short.toLowerCase() : a.short)).join("-") : lead.title) + (PTYPE_TAIL[s.name] ? "-" + PTYPE_TAIL[s.name] : "");
     const W = 360, H = 250, cx = W / 2, cy = H / 2, R = 78;
     const at = (i, k) => { const t = -Math.PI / 2 + (i * 2 * Math.PI) / axes.length; return [cx + Math.cos(t) * R * k, cy + Math.sin(t) * R * k]; };
     const pts = (k) => axes.map((a, i) => at(i, typeof k === "function" ? k(a) : k).map((x) => x.toFixed(1)).join(",")).join(" ");
@@ -2044,7 +2048,7 @@
       return `<text x="${x.toFixed(1)}" y="${(y + (y < cy - R ? -8 : y > cy + R * 0.5 ? 8 : 0)).toFixed(1)}" text-anchor="${anchor}" class="${a === lead ? "lead" : ""}">${a.label} <tspan>${a.n}</tspan></text>`;
     }).join("");
     return `<section class="ptype">
-      <div class="bars-head"><h3>Тип участника</h3><span class="ptype-name">${lead.title}${PTYPE_TAIL[s.name] ? "-" + PTYPE_TAIL[s.name] : ""}</span></div>
+      <div class="bars-head"><h3>Тип участника</h3><span class="ptype-name">${typeName}</span></div>
       <svg class="ptype-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Тип участника: ${lead.title}. ${axes.map((a) => `${a.label} — ${a.n}`).join(", ")}">
         ${[1, 2 / 3, 1 / 3].map((k) => `<polygon class="ring" points="${pts(k)}"/>`).join("")}
         ${axes.map((a, i) => { const [x, y] = at(i, 1); return `<line class="ring" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`; }).join("")}
