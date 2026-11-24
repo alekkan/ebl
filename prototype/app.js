@@ -2018,6 +2018,7 @@
   const PTYPE = [["public", "Общественные", "Общественник"], ["u", "Уникальные", "Коллекционер"], ["uu", "Ультра", "Ультрас"], ["long", "Долгие", "Долгожитель"],
     ["k", "Компания", "Душа компании"], ["private", "Частные", "Частник"], ["spa", "Хуитнес", "Хуитнесмен"]];
   // именная приписка к типу (24.11, просьба владельца): у Арса любой тип, в любом сезоне — «…-пиздабол»
+  const PTYPE_MIN = 20;
   const PTYPE_TAIL = { "Арс": "пиздабол" };
   // Прошлые сезоны (24.11) — из архива: оси посещений только те, что тогда считали (долгие — с 2025, ультра и компания — с 2024)
   function playerType(s, year = 2026, rows = ranked) {
@@ -2031,7 +2032,8 @@
       const below = all.filter((x) => x < mine).length + all.filter((x) => x === mine).length / 2;
       return { key, label, title, n: raw(s, key), v: mine && all.length ? below / all.length : mine ? 1 : 0 };
     });
-    if (!axes.some((a) => a.v)) return "";
+    // 24.11: меньше 20 бань за сезон — типа нет: по десятку походов диаграмма случайная
+    if (s.baths < PTYPE_MIN || !axes.some((a) => a.v)) return "";
     const lead = axes.reduce((a, x) => (x.v > a.v ? x : a));
     const W = 360, H = 250, cx = W / 2, cy = H / 2, R = 78;
     const at = (i, k) => { const t = -Math.PI / 2 + (i * 2 * Math.PI) / axes.length; return [cx + Math.cos(t) * R * k, cy + Math.sin(t) * R * k]; };
