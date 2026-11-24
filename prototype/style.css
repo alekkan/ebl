@@ -983,13 +983,19 @@ tr.below { color: var(--ink-2); }
 .bars-max { position: absolute; left: 0; right: 0; top: 0; border-top: 1px dashed var(--line); pointer-events: none; }
 .bars-max span { position: absolute; right: 0; top: -6px; font: 600 11px/1 var(--display); color: var(--ink-3); }
 .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; padding-right: 22px; }
-/* чемпионат по годам в профиле (24.11): строка — сезон, нажал — его бани ниже */
-.pchamp { display: grid; gap: 4px; }
-.pchamp button { display: grid; grid-template-columns: 52px 1fr 1fr 1fr; gap: 8px; align-items: baseline; border: 0; background: var(--panel-2); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 14px; color: var(--ink-2); text-align: left; cursor: pointer; font-variant-numeric: tabular-nums; }
-.pchamp button b { font: 700 14px/1 var(--display); color: var(--ink); }
-.pchamp button.on { box-shadow: inset 0 0 0 1.5px var(--oak); }
-.pchamp .pc-place { color: var(--ink); font-weight: 600; }
-.pchamp .pc-place.p1 { color: var(--ember); }
+/* чемпионат по годам в профиле (24.11): график — место, очки или бани по сезонам; нажал точку — бани того года ниже */
+.pchamp { display: grid; gap: 8px; }
+.pc-chart svg { display: block; width: 100%; max-width: 420px; margin: 0 auto; overflow: visible; }
+.pc-line { fill: none; stroke: var(--oak); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.pc-pt { cursor: pointer; outline: none; }
+.pc-pt rect { fill: transparent; }
+.pc-pt circle { fill: var(--panel); stroke: var(--oak); stroke-width: 2; }
+.pc-pt text { text-anchor: middle; font-size: 12px; font-weight: 600; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.pc-pt .pc-year { font-size: 11px; font-weight: 500; fill: var(--ink-2); }
+.pc-pt.top .pc-val { fill: var(--ember); }
+.pc-pt.on circle { fill: var(--oak); }
+.pc-pt.on .pc-year { fill: var(--ink); font-weight: 700; }
+.pc-pt:hover circle, .pc-pt:focus-visible circle { stroke-width: 3.5; }
 /* тип участника — лепестковая диаграмма в профиле (24.11) */
 .ptype-name { font: 700 14px/1.2 var(--display); color: var(--ember); letter-spacing: -.01em; }
 .ptype-chart { display: block; width: 100%; max-width: 380px; margin: 10px auto 0; overflow: visible; }

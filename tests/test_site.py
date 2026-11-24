@@ -345,18 +345,34 @@ def all_views(s, label, mobile=False):
     # и диаграмма типа — за него, с осями, которые тогда считали
     archived = s.js("() => document.querySelectorAll('#tSeasonPick option').length > 1")   # на витрине архива сезонов нет — и блока нет
     if archived:
-        try: s.page.wait_for_selector("#playerBody .pchamp button:not(.on)", timeout=8000)
+        try: s.page.wait_for_selector("#playerBody .pchamp .pc-pt:not(.on)", timeout=8000)
         except Exception: pass
-    check(f"{label}: профиль — чемпионат по годам: строки сезонов с местом, очками и банями, текущий выделен" if archived
+    # 24.11: не строки, а график по сезонам с выбором «Место / Очки / Бани»; у каждой точки в подсказке — всё сразу
+    check(f"{label}: профиль — чемпионат по годам: график, у точек сезонов место, очки и бани, текущий выделен, выбрано «Место»" if archived
           else f"{label}: профиль — архива сезонов нет, «Чемпионата по годам» тоже", not s.js("() => !!document.querySelector('#playerBody .pchamp')") if not archived else
-          s.js("() => { const r = [...document.querySelectorAll('#playerBody .pchamp button')]; return r.length >= 2 && r.every((x) => /\\d+ место/.test(x.innerText) && /очк/.test(x.innerText) && /бан/.test(x.innerText))"
-               " && document.querySelector('#playerBody .pchamp button.on')?.dataset.year === '2026'; }"),
-          s.js("() => document.querySelector('#playerBody .pchamp')?.innerText || ''"))
-    py = s.js("() => document.querySelector('#playerBody .pchamp button:not(.on)')?.dataset.year || ''")
+          s.js("() => { const r = [...document.querySelectorAll('#playerBody .pchamp .pc-pt')], box = document.querySelector('#playerModal .sheet').getBoundingClientRect();"
+               " return r.length >= 2 && r.every((x) => { const t = x.querySelector('title').textContent, b = x.querySelector('.pc-val').getBoundingClientRect();"
+               "   return /\\d+ место/.test(t) && /очк/.test(t) && /бан/.test(t) && b.left >= box.left && b.right <= box.right; })"
+               " && !!document.querySelector('#playerBody .pchamp polyline.pc-line')"
+               " && document.querySelector('#playerBody .pchamp .pc-pt.on')?.dataset.year === '2026'"
+               " && document.querySelector('#playerBody [data-champ][aria-pressed=true]')?.dataset.champ === 'place'; }"),
+          s.js("() => document.querySelector('#playerBody .pchamp')?.innerHTML.slice(0, 600) || ''"))
+    if archived:
+        vals = lambda: s.js("() => [...document.querySelectorAll('#playerBody .pchamp .pc-val')].map((x) => x.textContent).join('|')")
+        tip = lambda m: s.js("() => [...document.querySelectorAll('#playerBody .pchamp .pc-pt')].map((x) => (x.querySelector('title').textContent.match(/" + m + "/) || [])[1]).join('|')")
+        by_place = vals()
+        s.page.click('#playerBody [data-champ="total"]'); s.page.wait_for_timeout(100)
+        by_total = vals()
+        s.page.click('#playerBody [data-champ="baths"]'); s.page.wait_for_timeout(100)
+        check(f"{label}: …«Место», «Очки», «Бани» — у точек подписаны места, очки и бани сезонов",
+              by_place == tip(r": (\d+) место") and by_total == tip(r"место, ([\d\s,]+?) очк") and vals() == tip(r", (\d+) бан")
+              and s.js("() => document.querySelector('#playerBody [data-champ][aria-pressed=true]')?.dataset.champ === 'baths'"), (by_place, by_total, vals()))
+        s.page.click('#playerBody [data-champ="place"]'); s.page.wait_for_timeout(100)
+    py = s.js("() => document.querySelector('#playerBody .pchamp .pc-pt:not(.on)')?.dataset.year || ''")
     if py:
         s.page.click(f'#playerBody .pchamp [data-year="{py}"]'); s.page.wait_for_timeout(200)
         check(f"{label}: …нажал {py} — открыт этот год, диаграмма типа за него (осей 4–7)",
-              s.js(f"() => {{ const n = document.querySelectorAll('#playerBody .ptype-chart text').length; return document.querySelector('#playerBody .pchamp button.on')?.dataset.year === '{py}'"
+              s.js(f"() => {{ const n = document.querySelectorAll('#playerBody .ptype-chart text').length; return document.querySelector('#playerBody .pchamp .pc-pt.on')?.dataset.year === '{py}'"
                    f" && n >= 4 && n <= 7 && /{py}/.test(document.querySelector('#playerBody .ptype .hint').innerText); }}"))
         s.page.click('#playerBody .pchamp [data-year="2026"]'); s.page.wait_for_timeout(200)
     # профиль (05.11): у бани — значок типа; на телефоне география выше списка, а в списке первые 8 и «Показать все»
