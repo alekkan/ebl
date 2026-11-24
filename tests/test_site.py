@@ -1727,13 +1727,14 @@ with sync_playwright() as pw:
         for n in ("Шурик", "Витёк"): sql(f"insert into visit_players (visit_id, player_id) select {cupv}, id from players where nick = '{n}'")
         sql(f"update visits set status = 'ok' where id = {cupv}")
         req("POST", "/functions/v1/recompute", {})
-        cup_top = "() => { const t = document.querySelector('#cupTeams .cup-team'); return t ? t.dataset.team + ':' + t.querySelector('.cup-total b').innerText : ''; }"
+        cup_top = "() => { const t = document.querySelector('#cupRounds .br-col.on .br-t'); return t ? t.dataset.team + ':' + t.querySelector('.br-thead b').innerText : ''; }"
         s = Site(browser, url, name="cup-guest")
         s.view("cup")
         check("гость: вкладка «Кубок» — две команды тура, первая — у кого больше очков (без долгой: 5 + 5)",
-              s.js("() => document.querySelectorAll('#cupTeams .cup-team').length") == 2 and s.js(cup_top) == "91:10", s.js(cup_top))
+              s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-t').length") == 2 and s.js(cup_top) == "91:10", s.js(cup_top))
+        check("«Кубок» — первая закладка «Таблицы»", s.js("() => [...document.querySelectorAll('#tMode button')].filter((b) => !b.hidden)[0].dataset.m") == "cup")
         check("гость: тур и срок в заголовке, походы тура ему не показаны",
-              "Тур 1" in s.js("() => document.getElementById('cupTitle').innerText") and not s.js("() => !!document.querySelector('#cupTeams .cup-more')"))
+              "Тур 1" in s.js("() => document.getElementById('cupTitle').innerText") and not s.js("() => !!document.querySelector('#cupRounds .br-more, #cupRounds .br-vis')"))
         s.clean("Кубок у гостя"); s.close()
         s = Site(browser, url, mobile=True, name="cup-phone")
         s.view("cup")
@@ -1762,10 +1763,18 @@ with sync_playwright() as pw:
         except Exception: pass
         check("лента: у похода участников кубка — строка «Кубок» с очками каждого", "Кубок" in cup_feed(cupv) and "Шурик +6" in cup_feed(cupv) and "Витёк +6" in cup_feed(cupv), cup_feed(cupv))
         s.view("cup")
-        try: s.page.wait_for_selector("#cupTeams .cup-more", timeout=8000)
+        try: s.page.wait_for_selector("#cupRounds .br-more", timeout=8000)
         except Exception: pass
-        check("участнику — очки с долгой и походы тура по командам", s.js(cup_top) == "91:12"
-              and "встреча команды" in s.js("() => document.querySelector('#cupTeams .cup-more')?.textContent || ''"), s.js(cup_top))
+        cup_vis = "() => [...document.querySelectorAll('#cupRounds .br-col.on .br-vis')].map((x) => x.innerText).join('|')"
+        check("участнику — очки с долгой; походы тура свёрнуты, под сеткой карточек нет", s.js(cup_top) == "91:12" and s.js(cup_vis) == ""
+              and not s.js("() => !!document.querySelector('#view-cup .cup-team')"), s.js(cup_top))
+        s.page.click("#cupRounds .br-col.on .br-more")
+        check("нажал «Походы тура» — походы раскрылись в сетке под никами: баня, очки, за что",
+              "Тест-Кубок-Сайт" in s.js(cup_vis) and "+6" in s.js(cup_vis) and "встреча команды" in s.js(cup_vis)
+              and s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-t .br-vis').length") == 2, s.js(cup_vis))
+        s.no_clip("Походы тура в сетке", "#view-cup")
+        s.page.click("#cupRounds .br-col.on .br-more")
+        check("нажал ещё раз — походы свернулись", s.js(cup_vis) == "")
         cup_pts = lambda: sql(f"select coalesce(sum(total), 0) from cup_points where visit_id = {cuptv}")
         s.view("map"); s.page.fill("#q", "Тест-Кубок-Терма"); s.page.wait_for_timeout(300)
         s.page.click(f'#list .item[data-id="{cupt}"]'); s.page.wait_for_selector("#dEditBtn", timeout=8000)
@@ -1825,8 +1834,8 @@ with sync_playwright() as pw:
             if sql("select count(*) from cup_teams where round = 2") == "6" and "Тур 2" in s.js(cup_title): break
             s.page.wait_for_timeout(500)
         check("приняла — на сайте тур 2: три команды пути чемпионов и три пути ебланов",
-              "Тур 2" in s.js(cup_title) and s.js("() => document.querySelectorAll('#cupTeams .cup-team').length") == 6
-              and s.js("() => document.querySelectorAll('#cupTeams .cup-path').length") == 2, s.js(cup_title))
+              "Тур 2" in s.js(cup_title) and s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-t').length") == 6
+              and s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-path').length") == 2, s.js(cup_title))
         br = s.js("""() => { const c = [...document.querySelectorAll('#cupRounds .br-col')], r = c.map((x) => x.getBoundingClientRect());
           return { cols: c.length, row: r.every((x, i) => !i || x.left > r[i - 1].left), teams: c.map((x) => x.querySelectorAll('.br-t').length), on: c.findIndex((x) => x.classList.contains('on')) + 1,
             fate: c[0].querySelectorAll('.br-fate').length, down: c[0].querySelectorAll('.br-fate[data-to="losers"]').length, win: c[0].querySelectorAll('.br-t.win').length,
@@ -1836,8 +1845,8 @@ with sync_playwright() as pw:
               and "после тура 2" in br["wait"] and "финал" in br["last"] and br["paths"] == 2, br)
         s.page.click('#cupRounds [data-round="1"]')
         check("история: в туре 1 у каждого — куда пошёл; принятие можно отменить",
-              s.js("() => document.querySelectorAll('#cupTeams .cup-fate').length") == 18
-              and s.js("() => document.querySelectorAll('#cupTeams .cup-fate[data-to=\"losers\"]').length") == 9
+              s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-fate').length") == 18
+              and s.js("() => document.querySelectorAll('#cupRounds .br-col.on .br-fate[data-to=\"losers\"]').length") == 9
               and s.js("() => !!document.querySelector('#cupNext [data-cup-act=\"reopen\"]')"))
         s.no_clip("История тура на телефоне", "#view-cup")
         s.view("feed")
