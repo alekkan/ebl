@@ -2017,14 +2017,15 @@
   // Ось, где участник выше всего в лиге, даёт название типа. В подписи — сами числа: походов в бани этого типа или отметок в таблице
   const PTYPE = [["public", "Общественные", "Общественник"], ["u", "Уникальные", "Первопроходец"], ["uu", "Ультра", "Ультрас"], ["long", "Долгие", "Долгожитель"],
     ["k", "Компания", "Душа компании"], ["private", "Частные", "Частник"], ["spa", "Хуитнес", "Хуитнесмен"]];
-  function playerType(s) {
+  // Прошлые сезоны (24.11) — из архива: оси посещений только те, что тогда считали (долгие — с 2025, ультра и компания — с 2024)
+  function playerType(s, year = 2026, rows = ranked) {
     const byType = {};   // ник → тип бани → походов в сезоне
-    for (const b of baths) for (const [n, c] of Object.entries(b.v26 || {})) ((byType[n] ||= {})[b.t] = (byType[n][b.t] || 0) + c);
+    for (const b of baths) for (const [n, c] of Object.entries((year === 2026 ? b.v26 : b.histBy?.[year]) || {})) ((byType[n] ||= {})[b.t] = (byType[n][b.t] || 0) + c);
     const raw = (r, key) => (key in TYPE_LABEL ? byType[r.name]?.[key] || 0 : r[key] || 0);
     const share = (r, key) => { const d = key in TYPE_LABEL ? Object.values(byType[r.name] || {}).reduce((a, x) => a + x, 0) : r.baths; return d ? raw(r, key) / d : 0; };
-    const league = ranked.filter((r) => r.baths >= 5);
-    const axes = PTYPE.map(([key, label, title]) => {
-      const mine = share(s, key), all = (league.length ? league : ranked).filter((r) => r.name !== s.name).map((r) => share(r, key));
+    const league = rows.filter((r) => r.baths >= 5);
+    const axes = PTYPE.filter(([key]) => key in TYPE_LABEL || rows.some((r) => r[key] != null)).map(([key, label, title]) => {
+      const mine = share(s, key), all = (league.length ? league : rows).filter((r) => r.name !== s.name).map((r) => share(r, key));
       const below = all.filter((x) => x < mine).length + all.filter((x) => x === mine).length / 2;
       return { key, label, title, n: raw(s, key), v: mine && all.length ? below / all.length : mine ? 1 : 0 };
     });
@@ -2047,10 +2048,18 @@
         ${axes.map((a, i) => { const [x, y] = at(i, Math.max(0.04, a.v)); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3"/>`; }).join("")}
         ${labels}
       </svg>
-      <p class="hint">По каждой оси — место в лиге по доле таких походов: край — выше всех, середина — как у половины лиги. Числа — сколько их в сезоне.</p>
+      <p class="hint">По каждой оси — место в лиге по доле таких походов: край — выше всех, середина — как у половины лиги. Числа — сколько их в сезоне${year === 2026 ? "" : ` ${year}`}.</p>
     </section>`;
   }
+  // результаты прошлых сезонов (24.11) — из архива; его подгружаем при первом открытии профиля и перерисовываем карточку
+  let playerShown = null, playerYear, seasonsAsked = false;
   function openPlayer(name, year) {
+    playerShown = name;
+    if (!seasonsAsked && data.seasons?.length) {
+      seasonsAsked = true;
+      Promise.all(data.seasons.map((y) => loadSeason(y).catch(() => null)))
+        .then(() => { if (playerShown && !$("#playerModal").hidden) openPlayer(playerShown, playerYear); });
+    }
     // новичка ещё нет в таблице (ни бань из таблицы, ни засчитанных походов) — карточка всё равно открывается
     const s = ranked.find((x) => x.name === name)
       || { name, total: 0, baths: 0, u: 0, uu: 0, long: 0, k: 0, pub: 0, reg: 0, weekPts: {}, weekBaths: {}, place: ranked.length + 1 };
@@ -2062,6 +2071,15 @@
     // "all" — за всё время (2023–2026): походы складываем по годам
     const inYear = (b, y) => (y === 2026 ? b.v26?.[name] : b.histBy?.[y]?.[name]) || 0;
     const cnt = (b) => (year === "all" ? YEARS.reduce((a, y) => a + inYear(b, y), 0) : inYear(b, year));
+    playerYear = year;
+    // чемпионат по годам: место, очки и бани в каждом сезоне, где участник был в таблице; нажал строку — тот год
+    const champ = [...(data.seasons || []).map((y) => [y, archive[y]?.rows?.find((r) => r.name === name)]), [2026, s.baths ? s : null]]
+      .filter(([, r]) => r).sort((a, b) => a[0] - b[0]);
+    const champHtml = champ.length > 1 || (champ.length && champ[0][0] !== 2026) ? `<section><h3>Чемпионат по годам</h3><div class="pchamp">${champ.map(([y, r]) =>
+      `<button type="button" data-year="${y}" class="${y === year ? "on" : ""}"><b>${y}</b><span class="pc-place${r.place <= 3 ? " p" + r.place : ""}">${r.place} место</span>`
+      + `<span>${fmt(r.total)} ${plural(r.total, "очко", "очка", "очков")}</span><span>${r.baths} ${plural(r.baths, "баня", "бани", "бань")}</span></button>`).join("")}</div></section>` : "";
+    const pastRow = typeof year === "number" && year !== 2026 ? archive[year]?.rows : null;
+    const pastType = pastRow?.find((r) => r.name === name) ? playerType(pastRow.find((r) => r.name === name), year, pastRow) : "";
     const mine = baths.filter((b) => cnt(b)).sort((a, b) => cnt(b) - cnt(a));
     const regions = new Set(mine.filter((b) => b.region && b.country).map(placeKey));
     const ctry = new Set(mine.map((b) => b.country).filter(Boolean));
@@ -2120,7 +2138,7 @@
       ${yearsLine}
       ${empty ? `<div class="p-body"><div class="empty" style="padding:28px 8px">${markSvg()}<b>Сезон ещё впереди</b><p>Первая баня — сразу +1 за поход и +1 за уникальную.</p></div></div>` : `<div class="p-body">${yearTiles ? `
         <div class="stats four">${yearTiles.map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join("")}</div>
-        ${year === "all" ? `<section><h3>Бань по годам</h3><div class="ybars">${ys.map((y) => `<div><b>${byYear[y].baths}</b><i style="height:${Math.max(4, (byYear[y].baths / Math.max(...ys.map((z) => byYear[z].baths))) * 100)}%"></i><span>${y}</span></div>`).join("")}</div></section>` : ""}`
+        ${year === "all" ? `<section><h3>Бань по годам</h3><div class="ybars">${ys.map((y) => `<div><b>${byYear[y].baths}</b><i style="height:${Math.max(4, (byYear[y].baths / Math.max(...ys.map((z) => byYear[z].baths))) * 100)}%"></i><span>${y}</span></div>`).join("")}</div></section>` : ""}${pastType}`
         : s.baths ? `
         <div class="stats four">
           <div><b>${s.u}</b><span>уникальных</span></div><div><b>${s.uu}</b><span>ультра&shy;уникальных</span></div>
@@ -2133,6 +2151,7 @@
             ${weeks.map((w) => { const v = s.weekBaths[w] ?? 0; return `<div class="${v ? "" : "zero"}" data-w="${w}" style="height:${Math.max(2, (v / maxB) * 100)}%"></div>`; }).join("")}</div>
           <div class="axis"><span>W1</span><span>W${Math.round(curWeek / 2)}</span><span>W${curWeek}</span></div>
         </section>${playerType(s)}` : ""}
+        ${champHtml}
         <div class="cols2">
           <section><h3>${year === 2026 ? "Бани сезона" : year === "all" ? "Все бани" : `Бани ${year}`} · ${mine.length}</h3><div class="blist">${blist || '<span class="hint">Пока пусто</span>'}</div>
             ${guest && mine.length && year === 2026 ? '<p class="hint" style="margin:8px 0 0">Даты походов видны участникам лиги после входа.</p>' : ""}</section>
@@ -2951,7 +2970,7 @@
         const vis = on && detail ? detail.filter((v) => t.players.includes(v.nick)) : [], key = `${r.n}:${t.num}`, open = vis.length && cupOpen.has(key);
         return `<div class="br-match br-t${done && !i ? " win" : ""}${t.players.includes(myNick) ? " mine" : ""}" data-team="${t.num}">
         <div class="br-thead"><span>${i + 1} · Команда ${t.num}</span><b>${t.total}</b></div>
-        ${[...t.players].sort((a, b) => (rp[b]?.total || 0) - (rp[a]?.total || 0) || a.localeCompare(b)).map((n) => `<div class="br-m"><span>${ava(n, "sm")}${esc(n)}`
+        ${[...t.players].sort((a, b) => (rp[b]?.total || 0) - (rp[a]?.total || 0) || a.localeCompare(b)).map((n) => `<div class="br-m"><span><button type="button" class="br-nick" data-player="${esc(n)}">${ava(n, "sm")}${esc(n)}</button>`
           + `${on && rp[n]?.baths ? `<em class="br-b">${rp[n].baths} ${plural(rp[n].baths, "баня", "бани", "бань")}</em>` : ""}</span>`
           + `${rf[n] ? `<i class="br-fate" data-to="${rf[n]}" title="${CUP_TO[rf[n]]}">${CUP_MARK[rf[n]]}</i>` : ""}<small>${rp[n]?.total || 0}</small></div>`
           + (open && vis.some((v) => v.nick === n) ? `<div class="br-vis">${vis.filter((v) => v.nick === n).map(visitRow).join("")}</div>` : "")).join("")}
@@ -3022,6 +3041,8 @@
   $("#cupRounds").addEventListener("click", (e) => {
     const more = e.target.closest("[data-more]")?.dataset.more;
     if (more) { cupOpen.has(more) ? cupOpen.delete(more) : cupOpen.add(more); return renderCup(); }
+    const who = e.target.closest("[data-player]")?.dataset.player;   // ник в сетке — профиль участника (24.11), а не выбор тура
+    if (who) return openPlayer(who);
     const b = e.target.closest("[data-round]"); if (!b) return;
     cupRound = +b.dataset.round; renderCup();
   });
