@@ -2612,6 +2612,12 @@
       const btn = sec && D.live ? ` <button type="button" class="cup-longbtn" data-long="${v.id}">${v.longOk ? "Снять подтверждение" : "Подтвердить долгую"}</button>` : "";
       return `<${tag} class="cup-long">${v.longOk ? `<span class="cup-longok">🔥 долгая подтверждена Комиссией</span>` : `<span class="cup-wait">🔥 долгая ждёт подтверждения Комиссии — два фото в чат</span>`}${btn}</${tag}>`;
     };
+    // очки кубка за поход (24.11) — отдельной строкой под очками чемпионата, только у участников кубка; ноль — не в зачёте
+    const cupLine = (v, who) => {
+      const got = who.filter((n) => v.cupPts?.[n] != null);
+      if (!cup || !got.length) return "";
+      return `<div class="f-split f-cup"><span>🏆 Кубок:</span>${got.some((n) => v.cupPts[n]) ? got.map((n) => `<span class="f-pt${n === myNick ? " me" : ""}">${esc(n)} <b>+${v.cupPts[n]}</b></span>`).join("") : "<span>не в зачёте</span>"}</div>`;
+    };
     // комментарии к походу (23.11): участники лиги, только текст; свой удаляет автор, любой — Комиссия
     const cmtTime = (at) => { const t = mskIso(at); return `${t.slice(8, 10)}.${t.slice(5, 7)} ${t.slice(11, 16)}`; };
     const cmts = (v) => {
@@ -2672,6 +2678,7 @@
           <a class="f-title" href="#map" data-bath="${v.bathId}">${esc(b?.name || v.bathName || "баня")}</a>
           <small>${time(v.date)} · ${durLabel(v)}${v.companions.length ? ` · компания` : ""}${rejected ? ` · <span class="f-no">отклонён${v.reason ? `: ${esc(v.reason)}` : ""}</span>` : ""}</small>
           <div class="f-split">${split}</div>
+          ${rejected ? "" : cupLine(v, who)}
           ${rejected ? "" : longLine(v, "small")}
           ${(feedPhotos[v.id] || []).length ? `<div class="f-photos">${feedPhotos[v.id].slice(0, 6).map((ph, i) => `<button type="button" class="f-ph" data-fph="${v.id}:${i}" aria-label="Фото ${i + 1}"><img src="${esc(ph.thumb)}" alt="" loading="lazy" onerror="this.remove()"></button>`).join("")}${feedPhotos[v.id].length > 6 ? `<button type="button" class="f-ph more" data-fph="${v.id}:6">+${feedPhotos[v.id].length - 6}</button>` : ""}</div>` : ""}
           ${rateLine(attached.get(v.id) || [])}
