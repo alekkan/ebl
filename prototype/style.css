@@ -983,6 +983,16 @@ tr.below { color: var(--ink-2); }
 .bars-max { position: absolute; left: 0; right: 0; top: 0; border-top: 1px dashed var(--line); pointer-events: none; }
 .bars-max span { position: absolute; right: 0; top: -6px; font: 600 11px/1 var(--display); color: var(--ink-3); }
 .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; padding-right: 22px; }
+/* тип участника — лепестковая диаграмма в профиле (24.11) */
+.ptype-name { font: 700 14px/1.2 var(--display); color: var(--ember); letter-spacing: -.01em; }
+.ptype-chart { display: block; width: 100%; max-width: 380px; margin: 10px auto 0; overflow: visible; }
+.ptype-chart .ring { fill: none; stroke: var(--line); stroke-width: 1; }
+.ptype-chart .shape { fill: var(--oak); fill-opacity: .2; stroke: var(--oak); stroke-width: 2; stroke-linejoin: round; }
+.ptype-chart circle { fill: var(--oak); }
+.ptype-chart text { font: 500 11px/1 var(--body); fill: var(--ink-2); dominant-baseline: middle; }
+.ptype-chart text tspan { font-weight: 700; fill: var(--ink); }
+.ptype-chart text.lead { fill: var(--ember); font-weight: 700; }
+.ptype .hint { margin: 8px 0 0; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .blist { display: grid; max-height: 260px; overflow: auto; padding-right: 8px; }
 .blist button { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font-size: 14px; }
