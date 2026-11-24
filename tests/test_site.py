@@ -335,6 +335,12 @@ def all_views(s, label, mobile=False):
                    " return w.scrollLeft > 0 && c.left >= w.getBoundingClientRect().left - 1 && c.left < w.getBoundingClientRect().left + 10; }"))
     s.page.click("#standings tbody tr")
     check(f"{label}: карточка участника открылась", s.js("() => !document.getElementById('playerModal').hidden"))
+    # 24.11: тип участника — лепестковая диаграмма сезона: 7 осей (типы бань и посещений), название типа, подписи не вылезают за карточку
+    check(f"{label}: профиль — тип участника: диаграмма из 7 осей с названием типа, подписи в пределах карточки",
+          s.js("() => { const c = document.querySelector('#playerBody .ptype-chart'), box = document.querySelector('#playerModal .sheet').getBoundingClientRect();"
+               " return !!c && c.querySelectorAll('text').length === 7 && c.querySelectorAll('text.lead').length === 1 && !!c.querySelector('polygon.shape')"
+               " && document.querySelector('#playerBody .ptype-name').textContent.trim().length > 3"
+               " && [...c.querySelectorAll('text')].every((t) => { const r = t.getBoundingClientRect(); return r.left >= box.left && r.right <= box.right; }); }"))
     # профиль (05.11): у бани — значок типа; на телефоне география выше списка, а в списке первые 8 и «Показать все»
     check(f"{label}: профиль — у бань в списке значок типа", s.js("() => !!document.querySelector('#playerBody .blist button .dot')"))
     # 05.11: годы в профиле — нажал прошлый год, ниже его бани; «Показать на карте» — бани участника за этот год
@@ -351,7 +357,7 @@ def all_views(s, label, mobile=False):
         # «Всё» — за все годы: плитки «походов / разных бань», график по годам
         s.page.click('#playerBody [data-year="all"]'); s.page.wait_for_timeout(200)
         check(f"{label}: профиль — «Всё»: плитки за все годы и бани по годам",
-              s.js("() => /разных бань/.test(document.querySelector('#playerBody .stats').innerText) && !!document.querySelector('#playerBody .ybars') && !document.getElementById('pBars')"))
+              s.js("() => /разных бань/.test(document.querySelector('#playerBody .stats').innerText) && !!document.querySelector('#playerBody .ybars') && !document.getElementById('pBars') && !document.querySelector('#playerBody .ptype')"))
     if mobile and s.js("() => !!document.querySelector('#playerBody .bl-all')"):
         check(f"{label}: профиль на телефоне — география выше списка бань, в списке 8, остальное спрятано",
               s.js("() => { const g = [...document.querySelectorAll('#playerBody h3')].find((h) => h.textContent === 'География'), l = document.querySelector('#playerBody .blist');"

@@ -2011,6 +2011,45 @@
     }
     return by;
   }
+  // тип участника (24.11): лепестковая диаграмма сезона — куда ходит (типы бань) и как (уникальные, ультра, долгие, компания).
+  // По оси — место участника в лиге по доле таких походов (среди тех, у кого 5+ бань): край — доля выше, чем у всех, середина —
+  // как у половины лиги. От лучшей доли откладывать пробовали — один «частник на 100%» прижимал остальных к центру.
+  // Ось, где участник выше всего в лиге, даёт название типа. В подписи — сами числа: походов в бани этого типа или отметок в таблице
+  const PTYPE = [["public", "Общественные", "Общественник"], ["u", "Уникальные", "Первопроходец"], ["uu", "Ультра", "Ультрас"], ["long", "Долгие", "Долгожитель"],
+    ["k", "Компания", "Душа компании"], ["private", "Частные", "Частник"], ["spa", "Хуитнес", "Хуитнесмен"]];
+  function playerType(s) {
+    const byType = {};   // ник → тип бани → походов в сезоне
+    for (const b of baths) for (const [n, c] of Object.entries(b.v26 || {})) ((byType[n] ||= {})[b.t] = (byType[n][b.t] || 0) + c);
+    const raw = (r, key) => (key in TYPE_LABEL ? byType[r.name]?.[key] || 0 : r[key] || 0);
+    const share = (r, key) => { const d = key in TYPE_LABEL ? Object.values(byType[r.name] || {}).reduce((a, x) => a + x, 0) : r.baths; return d ? raw(r, key) / d : 0; };
+    const league = ranked.filter((r) => r.baths >= 5);
+    const axes = PTYPE.map(([key, label, title]) => {
+      const mine = share(s, key), all = (league.length ? league : ranked).filter((r) => r.name !== s.name).map((r) => share(r, key));
+      const below = all.filter((x) => x < mine).length + all.filter((x) => x === mine).length / 2;
+      return { key, label, title, n: raw(s, key), v: mine && all.length ? below / all.length : mine ? 1 : 0 };
+    });
+    if (!axes.some((a) => a.v)) return "";
+    const lead = axes.reduce((a, x) => (x.v > a.v ? x : a));
+    const W = 360, H = 250, cx = W / 2, cy = H / 2, R = 78;
+    const at = (i, k) => { const t = -Math.PI / 2 + (i * 2 * Math.PI) / axes.length; return [cx + Math.cos(t) * R * k, cy + Math.sin(t) * R * k]; };
+    const pts = (k) => axes.map((a, i) => at(i, typeof k === "function" ? k(a) : k).map((x) => x.toFixed(1)).join(",")).join(" ");
+    const labels = axes.map((a, i) => {
+      const [x, y] = at(i, 1.16), c = Math.cos(-Math.PI / 2 + (i * 2 * Math.PI) / axes.length);
+      const anchor = Math.abs(c) < 0.2 ? "middle" : c > 0 ? "start" : "end";
+      return `<text x="${x.toFixed(1)}" y="${(y + (y < cy - R ? -8 : y > cy + R * 0.5 ? 8 : 0)).toFixed(1)}" text-anchor="${anchor}" class="${a === lead ? "lead" : ""}">${a.label} <tspan>${a.n}</tspan></text>`;
+    }).join("");
+    return `<section class="ptype">
+      <div class="bars-head"><h3>Тип участника</h3><span class="ptype-name">${lead.title}</span></div>
+      <svg class="ptype-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Тип участника: ${lead.title}. ${axes.map((a) => `${a.label} — ${a.n}`).join(", ")}">
+        ${[1, 2 / 3, 1 / 3].map((k) => `<polygon class="ring" points="${pts(k)}"/>`).join("")}
+        ${axes.map((a, i) => { const [x, y] = at(i, 1); return `<line class="ring" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`; }).join("")}
+        <polygon class="shape" points="${pts((a) => Math.max(0.04, a.v))}"/>
+        ${axes.map((a, i) => { const [x, y] = at(i, Math.max(0.04, a.v)); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3"/>`; }).join("")}
+        ${labels}
+      </svg>
+      <p class="hint">По каждой оси — место в лиге по доле таких походов: край — выше всех, середина — как у половины лиги. Числа — сколько их в сезоне.</p>
+    </section>`;
+  }
   function openPlayer(name, year) {
     // новичка ещё нет в таблице (ни бань из таблицы, ни засчитанных походов) — карточка всё равно открывается
     const s = ranked.find((x) => x.name === name)
@@ -2093,7 +2132,7 @@
             <i class="bars-max" aria-hidden="true"><span>${maxB}</span></i>
             ${weeks.map((w) => { const v = s.weekBaths[w] ?? 0; return `<div class="${v ? "" : "zero"}" data-w="${w}" style="height:${Math.max(2, (v / maxB) * 100)}%"></div>`; }).join("")}</div>
           <div class="axis"><span>W1</span><span>W${Math.round(curWeek / 2)}</span><span>W${curWeek}</span></div>
-        </section>` : ""}
+        </section>${playerType(s)}` : ""}
         <div class="cols2">
           <section><h3>${year === 2026 ? "Бани сезона" : year === "all" ? "Все бани" : `Бани ${year}`} · ${mine.length}</h3><div class="blist">${blist || '<span class="hint">Пока пусто</span>'}</div>
             ${guest && mine.length && year === 2026 ? '<p class="hint" style="margin:8px 0 0">Даты походов видны участникам лиги после входа.</p>' : ""}</section>
