@@ -2017,15 +2017,14 @@
   // Ось, где участник выше всего в лиге, даёт название типа. В подписи — сами числа: походов в бани этого типа или отметок в таблице
   const PTYPE = [["public", "Общественные", "Общественник"], ["u", "Уникальные", "Коллекционер"], ["uu", "Ультра", "Ультрас"], ["long", "Долгие", "Долгожитель"],
     ["k", "Компания", "Душа компании", "Компанеец"], ["private", "Частные", "Частник"], ["spa", "Хуитнес", "Хуитнесмен"]];
-  // именная приписка к типу (24.11, просьба владельца): у Арса любой тип, в любом сезоне — «…-пиздабол»
   const PTYPE_MIN = 20, PTYPE_NEAR = 0.1;
-  const PTYPE_TAIL = { "Арс": "пиздабол" };
   // Прошлые сезоны (24.11) — из архива: оси посещений только те, что тогда считали (долгие — с 2025, ультра и компания — с 2024)
   function playerType(s, year = 2026, rows = ranked) {
     const byType = {};   // ник → тип бани → походов в сезоне
-    for (const b of baths) for (const [n, c] of Object.entries((year === 2026 ? b.v26 : b.histBy?.[year]) || {})) ((byType[n] ||= {})[b.t] = (byType[n][b.t] || 0) + c);
+    for (const b of baths) for (const y of year === "all" ? YEARS : [year])
+      for (const [n, c] of Object.entries((y === 2026 ? b.v26 : b.histBy?.[y]) || {})) ((byType[n] ||= {})[b.t] = (byType[n][b.t] || 0) + c);
     const raw = (r, key) => (key in TYPE_LABEL ? byType[r.name]?.[key] || 0 : r[key] || 0);
-    const share = (r, key) => { const d = key in TYPE_LABEL ? Object.values(byType[r.name] || {}).reduce((a, x) => a + x, 0) : r.baths; return d ? raw(r, key) / d : 0; };
+    const share = (r, key) => { const d = key in TYPE_LABEL ? Object.values(byType[r.name] || {}).reduce((a, x) => a + x, 0) : r.den?.[key] ?? r.baths; return d ? raw(r, key) / d : 0; };
     const league = rows.filter((r) => r.baths >= 5);
     const axes = PTYPE.filter(([key]) => key in TYPE_LABEL || rows.some((r) => r[key] != null)).map(([key, label, title, short]) => {
       const mine = share(s, key), all = (league.length ? league : rows).filter((r) => r.name !== s.name).map((r) => share(r, key));
@@ -2038,7 +2037,7 @@
     // 24.11: вторая (и третья) ось почти вровень с первой (PTYPE_NEAR) — тип двойной или тройной, «Общественник-компанеец»:
     // одиночные выходили у всех одни и те же
     const near = [...axes].sort((a, b) => b.v - a.v).filter((a) => a.v && lead.v - a.v <= PTYPE_NEAR).slice(0, 3);
-    const typeName = (near.length > 1 ? near.map((a, i) => (i ? a.short.toLowerCase() : a.short)).join("-") : lead.title) + (PTYPE_TAIL[s.name] ? "-" + PTYPE_TAIL[s.name] : "");
+    const typeName = (near.length > 1 ? near.map((a, i) => (i ? a.short.toLowerCase() : a.short)).join("-") : lead.title);
     const W = 360, H = 250, cx = W / 2, cy = H / 2, R = 78;
     const at = (i, k) => { const t = -Math.PI / 2 + (i * 2 * Math.PI) / axes.length; return [cx + Math.cos(t) * R * k, cy + Math.sin(t) * R * k]; };
     const pts = (k) => axes.map((a, i) => at(i, typeof k === "function" ? k(a) : k).map((x) => x.toFixed(1)).join(",")).join(" ");
@@ -2056,8 +2055,21 @@
         ${axes.map((a, i) => { const [x, y] = at(i, Math.max(0.04, a.v)); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3"/>`; }).join("")}
         ${labels}
       </svg>
-      <p class="hint">По каждой оси — место в лиге по доле таких походов: край — выше всех, середина — как у половины лиги. Числа — сколько их в сезоне${year === 2026 ? "" : ` ${year}`}.</p>
+      <p class="hint">По каждой оси — место в лиге по доле таких походов: край — выше всех, середина — как у половины лиги. Числа — сколько их ${year === "all" ? "за все годы; ультра и компанию считали с 2024, долгие — с 2025, их доля — от бань тех лет" : `в сезоне${year === 2026 ? "" : ` ${year}`}`}.</p>
     </section>`;
+  }
+  // 25.11: тип «за все годы» — таблицы сезонов сложены по участнику; отметку, которую считали не всегда (ультра и компания — с 2024,
+  // долгие — с 2025), делим на бани только тех лет (den), иначе год без неё занижал бы долю
+  function allYearsRows() {
+    const seasons = [...(data.seasons || []).map((y) => archive[y]?.rows), ranked];
+    if (!data.seasons?.length || seasons.some((r) => !r)) return null;   // архив ещё не подгружен или его нет (витрина)
+    const by = {};
+    for (const rows of seasons) for (const r of rows) {
+      const a = (by[r.name] ||= { name: r.name, baths: 0, den: {} });
+      a.baths += r.baths || 0;
+      for (const k of ["u", "uu", "long", "k"]) if (r[k] != null) { a[k] = (a[k] || 0) + r[k]; a.den[k] = (a.den[k] || 0) + (r.baths || 0); }
+    }
+    return Object.values(by);
   }
   // результаты прошлых сезонов (24.11) — из архива; его подгружаем при первом открытии профиля и перерисовываем карточку
   let playerShown = null, playerYear, seasonsAsked = false, champMetric = "place";
@@ -2101,7 +2113,8 @@
       [["place", "Место"], ["total", "Очки"], ["baths", "Бани"]].map(([k, l]) => `<button type="button" data-champ="${k}" aria-pressed="${k === champMetric}">${l}</button>`).join("")
     }</div><div class="pc-chart">${champSvg(champMetric)}</div></div></section>` : "";
     const pastRow = typeof year === "number" && year !== 2026 ? archive[year]?.rows : null;
-    const pastType = pastRow?.find((r) => r.name === name) ? playerType(pastRow.find((r) => r.name === name), year, pastRow) : "";
+    const allRows = year === "all" ? allYearsRows() : null, typeRows = allRows || pastRow, typeRow = typeRows?.find((r) => r.name === name);
+    const pastType = typeRow ? playerType(typeRow, year, typeRows) : "";
     const mine = baths.filter((b) => cnt(b)).sort((a, b) => cnt(b) - cnt(a));
     const regions = new Set(mine.filter((b) => b.region && b.country).map(placeKey));
     const ctry = new Set(mine.map((b) => b.country).filter(Boolean));

@@ -341,14 +341,6 @@ def all_views(s, label, mobile=False):
                " return !!c && c.querySelectorAll('text').length === 7 && c.querySelectorAll('text.lead').length === 1 && !!c.querySelector('polygon.shape')"
                " && document.querySelector('#playerBody .ptype-name').textContent.trim().length > 3"
                " && [...c.querySelectorAll('text')].every((t) => { const r = t.getBoundingClientRect(); return r.left >= box.left && r.right <= box.right; }); }"))
-    # 24.11: именная приписка к типу — у Арса «…-пиздабол», у остальных её нет (на телефоне строка не открывает профиль — там не проверяем)
-    row = "() => [...document.querySelectorAll('#standings tbody tr')].find((r) => r.querySelector('.who-cell')?.innerText.trim().split('\\n').pop().trim() === 'Арс')"
-    if not mobile and s.js("() => !!(" + row + ")()") and s.js("() => !/Арс/.test(document.querySelector('#standings tbody tr .who-cell').innerText)"):
-        first_name = s.js("() => document.querySelector('#playerBody .ptype-name').textContent")
-        s.js("() => (" + row + ")().click()"); s.page.wait_for_timeout(300)
-        ars = s.js("() => document.querySelector('#playerBody .ptype-name')?.textContent || ''")
-        check(f"{label}: профиль Арса — тип с припиской «-пиздабол», у другого участника её нет", ars.endswith("-пиздабол") and "пиздабол" not in first_name, (ars, first_name))
-        s.js("() => document.querySelector('#standings tbody tr').click()"); s.page.wait_for_timeout(300)
     # 24.11: меньше 20 бань за сезон — типа участника в профиле нет
     few = s.js("() => { const i = [...document.querySelectorAll('#standings thead th')].findIndex((h) => h.dataset.k === 'baths');"
                " const r = [...document.querySelectorAll('#standings tbody tr[data-player]')].find((x) => { const n = +x.children[i].textContent; return n > 0 && n < 20; });"
@@ -366,7 +358,7 @@ def all_views(s, label, mobile=False):
               await new Promise((ok) => setTimeout(ok, 60));
               const e = document.querySelector('#playerBody .ptype'); if (!e) continue;
               const v = e.querySelector('polygon.shape').getAttribute('points').split(' ').map((q) => q.split(',').map(Number)).map(([x, y]) => Math.hypot(x - 180, y - 125) / 78).sort((a, b) => b - a);
-              const parts = e.querySelector('.ptype-name').textContent.replace(/-пиздабол$/, '').split('-');
+              const parts = e.querySelector('.ptype-name').textContent.split('-');
               out.push({ who: r, name: e.querySelector('.ptype-name').textContent, g1: v[0] - v[1], g2: v[0] - v[2], n: parts.length,
                          known: parts.length === 1 ? titles.includes(parts[0]) && parts[0] !== 'Компанеец'
                            : parts.every((x, i) => x.toLowerCase() !== 'душа компании' && titles.some((t) => (i ? t.toLowerCase() : t) === x)) });
@@ -427,7 +419,13 @@ def all_views(s, label, mobile=False):
         # «Всё» — за все годы: плитки «походов / разных бань», график по годам
         s.page.click('#playerBody [data-year="all"]'); s.page.wait_for_timeout(200)
         check(f"{label}: профиль — «Всё»: плитки за все годы и бани по годам",
-              s.js("() => /разных бань/.test(document.querySelector('#playerBody .stats').innerText) && !!document.querySelector('#playerBody .ybars') && !document.getElementById('pBars') && !document.querySelector('#playerBody .ptype')"))
+              s.js("() => /разных бань/.test(document.querySelector('#playerBody .stats').innerText) && !!document.querySelector('#playerBody .ybars') && !document.getElementById('pBars')"))
+        # 25.11: тип участника и за все годы (20+ бань в сумме) — когда есть архив сезонов; без архива (витрина) его нет
+        at = s.js("() => { const e = document.querySelector('#playerBody .ptype'); return { stats: document.querySelector('#playerBody .stats').innerText,"
+                  " n: e ? e.querySelectorAll('.ptype-chart text').length : 0, hint: e ? e.querySelector('.hint').innerText : '', name: e ? e.querySelector('.ptype-name').textContent.trim() : '' }; }")
+        total = int((re.search(r"(\d+)\s*\n?\s*поход", at["stats"]) or [0, 0])[1])
+        check(f"{label}: профиль — «Всё»: тип участника за все годы (7 осей, пояснение про годы), без архива или при меньше чем 20 банях — нет",
+              (at["n"] == 7 and "за все годы" in at["hint"] and len(at["name"]) > 3) if py and total >= 20 else at["n"] == 0, at)
     if mobile and s.js("() => !!document.querySelector('#playerBody .bl-all')"):
         check(f"{label}: профиль на телефоне — география выше списка бань, в списке 8, остальное спрятано",
               s.js("() => { const g = [...document.querySelectorAll('#playerBody h3')].find((h) => h.textContent === 'География'), l = document.querySelector('#playerBody .blist');"
