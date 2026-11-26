@@ -467,11 +467,11 @@ async function renderCard(st: Any, lg: Any) {
       + (st.hint ? `\n\n${st.hint}` : "");
     return { text, kb: rows };
   }
-  // на время кубка долгая — только после подтверждения Комиссии: говорим об этом сразу, в черновике (24.11)
+  // на время кубка долгая — только после подтверждения (ответ на пост через 2,5 часа или Комиссия): говорим сразу, в черновике (24.11)
   const gated = st.dur != null && st.dur > LONG && longGated(await setting("long_confirm"), Date.now());
   const lines = [
     `🧖 <b>${esc(st.bathName)}</b>${st.newBath ? " · 🆕 новая, кандидат в УУ" : ""}`,
-    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — выйдет дольше 2,5 ч: отметь меня и напиши «долгая»" : gated ? " — в зачёт после подтверждения Комиссии" : ""}`,
+    `⏱ ${durLabel(st.dur)}${st.dur == null ? " — выйдет дольше 2,5 ч: отметь меня и напиши «долгая»" : gated ? " — в зачёт после подтверждения: через 2,5 часа ответь на пост" : ""}`,
     `👥 ${nicks.length ? `${esc(nicks.join(", "))} — поход запишется всем, отдельно отмечать не нужно` : "один"}`,
   ];
   if (st.geo) lines.push("📍 точка на карте есть");
@@ -914,6 +914,8 @@ async function moderate(cq: Any, me: Any, visitId: number, ok: boolean) {
 // Комиссия подтвердила долгую (или сняла подтверждение на сайте): таблицу пересчитываем, в уведомлениях Комиссии уходит
 // кнопка, в карточке похода — свежие очки в строке «Засчитано» и пометка про долгую
 async function longChanged(visitId: number) {
+  // Комиссия сняла подтверждение, которое дал ответ участника, — строка про этот ответ из карточки уходит
+  if ((await longState(visitId))?.state !== "ok") await sb.from("bot_posts").update({ long_note: null }).eq("visit_id", visitId).like("long_note", `${LONG_PROOF}%`);
   await fetch(`${BASE}/functions/v1/recompute`, { method: "POST" }).catch(() => null);
   await refreshVisit(visitId);
   await refreshCard(visitId);
@@ -969,7 +971,8 @@ async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> 
   const { data: p } = await sb.from("bot_posts").select("chat_id, card_msg, card_text, geo_msg, ask_msg, long_note, verdict_text, league_chat, league_msg, league_head").eq("visit_id", visitId).maybeSingle();
   if (!p?.card_msg || !p.card_text) return false;
   // долгую отметили после отправки — про подтверждение сказано в long_note; «подтверждена» пишем в любом случае
-  const state = await longHint(visitId), hint = state === "ok" || !p.long_note ? state : null;
+  // подтвердил ответ участника — об этом сама long_note (LONG_PROOF), отдельной строки не нужно
+  const state = await longHint(visitId), hint = p.long_note?.startsWith(LONG_PROOF) ? null : state === "ok" || !p.long_note ? state : null;
   if (p.league_msg) await edit(p.league_chat, p.league_msg, leagueText({ ...p, long_hint: hint && (hint === "ok" ? LONG_HINT.ok : LONG_HINT.copy) }));
   const parts = [p.card_text], kb: Any[][] = [];
   if (hint) parts.push(LONG_HINT[hint]);
@@ -983,17 +986,24 @@ async function refreshCard(visitId: number, geoRetry = false): Promise<boolean> 
 // Поход отметили в личке с ботом (25.10): ОУД о нём не узнавал вовсе — в чат лиги кладём копию карточки, как пост похода
 // с сайта. Просьбы о точке и «долгая?» остаются автору в личке, в копии — сводка и решение; правят обе вместе (refreshCard).
 // Зовут отправка похода и ?refresh (так же доставляется копия походу, отправленному раньше, — только пока он ждёт решения).
-// Долгая выбрана ещё в черновике, а поход запощен в срок long_confirm (кубок): в карточке — что она ждёт Комиссию и что для
-// этого сделать (24.11: раньше об этом говорили только тому, кто отметил долгую после отправки). Из лички отвечать надо в чате
-// лиги — личку Комиссия не видит; в копии — та же просьба автору. Пропадает, когда Комиссия подтвердила или отклонила поход.
+// Долгая выбрана ещё в черновике, а поход запощен в срок long_confirm (кубок): в карточке — что она ждёт подтверждения и что для
+// этого сделать (24.11: раньше об этом говорили только тому, кто отметил долгую после отправки). С 26.11 подтверждает сам бот —
+// по ответу участника похода на сообщение о походе (longByReply); в копии — та же просьба. Пропадает, когда долгую подтвердили
+// или поход отклонили.
 const LONG_HINT: Record<string, string> = {
-  dm: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь в чате лиги на копию этой карточки ещё одним сообщением из бани (лучше фото) — не сюда, личку Комиссия не видит.",
-  post: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь в чате на свой пост ещё одним сообщением из бани (лучше фото).",
-  card: "🔥 Долгая пойдёт в зачёт после подтверждения Комиссии. Через 2,5 часа после захода ответь на это сообщение ещё одним из бани (лучше фото).",
-  copy: "🔥 Долгая — после подтверждения Комиссии: автор через 2,5 часа после захода отвечает на это сообщение ещё одним из бани (лучше фото).",
+  dm: "🔥 Долгая пойдёт в зачёт после подтверждения. Не раньше чем через 2,5 часа после поста (и не позже 8) ответь на эту карточку или на её копию в чате лиги любым сообщением — подтвержу сам.",
+  post: "🔥 Долгая пойдёт в зачёт после подтверждения. Не раньше чем через 2,5 часа после поста (и не позже 8) ответь в чате на свой пост или на эту карточку любым сообщением — подтвержу сам.",
+  card: "🔥 Долгая пойдёт в зачёт после подтверждения. Не раньше чем через 2,5 часа после поста (и не позже 8) ответь на это сообщение любым своим — подтвержу сам.",
+  copy: "🔥 Долгая — после подтверждения: кто-то из похода не раньше чем через 2,5 часа после поста (и не позже 8) отвечает на это сообщение.",
   ok: "🔥 Долгая подтверждена Комиссией",
 };
-// долгая на время кубка: "wait" — ждёт подтверждения Комиссии, "ok" — подтверждена, null — поход не долгий, отклонён или вне кубка
+// так начинается long_note, когда долгую подтвердил ответ участника (дальше — его ник); без % и _ — по ней ищем через like
+const LONG_PROOF = "🔥 Долгая подтверждена ответом через 2,5 часа — ";
+const longOkText = async (visitId: number): Promise<string> => {
+  const note = (await sb.from("bot_posts").select("long_note").eq("visit_id", visitId).maybeSingle()).data?.long_note;
+  return note?.startsWith(LONG_PROOF) ? note : LONG_HINT.ok;
+};
+// долгая на время кубка: "wait" — ждёт подтверждения, "ok" — подтверждена, null — поход не долгий, отклонён или вне кубка
 async function longState(visitId: number): Promise<{ state: "wait" | "ok"; source: string } | null> {
   const { data: v } = await sb.from("visits").select("duration_min, posted_at, created_at, long_ok, status, source").eq("id", visitId).maybeSingle();
   if (!v || v.duration_min <= LONG || v.status === "rejected") return null;
@@ -1082,7 +1092,7 @@ async function refreshVisit(visitId: number): Promise<boolean> {
   const vv = v as Any, author = esc(vv.author?.nick);
   const note = (v.source === "site" ? `🔔 Поход с сайта от <b>${author}</b>` : `🔔 Поход от <b>${author}</b>${v.tg_link ? ` · <a href="${v.tg_link}">пост</a>` : ""}`)
     + `\n\n${summary}` + await placeNote(vv.bath_id)
-    + ((await longState(visitId))?.state === "ok" ? `\n\n${LONG_HINT.ok}` : "");   // подтвердили — текст другой, кнопка уйдёт у всей Комиссии
+    + ((await longState(visitId))?.state === "ok" ? `\n\n${await longOkText(visitId)}` : "");   // подтвердили — текст другой, кнопка уйдёт у всей Комиссии
   const decided = v.status === "ok" || v.status === "rejected";
   const verdict = decided ? `\n\n${v.status === "ok" ? "✅ Засчитано" : "❌ Отклонено"}${vv.judge?.nick ? ` — ${esc(vv.judge.nick)}` : ""}`
     + (v.status !== "ok" && v.reject_reason ? `\nПричина: ${esc(v.reject_reason)}` : "") : "";
@@ -1601,8 +1611,8 @@ async function implicitAnswer(msg: Any): Promise<boolean> {
 // Долгая — на доверии: одно «долгая» от любого из компании делает поход долгим, ошибки правит Комиссия.
 // Отметить можно в любой момент до 8 часов после захода — хоть сразу («долгая будет»); позже — только Комиссия на сайте.
 const LONG_STRANGER = "Это для тех, кто был в походе";
-// на время кубка долгая идёт в зачёт только после подтверждения Комиссии (settings.long_confirm) — «+1» не обещаем
-const longPts = async () => longGated(await setting("long_confirm"), Date.now()) ? "в зачёт после подтверждения Комиссии. Для подтверждения долгой через 2,5 часа ответь в чате на свой пост ещё одним сообщением из бани (лучше фото)" : "+1 всей компании";
+// на время кубка долгая идёт в зачёт только после подтверждения (settings.long_confirm) — «+1» не обещаем
+const longPts = async () => longGated(await setting("long_confirm"), Date.now()) ? "в зачёт после подтверждения: не раньше чем через 2,5 часа после поста (и не позже 8) ответь на сообщение о походе — подтвержу сам" : "+1 всей компании";
 const LONG_LATE = "Прошло больше 8 часов с захода — долгую теперь отмечает Комиссия на сайте";
 const LONG_MAX = 8 * 3600e3;
 async function markLong(visitId: number, me: Any): Promise<"ok" | "stranger" | "late"> {
@@ -1676,6 +1686,36 @@ function longInReply(text: string) {
 function longRefusal(res: string, since: number | null) {
   if (res === "late") return LONG_LATE;
   return `${LONG_STRANGER} 🙂`;
+}
+// На время кубка (26.11, решение лиги) долгую подтверждает сам участник: ответом на сообщение о походе — свой пост, карточку
+// бота или её копию в чате лиги — не раньше чем через 2,5 часа после поста и не позже 8 (как и сама отметка долгой). Это и есть
+// «вторая отметка», которую раньше глазами сверяла Комиссия; её кнопка «Подтвердить долгую» остаётся. Отвечать может любой из
+// похода, текст любой. Поход должен быть отмечен долгим — или в самом ответе слово «долгая». Текст ответа не храним.
+async function longByReply(msg: Any) {
+  const replyTo = msg.reply_to_message?.message_id, tgId = msg.from?.id, chat = msg.chat?.id;
+  if (!replyTo || !tgId || msg.from.is_bot || !chat) return;
+  const gate = await setting("long_confirm");
+  if (!longGated(gate, msg.date * 1000)) return;   // вне кубка — сразу выходим, в базу за постом не ходим
+  const { data: post } = await sb.from("bot_posts").select("visit_id")
+    .or(`and(chat_id.eq.${chat},or(source_msg.eq.${replyTo},card_msg.eq.${replyTo})),and(league_chat.eq.${chat},league_msg.eq.${replyTo})`).limit(1).maybeSingle();
+  if (!post) return;
+  const me = (await whoIs(tgId))?.players as Any;
+  if (!me) return;
+  const { data: v } = await sb.from("visits").select("duration_min, posted_at, created_at, long_ok, status, visit_players(player_id)").eq("id", post.visit_id).maybeSingle();
+  if (!v || v.long_ok || v.status === "rejected" || !(v.visit_players ?? []).some((p: Any) => p.player_id === me.id)) return;
+  const posted = new Date(v.posted_at ?? v.created_at).getTime(), gap = msg.date * 1000 - posted;
+  if (!longGated(gate, posted) || gap < LONG * 60e3 || gap > LONG_MAX) return;
+  const text = (msg.text ?? msg.caption ?? "").trim();
+  if (LONG_NOT.test(norm(text))) return;   // «не долгая» — не подтверждение
+  if (v.duration_min <= LONG) {
+    if (!longInReply(text)) return;   // поход экспресс, про долгую в ответе ни слова — просто разговор
+    await sb.from("visits").update({ duration_min: LONG + 1 }).eq("id", post.visit_id);
+  }
+  const { data: done } = await sb.from("visits").update({ long_ok: true }).eq("id", post.visit_id).eq("long_ok", false).select("id");
+  if (!done?.length) return;
+  await sb.from("bot_posts").update({ long_note: `${LONG_PROOF}${esc(me.nick)}` }).eq("visit_id", post.visit_id);
+  await react(chat, msg.message_id, "🔥");
+  await longChanged(post.visit_id);   // триггер в базе тоже позовёт — второй вызов ничего не изменит
 }
 async function claimLong(msg: Any, me: Any) {
   const { data: mine } = await sb.from("visit_players").select("visit_id, visits!inner(entered_at, status)").eq("player_id", me.id)
@@ -2382,12 +2422,14 @@ Deno.serve(async (req) => {
     // фото альбома без подписи: подпись с отметкой бота могла быть у соседнего фото — возьмём, только если так и есть
     if (m?.photo && m.media_group_id && !text && m.from && !m.from.is_bot) { try { await albumPhoto(m); } catch (e) { console.error("tg-bot", e); } }
     else if (maybeAnswer) { try { await onMessage(m); } catch (e) { console.error("tg-bot", e); } }
+    // ответ на свой пост о походе боту не адресован, но на время кубка подтверждает долгую (смотрим только номер сообщения)
+    if (m?.reply_to_message) { try { await longByReply(m); } catch (e) { console.error("tg-bot", e); } }
     return new Response("ok");
   }
   await sb.from("bot_log").insert({ kind: m ? `message:${m.chat?.type}` : update.callback_query ? "callback" : "other",
     detail: m ? `ents=${JSON.stringify((m.entities ?? m.caption_entities ?? []).map((e: Any) => e.type))}` : update.callback_query?.data ?? null });
   try {
-    if (update.message) await onMessage(update.message);
+    if (update.message) { await onMessage(update.message); await longByReply(update.message); }   // сначала «долгая» из ответа, потом подтверждение
     else if (update.callback_query) await onCallback(update.callback_query);
   } catch (e) {
     console.error("tg-bot", e);

@@ -2508,7 +2508,8 @@
     const b = byId.get(v.bathId); if (!b) return null;
     return pointsFor(b, nick, v.durs?.[nick] ?? v.dur, v.companions.length + 1, v.id, longHeld(v));
   }
-  // на время кубка (22.11) долгая идёт в зачёт после подтверждения Комиссии — срок в настройке long_confirm
+  // на время кубка (22.11) долгая идёт в зачёт после подтверждения — срок в настройке long_confirm; подтверждает бот по ответу
+  // участника на сообщение о походе через 2,5 часа (26.11) или Комиссия кнопкой
   const longGated = (t) => !!longGate && t >= Date.parse(longGate.from) && t < Date.parse(longGate.to);
   const longHeld = (v) => !v.longOk && longGated(v.postedAt);
   const hasLong = (v) => [v.dur, ...Object.values(v.durs || {})].some((m) => m > 150);
@@ -2553,7 +2554,7 @@
     else if (!b.n26 && !b.nHist) lines.push(["Ультра? Комиссия проверит", 0, "muted"]);
     if (b.region && b.country && !s.regions.has(placeKey(b))) lines.push([`Новый регион · ${b.region}`, 1]);
     if (b.country && !s.countries.has(regionKey(b.country))) lines.push([`Новая страна · ${b.country}`, 1]);
-    if (dur > 150) lines.push(longGated(Date.now()) ? ["Долгий поход — после подтверждения Комиссии (через 2,5 часа — второе сообщение в чат)", 0, "muted"] : ["Долгий поход", 1]);
+    if (dur > 150) lines.push(longGated(Date.now()) ? ["Долгий поход — после подтверждения: через 2,5 часа ответь в чате на сообщение о походе", 0, "muted"] : ["Долгий поход", 1]);
     const n = comp.length + 1;
     if (n >= 9) lines.push([`Компания ККК · ${n}`, 3]);
     else if (n >= 6) lines.push([`Компания КК · ${n}`, 2]);
@@ -2807,7 +2808,7 @@
     const longLine = (v, tag) => {
       if (!hasLong(v) || !longGated(v.postedAt)) return "";
       const btn = sec && D.live ? ` <button type="button" class="cup-longbtn" data-long="${v.id}">${v.longOk ? "Снять подтверждение" : "Подтвердить долгую"}</button>` : "";
-      return `<${tag} class="cup-long">${v.longOk ? `<span class="cup-longok">🔥 долгая подтверждена Комиссией</span>` : `<span class="cup-wait">🔥 долгая ждёт подтверждения Комиссии — два фото в чат</span>`}${btn}</${tag}>`;
+      return `<${tag} class="cup-long">${v.longOk ? `<span class="cup-longok">🔥 долгая подтверждена</span>` : `<span class="cup-wait">🔥 долгая ждёт подтверждения — ответ на сообщение о походе через 2,5 часа</span>`}${btn}</${tag}>`;
     };
     // очки кубка за поход (24.11) — отдельной строкой под очками чемпионата, только у участников кубка; ноль — не в зачёте
     const cupLine = (v, who) => {

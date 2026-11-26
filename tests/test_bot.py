@@ -1449,8 +1449,8 @@ vid = visit_ago(4)
 seen = len(TELEGRAM.calls)
 post("долгая", 1302, chat=ME, chat_type="private")
 gated = " ".join(p.get("text") or "" for p in dm_sent(seen))
-check("долгая вне кубка — «+1 всей компании»; на время кубка — «после подтверждения Комиссии»",
-      "+1 всей компании" in plain and "после подтверждения Комиссии" in gated and "+1 всей компании" not in gated, (plain, gated))
+check("долгая вне кубка — «+1 всей компании»; на время кубка — «после подтверждения» и что ответить на сообщение о походе",
+      "+1 всей компании" in plain and "после подтверждения" in gated and "ответь на сообщение о походе" in gated and "+1 всей компании" not in gated, (plain, gated))
 sql(f"delete from visits where id = {vid}")
 # 24.11: долгую выбрали ещё в черновике — про подтверждение карточка молчала; из лички отвечать надо на копию в чате лиги
 def dm_visit(text, mid):
@@ -1464,9 +1464,9 @@ def dm_visit(text, mid):
     out = [(int(p.get("chat_id") or 0), p.get("text") or "") for m, p in TELEGRAM.calls[seen:] if m in ("sendMessage", "editMessageText")]
     return v, draft, " ".join(t for c, t in out if c == ME), " ".join(t for c, t in out if c == league)
 vid, draft, mine_txt, copy_txt = dm_visit("Василевские 3ч", 1310)
-check("кубок, долгая из черновика в личке: в черновике — «после подтверждения Комиссии», в карточке — ответить на копию в чате лиги, в копии — просьба автору",
-      "в зачёт после подтверждения Комиссии" in draft and "на копию этой карточки" in mine_txt and "автор через 2,5 часа" in copy_txt
-      and "на копию этой карточки" not in copy_txt, (draft, mine_txt, copy_txt))
+check("кубок, долгая из черновика в личке: в черновике — «после подтверждения», в карточке — ответить на неё или на копию в чате лиги, в копии — та же просьба",
+      "в зачёт после подтверждения" in draft and "на её копию в чате лиги" in mine_txt and "кто-то из похода" in copy_txt
+      and "на её копию в чате лиги" not in copy_txt, (draft, mine_txt, copy_txt))
 # 24.11: Комиссия подтвердила долгую — в карточке и её копии в чате лиги очки пересчитаны (+1 за долгую), пометка «подтверждена»
 sql(f"update visits set status = 'ok', moderated_by = (select id from players where nick = 'Витёк') where id = {vid}")
 wait(f"select left(coalesce(verdict_text, ''), 11) from bot_posts where visit_id = {vid}", "👍 Засчитано")
@@ -1479,8 +1479,8 @@ pts = lambda t: sum(int(x) for x in re.findall(r"\+(\d+)", t.split("\n")[0] if "
 edits = [(int(p.get("chat_id") or 0), p.get("text") or "") for m, p in TELEGRAM.calls[seen:] if m == "editMessageText"]
 check("Комиссия подтвердила долгую — в карточке и копии в чате лиги очки на 1 больше и «Долгая подтверждена Комиссией», просьбы ответить больше нет",
       ok_v and pts(after_v) == pts(before_v) + 1
-      and any(c == league and after_v in t and "Долгая подтверждена Комиссией" in t and "автор через 2,5 часа" not in t for c, t in edits)
-      and any(c == ME and after_v in t and "Долгая подтверждена Комиссией" in t and "на копию этой карточки" not in t for c, t in edits), (before_v, after_v, edits[-2:]))
+      and any(c == league and after_v in t and "Долгая подтверждена Комиссией" in t and "кто-то из похода" not in t for c, t in edits)
+      and any(c == ME and after_v in t and "Долгая подтверждена Комиссией" in t and "на её копию в чате лиги" not in t for c, t in edits), (before_v, after_v, edits[-2:]))
 sql(f"delete from visits where id = {vid}")
 # 24.11: Комиссии — кнопка «Подтвердить долгую» прямо под уведомлением о походе (раньше — только на сайте)
 was_comm = sql("select is_commission from players where nick = 'Леха'")
@@ -1525,11 +1525,56 @@ notes = [p for m, p in TELEGRAM.calls[seen:] if m == "sendMessage" and "🔔 П�
 check("…экспрессу кнопки долгой нет", bool(notes) and f"ok:{vid}" in str(notes[0]) and "lk:" not in str(notes[0]), notes[:1])
 sql(f"delete from visits where id = {vid}")
 sql(f"update players set is_commission = {'true' if was_comm == 't' else 'false'} where nick = 'Леха'")
+# 26.11: на время кубка долгую подтверждает сам участник — ответом на сообщение о походе не раньше чем через 2,5 часа после поста
+def cup_visit(hours, dur, src, crd):
+    v = sql(f"""insert into visits (bath_id, entered_at, posted_at, duration_min, created_by, source)
+                select 5, now() - interval '{hours} hours', now() - interval '{hours} hours', {dur}, id, 'bot' from players where nick = 'Леха' returning id""").splitlines()[0]
+    sql(f"insert into visit_players (visit_id, player_id) select {v}, id from players where nick = 'Леха'")
+    sql(f"insert into bot_posts (visit_id, chat_id, source_msg, card_msg, card_text, bath_id) values ({v}, {CHAT}, {src}, {crd}, 'карточка похода', 5)")
+    return v
+def answer_to(mid, to, text, who=ME, bot=False):
+    upd = {"update_id": mid, "message": {"message_id": mid, "date": now(), "chat": {"id": CHAT, "type": "supergroup"},
+           "from": {"id": who, "is_bot": False, "first_name": "X"}, "text": text,
+           "reply_to_message": {"message_id": to, "chat": {"id": CHAT, "type": "supergroup"},
+                                "from": {"id": 1, "is_bot": True, "username": "eblsu_bot"} if bot else {"id": who, "is_bot": False, "first_name": "X"}}}}
+    s, _ = req("POST", "/functions/v1/tg-bot", upd, headers={"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET})
+    assert s == 200, s
+long_ok = lambda v: sql(f"select long_ok from visits where id = {v}")
+vid = cup_visit(3, 180, 7701, 7702)
+answer_to(7710, 7701, "вышел", who=901)
+check("кубок, долгая: ответ на пост от того, кого в походе не было, ничего не подтверждает", long_ok(vid) == "f")
+answer_to(7711, 7701, "не долгая вышла")
+check("…«не долгая» — тоже", long_ok(vid) == "f")
+seen = len(TELEGRAM.calls)
+answer_to(7712, 7701, "вышел, было жарко")
+out = TELEGRAM.calls[seen:]
+check("…участник ответил на свой пост через 2,5 часа — долгая подтверждена, на ответе 🔥, в карточке «подтверждена ответом» и ник",
+      long_ok(vid) == "t" and any(m == "setMessageReaction" and int(p.get("message_id") or 0) == 7712 and "🔥" in str(p) for m, p in out)
+      and any(m == "editMessageText" and int(p.get("message_id") or 0) == 7702 and "Долгая подтверждена ответом через 2,5 часа — Леха" in (p.get("text") or "")
+              and "подтверждена Комиссией" not in (p.get("text") or "") for m, p in out), out)
+sql(f"update visits set long_ok = false where id = {vid}")
+wait(f"select long_note is null from bot_posts where visit_id = {vid}", "t")
+check("…Комиссия сняла подтверждение — строка про ответ из карточки ушла", sql(f"select long_note is null from bot_posts where visit_id = {vid}") == "t")
+sql(f"delete from visits where id = {vid}")
+vid = cup_visit(1, 180, 7721, 7722)
+answer_to(7730, 7721, "сидим")
+check("…ответ раньше 2,5 часов не подтверждает", long_ok(vid) == "f")
+sql(f"delete from visits where id = {vid}")
+vid = cup_visit(9, 180, 7741, 7742)
+answer_to(7750, 7741, "вышел")
+check("…и позже 8 часов — тоже (остаётся кнопка Комиссии)", long_ok(vid) == "f")
+sql(f"delete from visits where id = {vid}")
+vid = cup_visit(3, 60, 7761, 7762)
+answer_to(7770, 7762, "хорошо посидели", bot=True)
+check("…экспресс: ответ на карточку без слова «долгая» — просто разговор", long_ok(vid) == "f" and dur(vid) == 60)
+answer_to(7771, 7762, "долгая", bot=True)
+check("…экспресс: «долгая» ответом на карточку через 2,5 часа — поход долгий и сразу подтверждён", long_ok(vid) == "t" and dur(vid) > 150)
+sql(f"delete from visits where id = {vid}")
 vid, draft, mine_txt, copy_txt = dm_visit("Василевские 2ч", 1320)
-check("…экспрессу про подтверждение не пишем", "подтверждения Комиссии" not in draft + mine_txt + copy_txt and "Ушло в Комиссию" in mine_txt, (draft, mine_txt, copy_txt))
+check("…экспрессу про подтверждение не пишем", "после подтверждения" not in draft + mine_txt + copy_txt and "Ушло в Комиссию" in mine_txt, (draft, mine_txt, copy_txt))
 sql(f"delete from visits where id = {vid}"); sql("delete from settings where key = 'long_confirm'")
 vid, draft, mine_txt, copy_txt = dm_visit("Василевские 3ч", 1330)
-check("…вне кубка долгой — тоже", "подтверждения Комиссии" not in draft + mine_txt + copy_txt and "долгая, больше 2,5 ч" in mine_txt, (draft, mine_txt, copy_txt))
+check("…вне кубка долгой — тоже", "после подтверждения" not in draft + mine_txt + copy_txt and "долгая, больше 2,5 ч" in mine_txt, (draft, mine_txt, copy_txt))
 sql(f"delete from visits where id = {vid}"); sql("delete from bot_sessions")
 
 print("Диагностика")
