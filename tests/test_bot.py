@@ -1369,7 +1369,8 @@ cup_call("post")
 said = cup_said(seen)
 check("Комиссия приняла итоги тура — одно сообщение: очки команд, составы следующего тура со жребием, кто покидает кубок",
       len(said) == 1 and "итоги тура 1" in said[0] and "Ден 6 · Арс 4 · Alex B 2 — <b>12</b>" in said[0] and "Тур 2" in said[0]
-      and "Путь ебланов</i> — по жребию" in said[0] and "Поприветствуем новых ебланов: Витёк, Женёк В\n<i>Путь ебланов" in said[0] and "• Витёк, Женёк В, Шурик" in said[0] and "Покидают кубок: Миша П" in said[0] and "уточнение" not in said[0]
+      and "Путь ебланов</i> — слепой жребий, пар больше не выбирают:" in said[0] and "Поприветствуем наших ебланов: Витёк, Женёк В\n<i>Путь ебланов" in said[0]
+      and "Ебланы, не грустите" in said[0] and "• Витёк, Женёк В, Шурик" in said[0] and "Покидают кубок: Миша П" in said[0] and "уточнение" not in said[0]
       and "<b>7</b> · место по жребию" in said[0] and "<b>12</b> · место" not in said[0], said)
 seen = len(TELEGRAM.calls)
 cup_call("post")
@@ -1388,7 +1389,30 @@ seen = len(TELEGRAM.calls)
 cup_call("post")
 said = cup_said(seen)
 check("финал: кто выиграл кубок и кто второй, следующего тура нет",
-      len(said) == 1 and "Кубок выиграли Ден, Арс, Alex B" in said[0] and "Второе место: Витёк, Женёк В, Миша П" in said[0] and "Тур 6" not in said[0], said)
+      len(said) == 1 and "Кубок выиграли Ден, Арс и Alex B!" in said[0] and "🥈 Витёк, Женёк В и Миша П — второе место. Пройти путь ебланов" in said[0] and "Тур 6" not in said[0], said)
+# шутки в чате (28.11): строка на каждую команду по регламентному туру 2 — кто дальше, кто к ебланам, кто вместо кого, полные ебланы
+n18 = sql("select nick from players order by nick limit 18").splitlines()
+A, B, C, D, E, F, G, H, I, K, L, M, N, O, P, R, S, T = n18
+p2 = {"round": 2, "draw": False, "rest": [], "basis": "тест",
+      "results": [{"num": 1, "path": "champions", "place": 1, "total": 9, "players": [pl(A, 3, "champions"), pl(B, 3, "champions"), pl(C, 3, "champions")]},
+                  {"num": 2, "path": "champions", "place": 2, "total": 6, "players": [pl(D, 3, "champions"), pl(E, 2, "champions"), pl(F, 1, "losers")]},
+                  {"num": 3, "path": "champions", "place": 3, "total": 3, "players": [pl(G, 3, "champions"), pl(H, 0, "losers"), pl(I, 0, "losers")]},
+                  {"num": 4, "path": "losers", "place": 1, "total": 9, "players": [pl(K, 3, "losers"), pl(L, 3, "losers"), pl(M, 3, "losers")]},
+                  {"num": 5, "path": "losers", "place": 2, "total": 6, "players": [pl(N, 3, "losers"), pl(O, 2, "losers"), pl(P, 1, "out")]},
+                  {"num": 6, "path": "losers", "place": 3, "total": 3, "players": [pl(R, 3, "losers"), pl(S, 0, "out"), pl(T, 0, "out")]}],
+      "teams": [{"num": 1, "path": "champions", "players": [A, B, C]}, {"num": 2, "path": "champions", "players": [D, E, G]},
+                {"num": 3, "path": "losers", "players": [K, L, M]}, {"num": 4, "path": "losers", "players": [N, O, R]}, {"num": 5, "path": "losers", "players": [H, I, F]}]}
+put(2, p2)
+seen = len(TELEGRAM.calls)
+cup_call("post")
+said = cup_said(seen)
+check("итоги тура 2 в чате — шутки по командам: целиком, «не ссать», новая команда ебланов, полные ебланы; Комиссии — без шуток",
+      len(said) == 1 and f"🥇 Команда 1: {A}, {B} и {C} — снова целиком" in said[0]
+      and f"Команда 2: {D} и {E} идут дальше, а {F} — к ебланам. Парни, не ссать: вместо еблана к вам переходит нормальный участник — {G} из 3-й команды." in said[0]
+      and f"Команда 3: {G} ушёл наверх, а {H} и {I} вместе с {F} из 2-й — новая команда пути ебланов" in said[0]
+      and f"Команда 2: {N} и {O} остаются, {P} покидает кубок как полный еблан. Вместо него — {R} из 3-й" in said[0]
+      and f"Команда 3: {S} и {T} — полные ебланы, покидают кубок" in said[0] and "Покидают кубок:" not in said[0]
+      and "Ебланы, не грустите" not in said[0], said)
 # итоги тура — Комиссии в личку (24.11): предложение с кнопками, «Другой жребий» и «Принять» под сообщением
 sql("delete from cup_posts"); sql("delete from cup_transitions"); sql("delete from cup_teams"); sql("delete from cup_asks")
 sql("update cup_rounds set starts_at = now() - interval '8 days', ends_at = now() - interval '1 hour' where n = 1")
